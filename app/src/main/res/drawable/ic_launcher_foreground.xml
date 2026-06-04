@@ -4,14 +4,20 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 麻将牌图标前景 -->
+    <!-- Poker card -->
     <path
         android:fillColor="#ffffff"
         android:pathData="M38,24h32c2,0 4,2 4,4v52c0,2 -2,4 -4,4H38c-2,0 -4,-2 -4,-4V28c0,-2 2,-4 4,-4z"/>
+    <!-- Spade symbol -->
+    <path
+        android:fillColor="#1e293b"
+        android:pathData="M54,35 L60,47 L57,47 L57,55 L51,55 L51,47 L48,47 Z"/>
+    <!-- Bottom stem -->
+    <path
+        android:fillColor="#1e293b"
+        android:pathData="M52,55 L56,55 L55,62 L53,62 Z"/>
+    <!-- A text -->
     <path
         android:fillColor="#ef4444"
-        android:pathData="M50,32h8v4h-8zM50,40h8v4h-8zM50,48h8v4h-8z"/>
-    <path
-        android:fillColor="#22c55e"
-        android:pathData="M44,56h20c1,0 2,1 2,2v8c0,1 -1,2 -2,2H44c-1,0 -2,-1 -2,-2v-8c0,-1 1,-2 2,-2z"/>
+        android:pathData="M42,32h4l1,-3h1l1,3h4l-4,-10h-2zM46,30l1.5,-4 1.5,4z"/>
 </vector>
