@@ -27,23 +27,27 @@ jobs:
     - name: Build Debug APK
       run: |
         chmod +x gradlew
-        ./gradlew assembleDebug
+        ./gradlew assembleDebug --stacktrace 2>&1 | head -200
         
     - name: Rename APK
       run: |
-        cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/pokerhelper_v1.apk
+        if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/pokerhelper_v1.apk
+        fi
         
     - name: Upload APK
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: poker-debug
         path: app/build/outputs/apk/debug/pokerhelper_v1.apk
     
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
+      if: success()
       with:
         tag_name: v1.0
-        name: "V1.0 扑克AI助手 v1.0"
+        name: "V1.0 扑克AI助手"
         body: "V1.0: 德州扑克AI辅助App，集成v13策略引擎，支持选牌、场景选择、胜率计算。"
         files: app/build/outputs/apk/debug/pokerhelper_v1.apk
       env:
