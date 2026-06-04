@@ -1,0 +1,13 @@
+# Ignore Gradle files
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Ignore Android files
+*.apk
+*.ap_
+*.dex
+*.class
+
+# Ignore local config
+local.properties

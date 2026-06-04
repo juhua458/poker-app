@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MjScreenshot" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <item name="colorPrimary">#166534</item>
+        <item name="colorPrimaryDark">#14532d</item>
+        <item name="colorAccent">#4ade80</item>
+        <item name="android:windowBackground">#0f1a0f</item>
+        <item name="android:statusBarColor">#14532d</item>
+        <item name="android:navigationBarColor">#0f1a0f</item>
+    </style>
+</resources>

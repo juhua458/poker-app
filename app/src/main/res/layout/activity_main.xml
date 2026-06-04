@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0f1a0f"
+    android:padding="24dp"
+    android:gravity="center_horizontal">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🃏"
+        android:textSize="64sp"
+        android:layout_marginTop="40dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="扑克AI助手"
+        android:textSize="24sp"
+        android:textColor="#f1f5f9"
+        android:textStyle="bold"
+        android:layout_marginTop="12dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="德州扑克策略助手 v1.0"
+        android:textSize="13sp"
+        android:textColor="#86efac"
+        android:layout_marginTop="6dp" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⏸ 未启动"
+        android:textSize="18sp"
+        android:textColor="#666666"
+        android:layout_marginTop="40dp" />
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="240dp"
+        android:layout_height="64dp"
+        android:text="🚀 开始截屏"
+        android:textSize="20sp"
+        android:textColor="#ffffff"
+        android:backgroundTint="#22c55e"
+        android:layout_marginTop="24dp" />
+
+    <Button
+        android:id="@+id/btnHelper"
+        android:layout_width="240dp"
+        android:layout_height="64dp"
+        android:text="🃏 打开扑克AI助手"
+        android:textSize="18sp"
+        android:textColor="#ffffff"
+        android:backgroundTint="#16a34a"
+        android:layout_marginTop="16dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tvHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="先点上方按钮启动截屏"
+        android:textSize="13sp"
+        android:textColor="#666666"
+        android:layout_marginTop="30dp"
+        android:gravity="center" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="使用步骤：\n1. 点「开始截屏」→ 允许录屏权限\n2. 点「打开扑克AI助手」→ 允许悬浮窗\n3. 选牌 + 选场景 → 获取策略建议\n4. 拖动顶部栏可移动位置，点▼可收起"
+        android:textSize="13sp"
+        android:textColor="#64748b"
+        android:layout_marginTop="20dp"
+        android:lineSpacingExtra="4dp" />
+
+</LinearLayout>

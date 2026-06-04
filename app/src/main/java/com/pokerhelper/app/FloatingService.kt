@@ -1,0 +1,455 @@
+package com.pokerhelper.app
+
+import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Intent
+import android.content.SharedPreferences
+import android.content.pm.ServiceInfo
+import android.content.res.Configuration
+import android.graphics.PixelFormat
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.util.DisplayMetrics
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.LinearLayout
+import android.widget.TextView
+
+class FloatingService : Service() {
+
+    companion object {
+        var isRunning = false
+        var currentPanelWidth: Int = 0
+        var currentPanelHeight: Int = 0
+        private const val CHANNEL_ID = "poker_floating"
+        private const val NOTIFICATION_ID = 2
+        private const val PREFS_NAME = "poker_floating_prefs"
+        private const val KEY_LANDSCAPE_WIDTH = "landscape_width"
+        private const val KEY_LANDSCAPE_HEIGHT_RATIO = "landscape_height_ratio"
+    }
+
+    private var windowManager: WindowManager? = null
+    private var floatingView: View? = null
+    private var webView: WebView? = null
+    private var tvStatus: TextView? = null
+    private var resizeHandleLeft: View? = null
+    private var resizeHandleBottom: View? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var isExpanded = true
+    private var prefs: SharedPreferences? = null
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "STOP") {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val notification = createNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        isRunning = true
+        showFloatingWindow()
+    }
+
+    override fun onDestroy() {
+        isRunning = false
+        currentPanelWidth = 0
+        currentPanelHeight = 0
+        handler.removeCallbacksAndMessages(null)
+        try {
+            webView?.destroy()
+        } catch (_: Exception) {}
+        try {
+            floatingView?.let { windowManager?.removeView(it) }
+        } catch (_: Exception) {}
+        super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        handler.postDelayed({ resizeFloatingWindow() }, 500)
+    }
+
+    private fun getScreenSize(): Pair<Int, Int> {
+        val realW: Int
+        val realH: Int
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager?.currentWindowMetrics?.bounds
+            realW = bounds?.width() ?: 1080
+            realH = bounds?.height() ?: 2344
+        } else {
+            val dm = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager?.defaultDisplay?.getRealMetrics(dm)
+            realW = dm.widthPixels
+            realH = dm.heightPixels
+        }
+        return Pair(realW, realH)
+    }
+
+    private fun getSavedLandscapeWidth(): Int {
+        return prefs?.getInt(KEY_LANDSCAPE_WIDTH, -1) ?: -1
+    }
+
+    private fun saveLandscapeWidth(width: Int) {
+        prefs?.edit()?.putInt(KEY_LANDSCAPE_WIDTH, width)?.apply()
+    }
+
+    private fun getSavedHeightRatio(): Float {
+        return prefs?.getFloat(KEY_LANDSCAPE_HEIGHT_RATIO, 0.70f) ?: 0.70f
+    }
+
+    private fun saveHeightRatio(ratio: Float) {
+        prefs?.edit()?.putFloat(KEY_LANDSCAPE_HEIGHT_RATIO, ratio)?.apply()
+    }
+
+    private fun resizeFloatingWindow() {
+        try {
+            val params = floatingView?.layoutParams as? WindowManager.LayoutParams ?: return
+            val (screenWidth, screenHeight) = getScreenSize()
+            val isLandscape = screenWidth > screenHeight
+            applyWindowSize(params, screenWidth, screenHeight, isLandscape)
+            windowManager?.updateViewLayout(floatingView, params)
+        } catch (e: Exception) {}
+    }
+
+    private fun applyWindowSize(params: WindowManager.LayoutParams, screenWidth: Int, screenHeight: Int, isLandscape: Boolean) {
+        if (isExpanded) {
+            if (isLandscape) {
+                // 横屏: 右侧面板
+                val savedW = getSavedLandscapeWidth()
+                params.width = if (savedW > 0) savedW else (screenWidth * 0.35).toInt().coerceIn(350, 700)
+                
+                // 高度: 默认70%屏幕高度
+                val heightRatio = getSavedHeightRatio()
+                params.height = (screenHeight * heightRatio).toInt().coerceIn(screenHeight / 3, screenHeight - 150)
+                
+                params.gravity = Gravity.END or Gravity.TOP
+                params.x = 0
+                params.y = 0
+                
+                currentPanelWidth = params.width
+                currentPanelHeight = params.height
+                
+                resizeHandleLeft?.visibility = View.VISIBLE
+                resizeHandleBottom?.visibility = View.VISIBLE
+            } else {
+                // 竖屏: 全屏显示策略引擎
+                val savedW = getSavedLandscapeWidth()
+                params.width = screenWidth
+                params.height = screenHeight
+                params.gravity = Gravity.TOP or Gravity.START
+                params.x = 0
+                params.y = 0
+                
+                currentPanelWidth = 0
+                currentPanelHeight = 0
+                
+                resizeHandleLeft?.visibility = View.GONE
+                resizeHandleBottom?.visibility = View.GONE
+            }
+        } else {
+            params.width = if (isLandscape) 140 else (screenWidth * 0.4).toInt()
+            params.height = WindowManager.LayoutParams.WRAP_CONTENT
+            
+            currentPanelWidth = 0
+            currentPanelHeight = 0
+            
+            resizeHandleLeft?.visibility = View.GONE
+            resizeHandleBottom?.visibility = View.GONE
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
+    private fun showFloatingWindow() {
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+        val (screenWidth, screenHeight) = getScreenSize()
+        val isLandscape = screenWidth > screenHeight
+
+        // Container
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xEE0a1a0a.toInt())
+        }
+
+        // Top drag bar
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xFF166534.toInt())
+            setPadding(12, 6, 12, 6)
+        }
+
+        tvStatus = TextView(this).apply {
+            text = "🃏 Poker AI v1.0"
+            setTextColor(0xFFe8edf5.toInt())
+            textSize = 13f
+            setPadding(8, 4, 8, 4)
+        }
+
+        val tvCollapse = TextView(this).apply {
+            text = "  ▼  "
+            setTextColor(0xFF4ade80.toInt())
+            textSize = 16f
+            setPadding(4, 2, 4, 2)
+            setOnClickListener { toggleExpand() }
+        }
+
+        topBar.addView(tvStatus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        topBar.addView(tvCollapse)
+        container.addView(topBar)
+
+        // Content area
+        val contentRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        // Left resize handle
+        resizeHandleLeft = View(this).apply {
+            setBackgroundColor(0x40FFFFFF.toInt())
+            setOnTouchListener(ResizeWidthTouchListener())
+        }
+        val leftHandleParams = LinearLayout.LayoutParams(16, LinearLayout.LayoutParams.MATCH_PARENT)
+        contentRow.addView(resizeHandleLeft, leftHandleParams)
+
+        // WebView
+        val wv = WebView(this)
+        webView = wv
+        val wvParams = LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            1f
+        )
+        contentRow.addView(wv, wvParams)
+
+        val contentRowParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        )
+        container.addView(contentRow, contentRowParams)
+
+        // Bottom resize handle
+        resizeHandleBottom = View(this).apply {
+            setBackgroundColor(0x40FFFFFF.toInt())
+            setOnTouchListener(ResizeHeightTouchListener())
+        }
+        val bottomHandleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16)
+        container.addView(resizeHandleBottom, bottomHandleParams)
+
+        wv.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            cacheMode = WebSettings.LOAD_NO_CACHE
+            setSupportZoom(false)
+            builtInZoomControls = false
+        }
+        wv.webViewClient = object : WebViewClient() {
+            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                if (errorCode == -2 || errorCode == -6) {
+                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 2000)
+                }
+            }
+        }
+        wv.webChromeClient = WebChromeClient()
+
+        wv.addJavascriptInterface(object : Any() {
+            @JavascriptInterface
+            fun updateStatus(text: String) {
+                handler.post { tvStatus?.text = text }
+            }
+        }, "AndroidStatus")
+
+        wv.loadUrl("http://127.0.0.1:8666")
+
+        floatingView = container
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+
+        applyWindowSize(params, screenWidth, screenHeight, isLandscape)
+
+        // Top bar drag
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var isDragging = false
+
+        topBar.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - initialTouchX
+                    val dy = event.rawY - initialTouchY
+                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) isDragging = true
+                    params.x = initialX + dx.toInt()
+                    params.y = initialY + dy.toInt()
+                    windowManager?.updateViewLayout(floatingView, params)
+                    true
+                }
+                MotionEvent.ACTION_UP -> { !isDragging }
+                else -> false
+            }
+        }
+
+        windowManager?.addView(floatingView, params)
+    }
+
+    private inner class ResizeWidthTouchListener : View.OnTouchListener {
+        private var startWidth = 0
+        private var startTouchX = 0f
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouch(v: View?, event: MotionEvent): Boolean {
+            val params = floatingView?.layoutParams as? WindowManager.LayoutParams ?: return false
+            val (screenWidth, screenHeight) = getScreenSize()
+            val isLandscape = screenWidth > screenHeight
+            if (!isLandscape) return false
+
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startWidth = params.width
+                    startTouchX = event.rawX
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = startTouchX - event.rawX
+                    val newWidth = (startWidth + dx.toInt()).coerceIn(280, screenWidth - 200)
+                    params.width = newWidth
+                    currentPanelWidth = newWidth
+                    try {
+                        windowManager?.updateViewLayout(floatingView, params)
+                    } catch (_: Exception) {}
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    saveLandscapeWidth(params.width)
+                    currentPanelWidth = params.width
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
+    private inner class ResizeHeightTouchListener : View.OnTouchListener {
+        private var startHeight = 0
+        private var startTouchY = 0f
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouch(v: View?, event: MotionEvent): Boolean {
+            val params = floatingView?.layoutParams as? WindowManager.LayoutParams ?: return false
+            val (screenWidth, screenHeight) = getScreenSize()
+            val isLandscape = screenWidth > screenHeight
+            if (!isLandscape) return false
+
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startHeight = params.height
+                    startTouchY = event.rawY
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dy = event.rawY - startTouchY
+                    val newHeight = (startHeight + dy.toInt()).coerceIn(screenHeight / 3, screenHeight - 150)
+                    params.height = newHeight
+                    currentPanelHeight = newHeight
+                    try {
+                        windowManager?.updateViewLayout(floatingView, params)
+                    } catch (_: Exception) {}
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val ratio = params.height.toFloat() / screenHeight.toFloat()
+                    saveHeightRatio(ratio)
+                    currentPanelHeight = params.height
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
+    private fun toggleExpand() {
+        isExpanded = !isExpanded
+        webView?.visibility = if (isExpanded) View.VISIBLE else View.GONE
+        resizeHandleLeft?.visibility = if (isExpanded && getScreenSize().first > getScreenSize().second) View.VISIBLE else View.GONE
+        resizeHandleBottom?.visibility = if (isExpanded && getScreenSize().first > getScreenSize().second) View.VISIBLE else View.GONE
+
+        val (screenWidth, screenHeight) = getScreenSize()
+        val isLandscape = screenWidth > screenHeight
+
+        val params = floatingView?.layoutParams as? WindowManager.LayoutParams ?: return
+        applyWindowSize(params, screenWidth, screenHeight, isLandscape)
+        windowManager?.updateViewLayout(floatingView, params)
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID, "扑克悬浮窗", NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "扑克AI助手运行中" }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun createNotification(): Notification {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle("🃏 扑克AI助手")
+                .setContentText("悬浮窗运行中 - 左右边缘拖拽调宽高")
+                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .setOngoing(true)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setContentTitle("🃏 扑克AI助手")
+                .setContentText("悬浮窗运行中")
+                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .setOngoing(true)
+                .build()
+        }
+    }
+}
