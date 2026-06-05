@@ -27,18 +27,29 @@ jobs:
     - name: Build Debug APK
       run: |
         chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace 2>&1 | tail -50
+        ./gradlew assembleDebug --stacktrace 2>&1 | tail -100
         
-    - name: Check APK
+    - name: Find and Copy APK
       run: |
-        echo "=== Checking APK files ==="
-        find app/build/outputs -name "*.apk" -exec ls -la {} \;
-        
+        echo "=== All APK files ==="
+        find . -name "*.apk" -type f
+        APK=$(find . -name "*.apk" -type f | head -1)
+        if [ -n "$APK" ]; then
+          echo "Found APK: $APK"
+          cp "$APK" pokerhelper_v1.2.apk
+          ls -la pokerhelper_v1.2.apk
+        else
+          echo "ERROR: No APK found!"
+          echo "=== Build outputs ==="
+          find app/build -type f 2>/dev/null | head -50
+          exit 1
+        fi
+    
     - name: Upload APK to artifact
       uses: actions/upload-artifact@v4
       with:
         name: poker-v1.2-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: pokerhelper_v1.2.apk
     
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
@@ -46,6 +57,6 @@ jobs:
         tag_name: v1.2
         name: "V1.2 扑克AI助手 - OCR+语音+信号"
         body: "V1.2: ML Kit OCR筹码识别 + 语音输入牌面 + 颜色信号模式 + 筹码变化追踪"
-        files: app/build/outputs/apk/debug/app-debug.apk
+        files: pokerhelper_v1.2.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
