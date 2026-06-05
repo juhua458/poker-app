@@ -27,23 +27,36 @@ jobs:
     - name: Build Debug APK
       run: |
         chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace 2>&1 | tail -100
+        ./gradlew assembleDebug --stacktrace 2>&1 | tail -50
         
-    - name: Find and Copy APK
+    - name: Find APK and Upload
       run: |
-        echo "=== All APK files ==="
-        find . -name "*.apk" -type f
-        APK=$(find . -name "*.apk" -type f | head -1)
-        if [ -n "$APK" ]; then
-          echo "Found APK: $APK"
-          cp "$APK" pokerhelper_v1.2.apk
-          ls -la pokerhelper_v1.2.apk
-        else
-          echo "ERROR: No APK found!"
-          echo "=== Build outputs ==="
-          find app/build -type f 2>/dev/null | head -50
+        echo "=== Searching for APK ==="
+        find . -name "*.apk" -type f 2>/dev/null || true
+        echo "=== Build outputs ==="
+        find app/build/outputs -type f 2>/dev/null || true
+        
+        APK=$(find . -name "*.apk" -type f 2>/dev/null | head -1)
+        if [ -z "$APK" ]; then
+          echo "WARNING: No APK found via find. Checking standard paths..."
+          for p in "app/build/outputs/apk/debug/app-debug.apk" "app/build/outputs/apk/release/app-release.apk" "app/build/outputs/apk/debug/app-debug-unsigned.apk"; do
+            if [ -f "$p" ]; then
+              APK="$p"
+              break
+            fi
+          done
+        fi
+        
+        if [ -z "$APK" ]; then
+          echo "ERROR: No APK file found anywhere!"
+          echo "=== Listing app/build recursively ==="
+          ls -laR app/build/ 2>/dev/null | head -100
           exit 1
         fi
+        
+        echo "Found APK: $APK"
+        ls -la "$APK"
+        cp "$APK" pokerhelper_v1.2.apk
     
     - name: Upload APK to artifact
       uses: actions/upload-artifact@v4
