@@ -162,13 +162,13 @@ object VoiceInputManager {
     /**
      * 转为JSON（供WebView使用）
      */
-    fun VoiceResult.toJson(): String {
+    fun toJson(result: VoiceResult): String {
         return JSONObject().apply {
-            put("holeCards", org.json.JSONArray(holeCards))
-            put("communityCards", org.json.JSONArray(communityCards))
-            put("position", position ?: JSONObject.NULL)
-            put("tableSize", tableSize ?: JSONObject.NULL)
-            put("rawText", rawText)
+            put("holeCards", org.json.JSONArray(result.holeCards))
+            put("communityCards", org.json.JSONArray(result.communityCards))
+            put("position", result.position ?: JSONObject.NULL)
+            put("tableSize", result.tableSize ?: JSONObject.NULL)
+            put("rawText", result.rawText)
         }.toString()
     }
 }

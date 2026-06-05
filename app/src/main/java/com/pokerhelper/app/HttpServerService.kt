@@ -126,7 +126,7 @@ class HttpServerService : Service() {
                                 session.parseBody(files)
                                 val postData = files["postData"] ?: ""
                                 val result = VoiceInputManager.parseVoiceText(postData)
-                                val json = result.toJson()
+                                val json = VoiceInputManager.toJson(result)
                                 newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
                                     addHeader("Access-Control-Allow-Origin", "*")
                                 }

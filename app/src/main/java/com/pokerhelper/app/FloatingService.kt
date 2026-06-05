@@ -142,7 +142,7 @@ class FloatingService : Service() {
                         val result = VoiceInputManager.parseVoiceText(text)
                         // 传给WebView
                         webView?.evaluateJavascript(
-                            "if(typeof onVoiceInput==='function'){onVoiceInput(${result.toJson()})}",
+                            "if(typeof onVoiceInput==='function'){onVoiceInput(${VoiceInputManager.toJson(result)})}",
                             null
                         )
                         tvStatus?.text = "语音: ${result.holeCards.joinToString(" ")} ${result.rawText}"
@@ -395,7 +395,7 @@ class FloatingService : Service() {
             @JavascriptInterface
             fun parseVoice(text: String): String {
                 val result = VoiceInputManager.parseVoiceText(text)
-                return result.toJson()
+                return VoiceInputManager.toJson(result)
             }
         }, "AndroidBridge")
 
