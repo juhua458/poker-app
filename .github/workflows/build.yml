@@ -24,19 +24,19 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       
-    - name: Build and Find APK
+    - name: Build Debug APK
       run: |
         chmod +x gradlew
-        echo "=== Building APK ==="
-        ./gradlew assembleDebug 2>&1
-        echo ""
-        echo "=== Searching for APK ==="
-        find . -name "*.apk" -type f 2>/dev/null || echo "find returned nothing"
-        echo ""
-        echo "=== Build outputs directory ==="
-        ls -laR app/build/outputs/ 2>/dev/null || echo "No outputs directory"
+        ./gradlew assembleDebug --info 2>&1 | tail -200
         
-    - name: Upload APK to Release
+    - name: Find APK
+      run: |
+        echo "=== All APK files ==="
+        find . -name "*.apk" -type f
+        echo "=== Build output tree ==="
+        find app/build/outputs -type f 2>/dev/null || true
+        
+    - name: Upload to Release
       uses: softprops/action-gh-release@v2
       if: success()
       with:

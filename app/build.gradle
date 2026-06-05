@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace 'com.pokerhelper.app'
-    compileSdk 35
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.pokerhelper.app"
@@ -34,7 +34,6 @@ android {
         jvmTarget = '17'
     }
     
-    // ML Kit可能包含重复文件
     packagingOptions {
         exclude 'META-INF/DEPENDENCIES'
         exclude 'META-INF/LICENSE'
@@ -46,6 +45,13 @@ android {
         exclude 'META-INF/ASL2.0'
         exclude 'META-INF/*.kotlin_module'
     }
+    
+    // 确保gradle不静默忽略编译错误
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
+        kotlinOptions {
+            allWarningsAsErrors = false
+        }
+    }
 }
 
 dependencies {
@@ -53,7 +59,5 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
-    
-    // V1.2: ML Kit 文字识别（离线，无需联网）
     implementation 'com.google.mlkit:text-recognition:16.0.1'
 }
