@@ -35,6 +35,8 @@ class ScreenCaptureService : Service() {
             private set
         var lastError: String = ""
             private set
+        var lastChipStatus: String = ""
+            private set
         private const val CHANNEL_ID = "poker_screenshot"
         private const val NOTIFICATION_ID = 1
     }
@@ -48,7 +50,6 @@ class ScreenCaptureService : Service() {
     private var screenWidth = 540
     private var screenHeight = 1200
     private var screenDensity = 160
-    private var lastCheckTime: Long = 0
     private var consecutiveFails = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -62,6 +63,12 @@ class ScreenCaptureService : Service() {
         if (intent?.action == "STOP") {
             stopSelf()
             return START_NOT_STICKY
+        }
+
+        if (intent?.action == "RESET_CHIPS") {
+            ChipTracker.reset()
+            lastChipStatus = "已重置"
+            return START_STICKY
         }
 
         if (isRunning && mediaProjection != null) {
@@ -108,12 +115,12 @@ class ScreenCaptureService : Service() {
             lastError = ""
             captureCount = 0
 
-            // 每800ms截一次屏
+            // 每1.5秒截一次屏 + OCR分析
             handler.postDelayed(object : Runnable {
                 override fun run() {
                     if (isRunning) {
-                        captureScreen()
-                        handler.postDelayed(this, 800)
+                        captureAndAnalyze()
+                        handler.postDelayed(this, 1500)
                     }
                 }
             }, 500)
@@ -165,7 +172,7 @@ class ScreenCaptureService : Service() {
         )
     }
 
-    private fun captureScreen() {
+    private fun captureAndAnalyze() {
         try {
             val image: Image? = imageReader?.acquireLatestImage()
             if (image != null) {
@@ -182,7 +189,7 @@ class ScreenCaptureService : Service() {
                 bitmap.copyPixelsFromBuffer(buffer)
                 image.close()
 
-                // Check if screen rotated
+                // 检查旋转
                 val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 val realW: Int
                 val realH: Int
@@ -232,15 +239,38 @@ class ScreenCaptureService : Service() {
                     return
                 }
 
+                // 检查bitmap方向（Android 15旋转修正）
+                if (bitmap.width < bitmap.height && isRealLandscape) {
+                    val matrix = android.graphics.Matrix()
+                    matrix.postRotate(-90f)
+                    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                    bitmap.recycle()
+                    bitmap = rotated
+                }
+
                 val stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
-                latestScreenshot = stream.toByteArray()
+                val jpegData = stream.toByteArray()
+                latestScreenshot = jpegData
                 bitmap.recycle()
                 
                 captureCount++
                 lastCaptureTime = System.currentTimeMillis()
                 consecutiveFails = 0
                 lastError = ""
+                
+                // 异步OCR分析筹码
+                Thread {
+                    try {
+                        val frame = ChipTracker.analyzeScreenshot(jpegData)
+                        if (frame != null) {
+                            lastChipStatus = "${frame.tablePlayerCount}人 | 活跃${frame.activePlayerCount} | 下注${frame.totalBetAmount}"
+                        }
+                    } catch (e: Exception) {
+                        lastChipStatus = "OCR错误: ${e.message}"
+                    }
+                }.start()
+                
             } else {
                 consecutiveFails++
                 if (consecutiveFails > 10) {
@@ -277,7 +307,7 @@ class ScreenCaptureService : Service() {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("🃏 扑克AI助手")
-                .setContentText("截屏服务运行中")
+                .setContentText("截屏+OCR服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setOngoing(true)
                 .build()
@@ -285,7 +315,7 @@ class ScreenCaptureService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
                 .setContentTitle("🃏 扑克AI助手")
-                .setContentText("截屏服务运行中")
+                .setContentText("截屏+OCR服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setOngoing(true)
                 .build()

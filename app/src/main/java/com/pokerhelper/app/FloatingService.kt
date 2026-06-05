@@ -14,6 +14,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
@@ -26,6 +28,11 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.os.Bundle
+import android.speech.RecognitionListener
 
 class FloatingService : Service() {
 
@@ -44,11 +51,14 @@ class FloatingService : Service() {
     private var floatingView: View? = null
     private var webView: WebView? = null
     private var tvStatus: TextView? = null
+    private var tvVoice: TextView? = null
     private var resizeHandleLeft: View? = null
     private var resizeHandleBottom: View? = null
     private val handler = Handler(Looper.getMainLooper())
     private var isExpanded = true
     private var prefs: SharedPreferences? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var isListening = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -71,6 +81,7 @@ class FloatingService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
         isRunning = true
+        initSpeechRecognizer()
         showFloatingWindow()
     }
 
@@ -79,6 +90,7 @@ class FloatingService : Service() {
         currentPanelWidth = 0
         currentPanelHeight = 0
         handler.removeCallbacksAndMessages(null)
+        speechRecognizer?.destroy()
         try {
             webView?.destroy()
         } catch (_: Exception) {}
@@ -91,6 +103,74 @@ class FloatingService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         handler.postDelayed({ resizeFloatingWindow() }, 500)
+    }
+
+    private fun initSpeechRecognizer() {
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    isListening = true
+                    tvVoice?.text = "🎤 听..."
+                    tvVoice?.setBackgroundColor(0xFF4CAF50.toInt())
+                }
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {
+                    isListening = false
+                    tvVoice?.setBackgroundColor(0xFF37474F.toInt())
+                }
+                override fun onError(error: Int) {
+                    isListening = false
+                    tvVoice?.text = "🎤"
+                    tvVoice?.setBackgroundColor(0xFF37474F.toInt())
+                    val errMsg = when(error) {
+                        SpeechRecognizer.ERROR_NO_MATCH -> "未识别"
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "超时"
+                        else -> "错误$error"
+                    }
+                    tvStatus?.text = "语音: $errMsg"
+                }
+                override fun onResults(results: Bundle?) {
+                    isListening = false
+                    tvVoice?.text = "🎤"
+                    tvVoice?.setBackgroundColor(0xFF37474F.toInt())
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        val text = matches[0]
+                        val result = VoiceInputManager.parseVoiceText(text)
+                        // 传给WebView
+                        webView?.evaluateJavascript(
+                            "if(typeof onVoiceInput==='function'){onVoiceInput(${result.toJson()})}",
+                            null
+                        )
+                        tvStatus?.text = "语音: ${result.holeCards.joinToString(" ")} ${result.rawText}"
+                    }
+                }
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        }
+    }
+
+    private fun startVoiceInput() {
+        if (speechRecognizer == null) {
+            tvStatus?.text = "语音不可用"
+            return
+        }
+        if (isListening) {
+            speechRecognizer?.stopListening()
+            isListening = false
+            return
+        }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        speechRecognizer?.startListening(intent)
     }
 
     private fun getScreenSize(): Pair<Int, Int> {
@@ -139,45 +219,33 @@ class FloatingService : Service() {
     private fun applyWindowSize(params: WindowManager.LayoutParams, screenWidth: Int, screenHeight: Int, isLandscape: Boolean) {
         if (isExpanded) {
             if (isLandscape) {
-                // 横屏: 右侧面板
                 val savedW = getSavedLandscapeWidth()
                 params.width = if (savedW > 0) savedW else (screenWidth * 0.35).toInt().coerceIn(350, 700)
-                
-                // 高度: 默认70%屏幕高度
                 val heightRatio = getSavedHeightRatio()
                 params.height = (screenHeight * heightRatio).toInt().coerceIn(screenHeight / 3, screenHeight - 150)
-                
                 params.gravity = Gravity.END or Gravity.TOP
                 params.x = 0
                 params.y = 0
-                
                 currentPanelWidth = params.width
                 currentPanelHeight = params.height
-                
                 resizeHandleLeft?.visibility = View.VISIBLE
                 resizeHandleBottom?.visibility = View.VISIBLE
             } else {
-                // 竖屏: 全屏显示策略引擎
-                val savedW = getSavedLandscapeWidth()
                 params.width = screenWidth
                 params.height = screenHeight
                 params.gravity = Gravity.TOP or Gravity.START
                 params.x = 0
                 params.y = 0
-                
                 currentPanelWidth = 0
                 currentPanelHeight = 0
-                
                 resizeHandleLeft?.visibility = View.GONE
                 resizeHandleBottom?.visibility = View.GONE
             }
         } else {
             params.width = if (isLandscape) 140 else (screenWidth * 0.4).toInt()
             params.height = WindowManager.LayoutParams.WRAP_CONTENT
-            
             currentPanelWidth = 0
             currentPanelHeight = 0
-            
             resizeHandleLeft?.visibility = View.GONE
             resizeHandleBottom?.visibility = View.GONE
         }
@@ -186,17 +254,15 @@ class FloatingService : Service() {
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun showFloatingWindow() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-
         val (screenWidth, screenHeight) = getScreenSize()
         val isLandscape = screenWidth > screenHeight
 
-        // Container
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xEE0a1a0a.toInt())
         }
 
-        // Top drag bar
+        // Top bar with buttons
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -205,10 +271,34 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v1.0"
+            text = "🃏 Poker AI v1.2"
             setTextColor(0xFFe8edf5.toInt())
-            textSize = 13f
+            textSize = 12f
             setPadding(8, 4, 8, 4)
+        }
+
+        // V1.2: 语音输入按钮
+        tvVoice = TextView(this).apply {
+            text = "🎤"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 16f
+            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0xFF37474F.toInt())
+            setOnClickListener { startVoiceInput() }
+        }
+
+        // V1.2: 筹码重置按钮
+        val tvReset = TextView(this).apply {
+            text = "🔄"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 14f
+            setPadding(6, 2, 6, 2)
+            setOnClickListener {
+                ChipTracker.reset()
+                ScreenCaptureService.lastChipStatus = "已重置"
+                webView?.evaluateJavascript("if(typeof onChipReset==='function'){onChipReset()}", null)
+                tvStatus?.text = "筹码已重置"
+            }
         }
 
         val tvCollapse = TextView(this).apply {
@@ -220,15 +310,16 @@ class FloatingService : Service() {
         }
 
         topBar.addView(tvStatus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        topBar.addView(tvVoice)
+        topBar.addView(tvReset)
         topBar.addView(tvCollapse)
         container.addView(topBar)
 
-        // Content area
+        // Content row
         val contentRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
 
-        // Left resize handle
         resizeHandleLeft = View(this).apply {
             setBackgroundColor(0x40FFFFFF.toInt())
             setOnTouchListener(ResizeWidthTouchListener())
@@ -236,7 +327,6 @@ class FloatingService : Service() {
         val leftHandleParams = LinearLayout.LayoutParams(16, LinearLayout.LayoutParams.MATCH_PARENT)
         contentRow.addView(resizeHandleLeft, leftHandleParams)
 
-        // WebView
         val wv = WebView(this)
         webView = wv
         val wvParams = LinearLayout.LayoutParams(
@@ -253,7 +343,6 @@ class FloatingService : Service() {
         )
         container.addView(contentRow, contentRowParams)
 
-        // Bottom resize handle
         resizeHandleBottom = View(this).apply {
             setBackgroundColor(0x40FFFFFF.toInt())
             setOnTouchListener(ResizeHeightTouchListener())
@@ -284,7 +373,31 @@ class FloatingService : Service() {
             fun updateStatus(text: String) {
                 handler.post { tvStatus?.text = text }
             }
-        }, "AndroidStatus")
+            
+            @JavascriptInterface
+            fun getChipStatus(): String {
+                return ChipTracker.getStatusJson()
+            }
+            
+            @JavascriptInterface
+            fun resetChips() {
+                handler.post {
+                    ChipTracker.reset()
+                    ScreenCaptureService.lastChipStatus = "已重置"
+                }
+            }
+            
+            @JavascriptInterface
+            fun startVoice() {
+                handler.post { startVoiceInput() }
+            }
+            
+            @JavascriptInterface
+            fun parseVoice(text: String): String {
+                val result = VoiceInputManager.parseVoiceText(text)
+                return result.toJson()
+            }
+        }, "AndroidBridge")
 
         wv.loadUrl("http://127.0.0.1:8666")
 
@@ -301,7 +414,6 @@ class FloatingService : Service() {
 
         applyWindowSize(params, screenWidth, screenHeight, isLandscape)
 
-        // Top bar drag
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
@@ -343,8 +455,7 @@ class FloatingService : Service() {
         override fun onTouch(v: View?, event: MotionEvent): Boolean {
             val params = floatingView?.layoutParams as? WindowManager.LayoutParams ?: return false
             val (screenWidth, screenHeight) = getScreenSize()
-            val isLandscape = screenWidth > screenHeight
-            if (!isLandscape) return false
+            if (screenWidth <= screenHeight) return false
 
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -380,8 +491,7 @@ class FloatingService : Service() {
         override fun onTouch(v: View?, event: MotionEvent): Boolean {
             val params = floatingView?.layoutParams as? WindowManager.LayoutParams ?: return false
             val (screenWidth, screenHeight) = getScreenSize()
-            val isLandscape = screenWidth > screenHeight
-            if (!isLandscape) return false
+            if (screenWidth <= screenHeight) return false
 
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -437,15 +547,15 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手")
-                .setContentText("悬浮窗运行中 - 左右边缘拖拽调宽高")
+                .setContentTitle("🃏 扑克AI助手 v1.2")
+                .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
                 .build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手")
+                .setContentTitle("🃏 扑克AI助手 v1.2")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

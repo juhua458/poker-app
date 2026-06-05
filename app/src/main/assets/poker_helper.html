@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v13 · 智能分级+多街规划</title>
+<title>扑克AI v1.2 · OCR+语音+信号</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -138,6 +138,47 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;
 .yolo-badge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:900}
 .yolo-badge.on{background:rgba(46,213,115,.15);color:#2ed573}
 .yolo-badge.off{background:rgba(255,255,255,.05);color:#444}
+
+/* V1.2: 筹码面板 */
+.chip-panel{background:rgba(0,0,0,.3);border-radius:8px;padding:6px;margin-bottom:4px;font-size:10px}
+.chip-panel .cp-title{font-size:10px;color:#2ed573;font-weight:900;margin-bottom:3px;display:flex;align-items:center;gap:4px}
+.chip-panel .cp-title .cp-dot{width:6px;height:6px;border-radius:50%;background:#2ed573;animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.cp-row{display:flex;justify-content:space-between;padding:2px 4px;border-radius:3px;margin:1px 0;font-size:9px}
+.cp-row:nth-child(odd){background:rgba(255,255,255,.02)}
+.cp-row .cp-name{color:#888}
+.cp-row .cp-amount{color:#ffd700;font-weight:700}
+.cp-row .cp-delta{font-size:8px;font-weight:900}
+.cp-delta.up{color:#2ed573}
+.cp-delta.down{color:#ff4757}
+.cp-delta.same{color:#555}
+.cp-row .cp-status{font-size:8px;padding:1px 4px;border-radius:3px}
+.cp-status.active{color:#888}
+.cp-status.betting{color:#ffa502;background:rgba(255,165,2,.1)}
+.cp-status.folded{color:#ff4757;background:rgba(255,71,87,.1);text-decoration:line-through}
+.cp-status.won{color:#2ed573;background:rgba(46,213,115,.1)}
+.cp-summary{display:flex;gap:8px;margin-top:3px;padding-top:3px;border-top:1px solid rgba(255,255,255,.05);font-size:9px;color:#888}
+.cp-summary span{color:#ffd700;font-weight:700}
+
+/* V1.2: 语音输入 */
+.voice-input{margin-bottom:4px}
+.voice-btn{width:100%;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#1a3a5c,#0d2240);color:#5dade2;transition:all .1s}
+.voice-btn:active{transform:scale(.95);background:linear-gradient(135deg,#2a5a8c,#1d4270)}
+.voice-btn.listening{background:linear-gradient(135deg,#1a5c30,#0d3d1f);color:#2ed573;animation:pulse .8s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(46,213,115,.4)}50%{box-shadow:0 0 0 8px rgba(46,213,115,0)}}
+.voice-result{font-size:9px;color:#2ed573;margin-top:2px;text-align:center;min-height:14px}
+
+/* V1.2: 颜色信号模式 */
+.signal-mode{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;pointer-events:none;display:none}
+.signal-dot{width:80px;height:80px;border-radius:50%;animation:glow 1s infinite;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;color:#fff;text-shadow:0 0 10px rgba(0,0,0,.5)}
+.signal-dot.green{background:rgba(46,213,115,.8);box-shadow:0 0 30px rgba(46,213,115,.6)}
+.signal-dot.red{background:rgba(255,71,87,.8);box-shadow:0 0 30px rgba(255,71,87,.6)}
+.signal-dot.yellow{background:rgba(255,165,2,.8);box-shadow:0 0 30px rgba(255,165,2,.6)}
+.signal-dot.blue{background:rgba(168,85,247,.8);box-shadow:0 0 30px rgba(168,85,247,.6)}
+@keyframes glow{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.signal-toggle{font-size:9px;padding:3px 8px;border-radius:10px;cursor:pointer;background:rgba(255,255,255,.05);color:#555;border:none}
+.signal-toggle.on{background:rgba(168,85,247,.15);color:#c77dff}
+
 </style>
 </head>
 <body>
@@ -305,5 +346,238 @@ function saveKey(){var key=document.getElementById('rfKeyInp').value;if(key)loca
 function testKey(){var key=localStorage.getItem('rfKey')||document.getElementById('rfKeyInp').value;if(key){document.getElementById('yoloBadge').classList.add('on');document.getElementById('setInfo').textContent='YOLO模式已启用';}}
 mkMx();
 </script>
+
+<script>
+// ===== V1.2: 筹码自动识别 =====
+var chipPollInterval = null;
+var chipData = null;
+
+function startChipPolling() {
+    if (chipPollInterval) clearInterval(chipPollInterval);
+    chipPollInterval = setInterval(function() {
+        fetch('/api/chips').then(function(r){return r.json()}).then(function(d) {
+            chipData = d;
+            renderChipPanel(d);
+            // 自动填充到策略引擎
+            if (d.available && d.tablePlayerCount > 0) {
+                autoFillChips(d);
+            }
+        }).catch(function(){});
+    }, 2000);
+}
+
+function renderChipPanel(d) {
+    var el = document.getElementById('chipPanel');
+    if (!el) return;
+    if (!d.available) {
+        el.innerHTML = '<div class="cp-title"><span class="cp-dot" style="background:#ff4757"></span>OCR等待中...</div>';
+        return;
+    }
+    var html = '<div class="cp-title"><span class="cp-dot"></span>筹码追踪 · ' + d.tablePlayerCount + '人桌 · 活跃' + d.activePlayerCount + '人</div>';
+    if (d.players && d.players.length > 0) {
+        d.players.forEach(function(p, i) {
+            var deltaHtml = '';
+            if (p.delta !== null) {
+                var cls = p.delta > 0 ? 'up' : (p.delta < 0 ? 'down' : 'same');
+                var sign = p.delta > 0 ? '+' : '';
+                deltaHtml = '<span class="cp-delta ' + cls + '">' + sign + p.delta.toLocaleString() + '</span>';
+            }
+            var statusCls = p.status || 'active';
+            var statusText = {active:'等待',betting:'下注',folded:'弃牌',won:'赢了',new:'新'}[statusCls] || statusCls;
+            html += '<div class="cp-row"><span class="cp-name">P' + (i+1) + '</span><span class="cp-amount">' + p.chips.toLocaleString() + '</span>' + deltaHtml + '<span class="cp-status ' + statusCls + '">' + statusText + '</span></div>';
+        });
+    }
+    html += '<div class="cp-summary">总下注: <span>' + (d.totalBetAmount || 0).toLocaleString() + '</span> | 活跃: <span>' + d.activePlayerCount + '/' + d.tablePlayerCount + '</span></div>';
+    el.innerHTML = html;
+}
+
+function autoFillChips(d) {
+    // 自动填充桌型（6人/9人）
+    if (d.tablePlayerCount >= 2) {
+        // 更新桌型选择
+        var sizeMap = {2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10};
+        var size = sizeMap[d.tablePlayerCount] || d.tablePlayerCount;
+        if (typeof G !== 'undefined' && G.tableSize !== size) {
+            G.tableSize = size;
+        }
+    }
+}
+
+// ===== V1.2: 语音输入 =====
+function onVoiceInput(result) {
+    var el = document.getElementById('voiceResult');
+    if (result.holeCards && result.holeCards.length > 0) {
+        // 解析手牌
+        result.holeCards.forEach(function(card, i) {
+            if (i < 2 && typeof selectCardByVoice === 'function') {
+                selectCardByVoice(i, card);
+            }
+        });
+    }
+    if (result.communityCards && result.communityCards.length > 0) {
+        result.communityCards.forEach(function(card, i) {
+            if (i < 5 && typeof selectCardByVoice === 'function') {
+                selectCardByVoice(i + 2, card);
+            }
+        });
+    }
+    if (result.tableSize && typeof G !== 'undefined') {
+        G.tableSize = result.tableSize;
+    }
+    if (result.position && typeof G !== 'undefined') {
+        // 设置位置
+    }
+    if (el) {
+        el.textContent = '识别: ' + (result.holeCards.join(' ') || result.rawText);
+    }
+    // 自动决策
+    if (typeof decide === 'function') decide();
+}
+
+function selectCardByVoice(slot, cardStr) {
+    if (!cardStr || cardStr.length < 2) return;
+    var suit = cardStr.charAt(0); // h/s/c/d
+    var rank = cardStr.charAt(1);  // A/K/Q/J/T/2-9
+    var suitMap = {h:'♥',s:'♠',c:'♣',d:'♦'};
+    var rankDisplay = rank;
+    if (typeof G !== 'undefined' && G.cards) {
+        G.cards[slot] = {rank: rank, suit: suit};
+    }
+    // 触发UI更新
+    if (typeof renderCards === 'function') renderCards();
+}
+
+function startVoiceFromUI() {
+    if (typeof AndroidBridge !== 'undefined' && AndroidBridge.startVoice) {
+        AndroidBridge.startVoice();
+    } else {
+        // Fallback: 文本输入
+        var text = prompt('输入牌面(如: 红心A黑桃K 6人桌)');
+        if (text) {
+            var result;
+            if (typeof AndroidBridge !== 'undefined' && AndroidBridge.parseVoice) {
+                result = JSON.parse(AndroidBridge.parseVoice(text));
+            } else {
+                result = {holeCards:[], communityCards:[], position:null, tableSize:null, rawText:text};
+            }
+            onVoiceInput(result);
+        }
+    }
+}
+
+// ===== V1.2: 颜色信号模式 =====
+var signalModeOn = false;
+
+function toggleSignalMode() {
+    signalModeOn = !signalModeOn;
+    var el = document.getElementById('signalOverlay');
+    var btn = document.getElementById('signalToggle');
+    if (el) el.style.display = signalModeOn ? 'block' : 'none';
+    if (btn) btn.className = 'signal-toggle' + (signalModeOn ? ' on' : '');
+}
+
+function updateSignal(action) {
+    if (!signalModeOn) return;
+    var el = document.getElementById('signalDot');
+    if (!el) return;
+    var map = {
+        'FOLD': {cls:'red', text:'弃'},
+        'CHECK': {cls:'green', text:'过'},
+        'CALL': {cls:'green', text:'跟'},
+        'RAISE': {cls:'yellow', text:'加'},
+        'ALLIN': {cls:'blue', text:'全'}
+    };
+    var s = map[action] || {cls:'green', text:'?'};
+    el.className = 'signal-dot ' + s.cls;
+    el.textContent = s.text;
+}
+
+// Hook到decide()的结果
+var origDecide = null;
+function hookDecide() {
+    if (typeof decide !== 'function') return;
+    if (origDecide) return;
+    origDecide = decide;
+    decide = function() {
+        origDecide();
+        // 从结果区读取动作
+        setTimeout(function() {
+            var resEl = document.getElementById('res');
+            if (resEl) {
+                var text = resEl.textContent || '';
+                if (text.includes('弃牌')) updateSignal('FOLD');
+                else if (text.includes('过牌')) updateSignal('CHECK');
+                else if (text.includes('跟注')) updateSignal('CALL');
+                else if (text.includes('全下')) updateSignal('ALLIN');
+                else if (text.includes('加注')) updateSignal('RAISE');
+            }
+        }, 100);
+    };
+}
+
+// 初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 插入筹码面板到顶部
+    var resEl = document.getElementById('res');
+    if (resEl) {
+        var chipPanel = document.createElement('div');
+        chipPanel.id = 'chipPanel';
+        chipPanel.className = 'chip-panel';
+        chipPanel.innerHTML = '<div class="cp-title"><span class="cp-dot" style="background:#ff4757"></span>OCR等待中...</div>';
+        resEl.parentNode.insertBefore(chipPanel, resEl.nextSibling);
+    }
+    
+    // 插入语音输入区
+    var sceneWrap = document.getElementById('sceneWrap');
+    if (sceneWrap) {
+        var voiceDiv = document.createElement('div');
+        voiceDiv.className = 'voice-input';
+        voiceDiv.innerHTML = '<button class="voice-btn" onclick="startVoiceFromUI()">🎤 语音输入牌面</button><div class="voice-result" id="voiceResult"></div>';
+        sceneWrap.parentNode.insertBefore(voiceDiv, sceneWrap);
+    }
+    
+    // 颜色信号浮层
+    var signalDiv = document.createElement('div');
+    signalDiv.className = 'signal-mode';
+    signalDiv.id = 'signalOverlay';
+    signalDiv.innerHTML = '<div class="signal-dot green" id="signalDot">?</div>';
+    document.body.appendChild(signalDiv);
+    
+    // 颜色信号开关
+    var topBar = document.querySelector('.scene-wrap') || document.body;
+    var sigBtn = document.createElement('button');
+    sigBtn.id = 'signalToggle';
+    sigBtn.className = 'signal-toggle';
+    sigBtn.textContent = '🔮信号';
+    sigBtn.onclick = toggleSignalMode;
+    // 放在结果区
+    if (resEl) {
+        var btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;justify-content:flex-end';
+        btnRow.appendChild(sigBtn);
+        var resetBtn = document.createElement('button');
+        resetBtn.className = 'signal-toggle';
+        resetBtn.textContent = '🔄重置筹码';
+        resetBtn.onclick = function() {
+            if (typeof AndroidBridge !== 'undefined' && AndroidBridge.resetChips) AndroidBridge.resetChips();
+            fetch('/api/chips/reset');
+        };
+        btnRow.appendChild(resetBtn);
+        resEl.parentNode.insertBefore(btnRow, resEl.nextSibling.nextSibling);
+    }
+    
+    // 启动筹码轮询
+    startChipPolling();
+    
+    // Hook decide()用于颜色信号
+    setTimeout(hookDecide, 1000);
+});
+
+function onChipReset() {
+    var el = document.getElementById('chipPanel');
+    if (el) el.innerHTML = '<div class="cp-title"><span class="cp-dot" style="background:#ffd700"></span>筹码已重置</div>';
+}
+</script>
+
 </body>
 </html>

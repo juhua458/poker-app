@@ -6,16 +6,13 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.Build
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.content.pm.ServiceInfo
 import fi.iki.elonen.NanoHTTPD
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
-import java.io.InputStreamReader
 
 class HttpServerService : Service() {
 
@@ -26,6 +23,7 @@ class HttpServerService : Service() {
 
     private var server: NanoHTTPD? = null
     private var pokerHelperHtml: String? = null
+    private val handler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,7 +31,7 @@ class HttpServerService : Service() {
         if (pokerHelperHtml == null) {
             try {
                 val is_ = assets.open("poker_helper.html")
-                val reader = InputStreamReader(is_, "UTF-8")
+                val reader = java.io.InputStreamReader(is_, "UTF-8")
                 pokerHelperHtml = reader.readText()
                 reader.close()
             } catch (e: Exception) {
@@ -58,7 +56,7 @@ class HttpServerService : Service() {
 
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -105,11 +103,46 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "1.0")
+                                put("version", "1.2")
+                                put("chipStatus", capture.lastChipStatus)
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
                                 addHeader("Access-Control-Allow-Origin", "*")
                                 addHeader("Cache-Control", "no-cache, no-store")
+                            }
+                        }
+                        // V1.2 新增：筹码识别状态API
+                        session.uri == "/api/chips" -> {
+                            val json = ChipTracker.getStatusJson()
+                            newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                addHeader("Access-Control-Allow-Origin", "*")
+                                addHeader("Cache-Control", "no-cache, no-store")
+                            }
+                        }
+                        // V1.2 新增：语音识别结果提交API
+                        session.uri == "/api/voice" && session.method == Method.POST -> {
+                            try {
+                                val files = HashMap<String, String>()
+                                session.parseBody(files)
+                                val postData = files["postData"] ?: ""
+                                val result = VoiceInputManager.parseVoiceText(postData)
+                                val json = result.toJson()
+                                newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            } catch (e: Exception) {
+                                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", 
+                                    """{"error":"${e.message}"}""").apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            }
+                        }
+                        // V1.2 新增：重置筹码追踪
+                        session.uri == "/api/chips/reset" -> {
+                            ChipTracker.reset()
+                            ScreenCaptureService.lastChipStatus = "已重置"
+                            newFixedLengthResponse(Response.Status.OK, "application/json", """{"ok":true}""").apply {
+                                addHeader("Access-Control-Allow-Origin", "*")
                             }
                         }
                         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
@@ -144,7 +177,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手")
+                .setContentTitle("🃏 扑克AI助手 v1.2")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -152,7 +185,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手")
+                .setContentTitle("🃏 扑克AI助手 v1.2")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
