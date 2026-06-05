@@ -27,7 +27,7 @@ jobs:
     - name: Build Debug APK
       run: |
         chmod +x gradlew
-        ./gradlew assembleDebug --info 2>&1 | tail -200
+        ./gradlew assembleDebug 2>&1
         
     - name: Find APK
       run: |
@@ -41,8 +41,8 @@ jobs:
       if: success()
       with:
         tag_name: v1.2
-        name: "V1.2 扑克AI助手 - OCR+语音+信号"
-        body: "V1.2: ML Kit OCR筹码识别 + 语音输入牌面 + 颜色信号模式 + 筹码变化追踪"
+        name: "V1.2 扑克AI助手 - GTO+DRTA融合策略"
+        body: "V1.2: GTO+DRTA融合策略引擎 - OpponentTracker对手动态追踪 + StrategicBluff战略诈唬 + StrategicRetreat战略撤退 + DRTAWeight动态权重"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

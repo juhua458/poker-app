@@ -12,6 +12,7 @@ import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import android.Manifest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 
@@ -25,6 +26,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStart: Button
     private lateinit var btnHelper: Button
     private var isRunning = false
+
+    private val audioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(this, "语音识别需要麦克风权限", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -76,6 +85,13 @@ class MainActivity : AppCompatActivity() {
                     if (isRunning) stopServices() else requestScreenCapture()
                 } catch (e: Exception) {
                     Log.e(TAG, "Btn click error", e)
+                }
+            }
+
+            // Request audio permission for voice input
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
             }
 

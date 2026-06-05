@@ -36,7 +36,7 @@ class ScreenCaptureService : Service() {
         var lastError: String = ""
             private set
         var lastChipStatus: String = ""
-            private set
+            internal set
         private const val CHANNEL_ID = "poker_screenshot"
         private const val NOTIFICATION_ID = 1
     }
