@@ -24,52 +24,25 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       
-    - name: Build Debug APK
+    - name: Build and Find APK
       run: |
         chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace 2>&1 | tail -50
-        
-    - name: Find APK and Upload
-      run: |
+        echo "=== Building APK ==="
+        ./gradlew assembleDebug 2>&1
+        echo ""
         echo "=== Searching for APK ==="
-        find . -name "*.apk" -type f 2>/dev/null || true
-        echo "=== Build outputs ==="
-        find app/build/outputs -type f 2>/dev/null || true
+        find . -name "*.apk" -type f 2>/dev/null || echo "find returned nothing"
+        echo ""
+        echo "=== Build outputs directory ==="
+        ls -laR app/build/outputs/ 2>/dev/null || echo "No outputs directory"
         
-        APK=$(find . -name "*.apk" -type f 2>/dev/null | head -1)
-        if [ -z "$APK" ]; then
-          echo "WARNING: No APK found via find. Checking standard paths..."
-          for p in "app/build/outputs/apk/debug/app-debug.apk" "app/build/outputs/apk/release/app-release.apk" "app/build/outputs/apk/debug/app-debug-unsigned.apk"; do
-            if [ -f "$p" ]; then
-              APK="$p"
-              break
-            fi
-          done
-        fi
-        
-        if [ -z "$APK" ]; then
-          echo "ERROR: No APK file found anywhere!"
-          echo "=== Listing app/build recursively ==="
-          ls -laR app/build/ 2>/dev/null | head -100
-          exit 1
-        fi
-        
-        echo "Found APK: $APK"
-        ls -la "$APK"
-        cp "$APK" pokerhelper_v1.2.apk
-    
-    - name: Upload APK to artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: poker-v1.2-apk
-        path: pokerhelper_v1.2.apk
-    
-    - name: Upload to Release
+    - name: Upload APK to Release
       uses: softprops/action-gh-release@v2
+      if: success()
       with:
         tag_name: v1.2
         name: "V1.2 扑克AI助手 - OCR+语音+信号"
         body: "V1.2: ML Kit OCR筹码识别 + 语音输入牌面 + 颜色信号模式 + 筹码变化追踪"
-        files: pokerhelper_v1.2.apk
+        files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
