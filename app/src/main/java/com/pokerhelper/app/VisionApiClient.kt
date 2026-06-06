@@ -78,16 +78,31 @@ object VisionApiClient {
                 lastResult = result
                 lastResultTime = System.currentTimeMillis()
                 lastError = ""
-                // V2.0: 校验识别结果合理性
+                // V2.2: 校验识别结果合理性，并自动纠正street
                 val warnings = validateResult(result)
+                // V2.2: street和公共牌数矛盾时，以公共牌数为准纠正street
+                var correctedResult = result
+                val commCount = result.communityCards.size
+                val correctStreet = when {
+                    commCount == 0 -> "preflop"
+                    commCount == 3 -> "flop"
+                    commCount == 4 -> "turn"
+                    commCount == 5 -> "river"
+                    else -> null // 1,2张公共牌不合理，不纠正
+                }
+                if (correctStreet != null && result.street.lowercase() != correctStreet) {
+                    Log.w(TAG, "street纠正: ${result.street}→$correctStreet (公共牌数=$commCount)")
+                    correctedResult = result.copy(street = correctStreet)
+                    lastResult = correctedResult
+                }
                 if (warnings.isNotEmpty()) {
                     lastError = warnings.joinToString("; ")
                     Log.w(TAG, "识别结果有疑问: $lastError")
                 }
-                Log.d(TAG, "识别成功: ${result.holeCards.joinToString()} | ${result.communityCards.joinToString()} | 底池${result.potSize} | ${result.totalPlayers}人${if(warnings.isNotEmpty()) " ⚠️$lastError" else ""}")
+                Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}人${if(warnings.isNotEmpty()) " ⚠️$lastError" else ""}")
             }
 
-            result
+            correctedResult
         } catch (e: Exception) {
             lastError = "API错误: ${e.message}"
             Log.e(TAG, "analyzeScreenshot failed", e)
@@ -122,20 +137,20 @@ object VisionApiClient {
     private fun buildRequest(base64Image: String): String {
         val prompt = """你是一个德州扑克牌桌识别专家。请仔细观察这张游戏截图，按以下步骤识别：
 
-1. 找到你的手牌(通常在屏幕下方中间位置，2张牌)
-2. 找到公共牌(屏幕中间，0-5张)
-3. 识别底池筹码数和你的筹码数
-4. 数出总玩家数
+★第一步：先数公共牌数量！0张=preflop, 3张=flop, 4张=turn, 5张=river。street必须和公共牌数量一致！
+第二步：找到你的手牌(屏幕下方中间位置，2张牌)
+第三步：数出总玩家数——看屏幕上有几个玩家头像/座位框/名字框，你自己也算一个
+第四步：识别底池筹码数和你的筹码数
 
 返回JSON格式：
 {"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot_size":0,"my_chips":0,"total_players":6,"active_players":4,"my_position":"BTN","street":"preflop","to_call":0,"min_raise":0}
 
 严格规则：
-- rank只能是: A K Q J T 9 8 7 6 5 4 3 2（用T表示10）
+- rank只能是: A K Q J T 9 8 7 6 5 4 3 2（用T表示10，不要用10）
 - suit: s=黑桃♠(黑色尖顶) h=红心♥(红色心形) d=方块♦(红色菱形) c=梅花♣(黑色三叶)
 - 花色区分重点：♠和♣都是黑色，但♠顶部尖、♣像三叶草；♥和♦都是红色，但♥是心形、♦是菱形
 - my_position: SB BB UTG MP CO BTN
-- street: preflop=只有手牌 flop=3张公共牌 turn=4张公共牌 river=5张公共牌
+- street必须与community_cards数量一致：0张→preflop, 3张→flop, 4张→turn, 5张→river
 - pot_size/to_call/min_raise/my_chips: 纯数字不含逗号
 - 如果不是德州扑克游戏界面，所有字段返回默认值
 - 如果某信息看不清，用默认值0或空数组，不要猜
@@ -246,12 +261,47 @@ object VisionApiClient {
     private fun parseCards(arr: JSONArray?): List<CardInfo> {
         if (arr == null) return emptyList()
         val cards = mutableListOf<CardInfo>()
+        val validRanks = setOf("A","K","Q","J","T","9","8","7","6","5","4","3","2")
+        val rankNormalize = mapOf("10" to "T", "1" to "A") // API可能返回10而非T
         for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            cards.add(CardInfo(
-                rank = obj.optString("rank", ""),
-                suit = obj.optString("suit", "")
-            ))
+            try {
+                val element = arr.get(i)
+                when (element) {
+                    is JSONObject -> {
+                        var rank = element.optString("rank", "")
+                        rank = rankNormalize[rank] ?: rank
+                        val suit = element.optString("suit", "")
+                        if (rank in validRanks && suit.isNotEmpty()) {
+                            cards.add(CardInfo(rank = rank, suit = suit))
+                        } else {
+                            Log.w(TAG, "parseCards: 跳过无效对象牌 rank=$rank suit=$suit")
+                        }
+                    }
+                    is String -> {
+                        // 支持 "Jh" "As" "T♦" "10h" 等字符串格式
+                        if (element.length >= 2) {
+                            val suitChar = element.last().lowercaseChar()
+                            val suitMap = mapOf(
+                                's' to "s", 'h' to "h", 'd' to "d", 'c' to "c",
+                                '♠' to "s", '♥' to "h", '♦' to "d", '♣' to "c"
+                            )
+                            val suit = suitMap[suitChar] ?: ""
+                            var rank = element.substring(0, element.length - 1).trim().uppercase()
+                            rank = rankNormalize[rank] ?: rank
+                            if (rank in validRanks && suit.isNotEmpty()) {
+                                cards.add(CardInfo(rank = rank, suit = suit))
+                            } else {
+                                Log.w(TAG, "parseCards: 跳过无效字符串牌 '$element' -> rank=$rank suit=$suit")
+                            }
+                        }
+                    }
+                    else -> {
+                        Log.w(TAG, "parseCards: 跳过不支持的格式: ${element?.javaClass?.simpleName}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "parseCards: 第${i}张牌解析异常: ${e.message}")
+            }
         }
         return cards
     }

@@ -273,9 +273,9 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v2.1"
+            text = "🃏 Poker AI v2.2"
             setTextColor(0xFFe8edf5.toInt())
-            textSize = 12f
+            textSize = 11f
             setPadding(8, 4, 8, 4)
         }
 
@@ -283,7 +283,7 @@ class FloatingService : Service() {
         tvRecResult = TextView(this).apply {
             text = ""
             setTextColor(0xFF90CAF9.toInt())
-            textSize = 14f
+            textSize = 11f
             setPadding(8, 2, 8, 2)
             setBackgroundColor(0xFF1A237E.toInt())
             visibility = View.GONE
@@ -293,8 +293,8 @@ class FloatingService : Service() {
         tvAction = TextView(this)
         tvAction?.text = "🎯"
         tvAction?.setTextColor(0xFFFFFFFF.toInt())
-        tvAction?.textSize = 22f
-        tvAction?.setPadding(10, 4, 10, 4)
+        tvAction?.textSize = 18f
+        tvAction?.setPadding(14, 8, 14, 8)
         tvAction?.setBackgroundColor(0xFFE65100.toInt())
         tvAction?.setOnClickListener {
             // V2.1: 只有无障碍截图一条路径，绝不走MediaProjection
@@ -329,8 +329,8 @@ class FloatingService : Service() {
         tvVoice = TextView(this).apply {
             text = "🎤"
             setTextColor(0xFFFFFFFF.toInt())
-            textSize = 16f
-            setPadding(6, 2, 6, 2)
+            textSize = 14f
+            setPadding(10, 6, 10, 6)
             setBackgroundColor(0xFF37474F.toInt())
             setOnClickListener { startVoiceInput() }
         }
@@ -339,8 +339,8 @@ class FloatingService : Service() {
         val tvReset = TextView(this).apply {
             text = "🔄"
             setTextColor(0xFFFFFFFF.toInt())
-            textSize = 14f
-            setPadding(6, 2, 6, 2)
+            textSize = 12f
+            setPadding(10, 6, 10, 6)
             setOnClickListener {
                 ChipTracker.reset()
                 ScreenCaptureService.lastChipStatus = "已重置"
@@ -352,8 +352,8 @@ class FloatingService : Service() {
         val tvCollapse = TextView(this).apply {
             text = "  ▼  "
             setTextColor(0xFF4ade80.toInt())
-            textSize = 16f
-            setPadding(4, 2, 4, 2)
+            textSize = 14f
+            setPadding(8, 6, 8, 6)
             setOnClickListener { toggleExpand() }
         }
 
@@ -684,7 +684,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v2.1")
+                .setContentTitle("🃏 扑克AI助手 v2.2")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -692,7 +692,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v2.1")
+                .setContentTitle("🃏 扑克AI助手 v2.2")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
