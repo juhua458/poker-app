@@ -103,7 +103,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "1.9")
+                                put("version", "2.0")
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
@@ -316,7 +316,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v1.2")
+                .setContentTitle("🃏 扑克AI助手 v2.0")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -324,7 +324,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v1.2")
+                .setContentTitle("🃏 扑克AI助手 v2.0")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

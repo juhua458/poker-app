@@ -51,6 +51,7 @@ class FloatingService : Service() {
     private var floatingView: View? = null
     private var webView: WebView? = null
     private var tvStatus: TextView? = null
+    private var tvRecResult: TextView? = null
     private var tvAction: TextView? = null
     private var tvVoice: TextView? = null
     private var resizeHandleLeft: View? = null
@@ -221,7 +222,7 @@ class FloatingService : Service() {
         if (isExpanded) {
             if (isLandscape) {
                 val savedW = getSavedLandscapeWidth()
-                params.width = if (savedW > 0) savedW else (screenWidth * 0.35).toInt().coerceIn(350, 700)
+                params.width = if (savedW > 0) savedW else (screenWidth * 0.42).toInt().coerceIn(380, 780)
                 val heightRatio = getSavedHeightRatio()
                 params.height = (screenHeight * heightRatio).toInt().coerceIn(screenHeight / 3, screenHeight - 150)
                 params.gravity = Gravity.END or Gravity.TOP
@@ -272,10 +273,20 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v1.9"
+            text = "🃏 Poker AI v2.0"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 12f
             setPadding(8, 4, 8, 4)
+        }
+
+        // V2.0: 识别结果展示行 - 大字显示识别到的牌面
+        tvRecResult = TextView(this).apply {
+            text = ""
+            setTextColor(0xFF90CAF9.toInt())
+            textSize = 14f
+            setPadding(8, 2, 8, 2)
+            setBackgroundColor(0xFF1A237E.toInt())
+            visibility = View.GONE
         }
 
         // V1.3: "我行动"按钮 - 按需截屏
@@ -349,6 +360,8 @@ class FloatingService : Service() {
         topBar.addView(tvReset)
         topBar.addView(tvCollapse)
         container.addView(topBar)
+        // V2.0: 识别结果展示行
+        container.addView(tvRecResult!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         // Content row
         val contentRow = LinearLayout(this).apply {
@@ -603,6 +616,18 @@ class FloatingService : Service() {
                         tvAction?.setBackgroundColor(0xFF4CAF50.toInt())
                         val hole = result.holeCards.map { it.rank + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
+                        // V2.0: 显示识别结果到原生行
+                        val suitSym = mapOf("s" to "♠", "h" to "♥", "d" to "♦", "c" to "♣")
+                        val streetCN = mapOf("preflop" to "翻前", "flop" to "翻牌", "turn" to "转牌", "river" to "河牌")
+                        val holeStr = result.holeCards.map { "${it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
+                        val commStr = result.communityCards.map { "${it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
+                        val streetStr = streetCN[result.street] ?: result.street
+                        var recText = "🔍 手牌: $holeStr"
+                        if (commStr.isNotEmpty()) recText += " | 公共: $commStr"
+                        recText += " | $streetStr | ${result.totalPlayers}人"
+                        if (result.toCall > 0) recText += " | 跟注${result.toCall}"
+                        tvRecResult?.text = recText
+                        tvRecResult?.visibility = View.VISIBLE
                     }
                 } else {
                     handler.post {
@@ -663,7 +688,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v1.2")
+                .setContentTitle("🃏 扑克AI助手 v2.0")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -671,7 +696,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v1.2")
+                .setContentTitle("🃏 扑克AI助手 v2.0")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

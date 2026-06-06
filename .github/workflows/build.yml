@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v1.9
-        name: "V1.9 扑克AI助手 - 无障碍截图解决游戏黑屏"
-        body: "V1.9: 无障碍服务截图替代MediaProjection(不触发游戏检测)+双轨制降级+一键开启无障碍"
+        tag_name: v2.0
+        name: "V2.0 扑克AI助手 - 识别结果展示+窗口优化"
+        body: "V2.0: 新增识别结果横幅显示牌面/阶段/人数|窗口宽度35%→42%|原生+WebView双展示|解决看不到提示和识别反馈问题"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
