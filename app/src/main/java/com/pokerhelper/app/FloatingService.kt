@@ -273,7 +273,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v2.6"
+            text = "🃏 Poker AI v2.7"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 11f
             setPadding(8, 4, 8, 4)
@@ -674,8 +674,8 @@ class FloatingService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "扑克悬浮窗", NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "扑克AI助手运行中" }
+                CHANNEL_ID, "智囊悬浮窗", NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "牌局智囊运行中" }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
@@ -684,7 +684,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v2.6")
+                .setContentTitle("🃏 牌局智囊 v2.7")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -692,7 +692,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v2.6")
+                .setContentTitle("🃏 牌局智囊 v2.7")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

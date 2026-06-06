@@ -35,7 +35,7 @@ class HttpServerService : Service() {
                 pokerHelperHtml = reader.readText()
                 reader.close()
             } catch (e: Exception) {
-                pokerHelperHtml = "<html><body><h2>扑克策略引擎加载失败</h2><p>${e.message}</p></body></html>"
+                pokerHelperHtml = "<html><body><h2>策略引擎加载失败</h2><p>${e.message}</p></body></html>"
             }
         }
         return pokerHelperHtml ?: ""
@@ -104,7 +104,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.6")
+                                put("version", "2.7")
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
@@ -292,7 +292,7 @@ class HttpServerService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "扑克HTTP服务", NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID, "智囊HTTP服务", NotificationManager.IMPORTANCE_LOW
             ).apply { description = "HTTP服务运行中" }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -302,7 +302,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v2.6")
+                .setContentTitle("🃏 牌局智囊 v2.7")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -310,7 +310,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v2.6")
+                .setContentTitle("🃏 牌局智囊 v2.7")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

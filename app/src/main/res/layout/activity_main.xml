@@ -17,7 +17,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="扑克AI助手"
+        android:text="牌局智囊"
         android:textSize="24sp"
         android:textColor="#f1f5f9"
         android:textStyle="bold"
@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.6 · 彻底移除MediaProjection"
+        android:text="V2.7 · 彻底移除MediaProjection"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />
@@ -54,7 +54,7 @@
         android:id="@+id/btnHelper"
         android:layout_width="240dp"
         android:layout_height="56dp"
-        android:text="🃏 打开扑克AI助手"
+        android:text="🃏 打开智囊"
         android:textSize="16sp"
         android:textColor="#ffffff"
         android:backgroundTint="#16a34a"
@@ -157,7 +157,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 点「启动」→ 允许悬浮窗\n4. 打牌时点🎯按钮 → 自动识别牌面+出建议\n★ V2.6 彻底移除MediaProjection，永不黑屏 ★"
+        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 点「启动」→ 允许悬浮窗\n4. 打牌时点🎯按钮 → 自动识别牌面+出建议\n★ V2.7 彻底移除MediaProjection，永不黑屏 ★"
         android:textSize="12sp"
         android:textColor="#64748b"
         android:layout_marginTop="12dp"

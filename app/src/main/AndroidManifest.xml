@@ -16,7 +16,7 @@
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="扑克AI助手"
+        android:label="牌局智囊"
         android:supportsRtl="true"
         android:theme="@style/Theme.MjScreenshot"
         android:usesCleartextTraffic="true">
@@ -28,7 +28,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="扑克AI助手"
+            android:label="牌局智囊"
             android:theme="@style/Theme.MjScreenshot">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

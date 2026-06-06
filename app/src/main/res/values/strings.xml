@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">扑克AI助手</string>
-    <string name="accessibility_service_description">扑克AI助手需要无障碍服务权限来截取游戏画面，用于识别牌面并提供策略建议。本服务不会收集、上传或分享任何个人数据，截图仅在本地处理。</string>
+    <string name="app_name">牌局智囊</string>
+    <string name="accessibility_service_description">牌局智囊需要无障碍服务权限来截取游戏画面，用于识别牌面并提供策略建议。本服务不会收集、上传或分享任何个人数据，截图仅在本地处理。</string>
 </resources>
