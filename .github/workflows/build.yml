@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v1.8
-        name: "V1.8 扑克AI助手 - 按需截屏修复游戏黑屏"
-        body: "V1.8: 按需截屏取代持续录屏(修复游戏黑屏)+MediaProjection不再持续占用"
+        tag_name: v1.9
+        name: "V1.9 扑克AI助手 - 无障碍截图解决游戏黑屏"
+        body: "V1.9: 无障碍服务截图替代MediaProjection(不触发游戏检测)+双轨制降级+一键开启无障碍"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
