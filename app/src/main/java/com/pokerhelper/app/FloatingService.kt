@@ -281,13 +281,14 @@ class FloatingService : Service() {
         val tvAction = TextView(this)
         tvAction.text = "🎯"
         tvAction.setTextColor(0xFFFFFFFF.toInt())
-        tvAction.textSize = 16f
-        tvAction.setPadding(6, 2, 6, 2)
+        tvAction.textSize = 22f
+        tvAction.setPadding(10, 4, 10, 4)
         tvAction.setBackgroundColor(0xFFE65100.toInt())
         tvAction.setOnClickListener {
             // V1.3: 按需截屏+API识别
             tvStatus?.text = "🎯 截屏中..."
-            tvAction.setBackgroundColor(0xFFFF6D00.toInt())
+            webView?.evaluateJavascript("document.body.classList.add('api-processing')", null)
+            tvAction.setBackgroundColor(0xFF1565C0.toInt())
             val captureIntent = Intent(this@FloatingService, ScreenCaptureService::class.java).apply {
                 action = "CAPTURE_ONCE"
             }
@@ -299,22 +300,24 @@ class FloatingService : Service() {
                 if (screenshot == null) {
                     tvStatus?.text = "❌ 截屏失败"
                     tvAction.setBackgroundColor(0xFFE65100.toInt())
+                    webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                     return@postDelayed
                 }
                 
                 if (VisionApiClient.apiKey.isEmpty()) {
                     // 没有API Key，只做本地OCR刷新
                     webView?.evaluateJavascript(
-                        "if(typeof onActionCapture==='function'){onActionCapture()}",
+                        "if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')",
                         null
                     )
-                    tvAction.setBackgroundColor(0xFFE65100.toInt())
+                    tvAction.setBackgroundColor(0xFF4CAF50.toInt())
                     tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
                     return@postDelayed
                 }
                 
                 // 有API Key → 调用视觉模型识别牌面
                 tvStatus?.text = "🎯 API识别中..."
+                    tvAction.setBackgroundColor(0xFF1565C0.toInt())
                 Thread {
                     try {
                         val result = VisionApiClient.analyzeScreenshot(screenshot)
@@ -326,20 +329,27 @@ class FloatingService : Service() {
                                     "if(typeof onVisionResult==='function'){onVisionResult($resultJson)}",
                                     null
                                 )
-                                tvAction.setBackgroundColor(0xFFE65100.toInt())
+                                // 根据策略结果变色反馈
+                                val actionColor = when(result.street) {
+                                    "preflop", "pre" -> 0xFF4CAF50.toInt() // 绿色
+                                    else -> 0xFF4CAF50.toInt()
+                                }
+                                tvAction.setBackgroundColor(actionColor)
                                 val hole = result.holeCards.map { it.rank + it.suit }.joinToString(" ")
-                                tvStatus?.text = "🎯 $hole | ${result.street} | ${result.totalPlayers}人"
+                                tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
                             }
                         } else {
                             handler.post {
                                 tvAction.setBackgroundColor(0xFFE65100.toInt())
                                 tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
+                                webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                             }
                         }
                     } catch (e: Exception) {
                         handler.post {
                             tvAction.setBackgroundColor(0xFFE65100.toInt())
                             tvStatus?.text = "❌ API错误"
+                            webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                         }
                     }
                 }.start()

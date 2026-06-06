@@ -154,6 +154,36 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;
 .yolo-badge.on{background:rgba(46,213,115,.15);color:#2ed573}
 .yolo-badge.off{background:rgba(255,255,255,.05);color:#444}
 </style>
+/* === V1.5 极速模式 === */
+body.speed-mode .tracker-wrap,
+body.speed-mode .scene-wrap,
+body.speed-mode .cards-row,
+body.speed-mode .hint,
+body.speed-mode .mx-wrap,
+body.speed-mode .adv-t,
+body.speed-mode .adv,
+body.speed-mode .cam-mini{display:none!important}
+body.speed-mode .res{min-height:120px;border-radius:18px;padding:16px 12px}
+body.speed-mode .r-a{font-size:72px;letter-spacing:5px}
+body.speed-mode .r-v{font-size:22px;margin-top:4px}
+body.speed-mode .r-d{font-size:13px;margin-top:3px}
+body.speed-mode .r-tip{font-size:12px;padding:4px 14px;margin-top:5px}
+body.speed-mode .r-class{font-size:10px;margin-top:3px}
+body.speed-mode .r-drta{font-size:10px;margin-top:4px}
+body.speed-mode .r-spr{font-size:10px;margin-top:3px}
+body.speed-mode .r-ev-sm{font-size:11px;margin-top:3px}
+body.speed-mode .r-plan{font-size:10px;margin-top:3px}
+body.speed-mode .speed-exit{display:inline-block!important}
+.speed-exit{display:none!important;font-size:10px;color:#555;padding:3px 10px;border-radius:12px;background:rgba(255,255,255,.05);cursor:pointer;margin-top:6px}
+.speed-exit:active{background:rgba(255,255,255,.15)}
+@keyframes resultPulse{0%{transform:scale(1)}25%{transform:scale(1.06)}50%{transform:scale(1)}75%{transform:scale(1.03)}100%{transform:scale(1)}}
+.result-pulse{animation:resultPulse .4s ease-out}
+@keyframes borderFlash{0%{box-shadow:0 0 0 0 rgba(255,255,255,.6)}50%{box-shadow:0 0 20px 4px rgba(255,255,255,.3)}100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}}
+.border-flash{animation:borderFlash .5s ease-out}
+/* API处理中状态 */
+.api-processing .res{opacity:.6}
+.api-processing .res::after{content:'⏳ 识别中...';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:18px;color:#ffd700;font-weight:900}
+.api-processing .res{position:relative}
 </head>
 <body>
 <div class="res" id="res"><div style="color:#555;font-size:14px">👇 选牌 + 点场景</div></div>
@@ -859,6 +889,8 @@ function show(r){
   if(r.eq!==undefined){
     h+='<div class="r-ev-sm">胜率: '+r.eq.toFixed(0)+'%'+(r.po!==undefined?' | 需'+r.po.toFixed(0)+'%':'')+'</div>';
   }
+  // 极速模式退出按钮
+  h+='<div class="speed-exit" onclick="exitSpeedMode()">✏️ 手动编辑</div>';
   document.getElementById('res').innerHTML=h;
   if(mxVisible&&G.hole[0]&&G.hole[1]){
     document.getElementById('hint').textContent='✅ 牌已选 - 点场景按钮看建议';
@@ -905,6 +937,7 @@ function updatePot(){G.pot=parseInt(document.getElementById('potInp').value)||10
 function updateBet(){G.bet=parseInt(document.getElementById('betInp').value)||0;go();}
 function togAdv(){document.getElementById('adv').classList.toggle('show');}
 function clr(){
+  document.body.classList.remove('speed-mode');
   G.hole=[null,null];G.comm=[null,null,null,null,null];
   G.scene=G.phase==='pre'?'open':'check';
   G.bet=0;G.pot=10;mxVisible=true;
@@ -1134,41 +1167,76 @@ function onVisionResult(data){
         G.comm.push(null);
       }
     }
-    // 补齐5个位置
     while(G.comm.length<5) G.comm.push(null);
   }
   
-  // 3. 更新UI
-  uCards();
-  
-  // 4. 更新筹码/底池信息
-  var info='';
-  if(data.total_players) info+=data.total_players+'人';
-  if(data.active_players) info+=' | 活跃'+data.active_players;
-  if(data.pot_size) info+=' | 底池'+data.pot_size;
-  if(data.my_chips) info+=' | 我'+data.my_chips;
-  if(data.my_position) info+=' | '+data.my_position;
-  if(data.to_call) info+=' | 跟注'+data.to_call;
-  var el=document.getElementById('chipInfo');
-  if(el && info) el.textContent=info;
-  
-  // 5. 更新SPR（如果有底池和筹码）
-  if(data.pot_size>0 && data.my_chips>0){
-    var sprEl=document.getElementById('sprVal');
-    if(sprEl) sprEl.textContent=(data.my_chips/data.pot_size).toFixed(1);
+  // 3. 自动设定阶段和场景（根据API返回的street）
+  if(data.street){
+    var street=(data.street||'').toLowerCase();
+    if(street==='preflop'||street==='pre'){
+      G.phase='pre';
+      if(data.to_call && data.to_call>0) setScene('call');
+      else if(data.last_action==='raise'||data.last_action==='reraise') setScene('raise');
+      else setScene('open');
+    } else {
+      G.phase='post';
+      if(data.to_call && data.to_call>0) setScene('call');
+      else if(data.last_action==='bet') setScene('bet');
+      else if(data.last_action==='raise') setScene('raise');
+      else setScene('check');
+    }
   }
   
-  // 6. 自动触发策略分析
-  setTimeout(go,200);
+  // 4. 自动设定桌型和位置
+  if(data.total_players){
+    G.tt=parseInt(data.total_players)||6;
+    G.act=G.tt;
+  }
+  if(data.my_position){
+    var posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',mp:'mp',utg:'utg',sb:'sb',bb:'bb',utg1:'utg',utg2:'utg',mp1:'mp',mp2:'mp',hijack:'mp'};
+    G.pos=posMap[(data.my_position||'').toLowerCase()]||'btn';
+  }
   
-  // 7. 显示识别成功提示
+  // 5. 更新筹码/底池/面对下注
+  if(data.pot_size>0) G.pot=parseInt(data.pot_size)||G.pot;
+  if(data.to_call!==undefined) G.bet=parseInt(data.to_call)||0;
+  if(data.my_chips>0){
+    var bb=Math.max(1,Math.round(data.my_chips/100));
+    G.stk=Math.max(5,Math.round(data.my_chips/bb));
+  }
+  
+  // 6. 更新UI
+  uCards();
+  
+  // 7. ★ 进入极速模式 ★
+  document.body.classList.add('speed-mode');
+  document.body.classList.remove('api-processing');
+  
+  // 8. 触发策略分析
+  go();
+  
+  // 9. 结果脉冲动画
+  var resEl=document.getElementById('res');
+  if(resEl){
+    resEl.classList.remove('result-pulse','border-flash');
+    void resEl.offsetWidth; // 强制reflow
+    resEl.classList.add('result-pulse','border-flash');
+  }
+  
+  // 10. 显示识别成功信息
   var statusEl=document.getElementById('statusLine');
   if(statusEl){
     var hole=data.hole_cards?data.hole_cards.map(function(c){return c.rank+c.suit;}).join(' '):'';
     var comm=data.community_cards?data.community_cards.map(function(c){return c.rank+c.suit;}).join(' '):'';
-    statusEl.textContent='✅ API识别: '+hole+(comm?' | '+comm:'')+' | '+data.street;
+    statusEl.textContent='✅ '+hole+(comm?' | '+comm:'')+' | '+(data.street||'');
   }
 }
+
+// 退出极速模式（手动编辑用）
+function exitSpeedMode(){
+  document.body.classList.remove('speed-mode');
+}
+
 
 // 初始化
 DRTA.init();
