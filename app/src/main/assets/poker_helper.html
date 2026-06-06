@@ -1092,6 +1092,32 @@ function testKey(){
   }
 }
 
+// V1.3: 按需截屏回调 - 从Android端截屏完成后调用
+function onActionCapture(){
+  // 获取最新筹码信息
+  fetch('/api/chips')
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(data && data.tablePlayerCount){
+        var info=data.tablePlayerCount+'人桌';
+        if(data.activePlayerCount) info+=' | 活跃'+data.activePlayerCount;
+        if(data.totalBetAmount) info+=' | 底池'+data.totalBetAmount;
+        var el=document.getElementById('chipInfo');
+        if(el) el.textContent=info;
+      }
+    })
+    .catch(function(){});
+  // 获取截图预览（如果有显示区域）
+  fetch('/api/screenshot')
+    .then(function(r){
+      if(r.ok){
+        var el=document.getElementById('screenshotPreview');
+        if(el) el.src='/api/screenshot?'+Date.now();
+      }
+    })
+    .catch(function(){});
+}
+
 // 初始化
 DRTA.init();
 mkMx();

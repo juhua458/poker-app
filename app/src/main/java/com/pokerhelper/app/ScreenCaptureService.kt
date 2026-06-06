@@ -37,6 +37,7 @@ class ScreenCaptureService : Service() {
             private set
         var lastChipStatus: String = ""
             internal set
+        var onCaptureComplete: (() -> Unit)? = null
         private const val CHANNEL_ID = "poker_screenshot"
         private const val NOTIFICATION_ID = 1
     }
@@ -68,6 +69,11 @@ class ScreenCaptureService : Service() {
         if (intent?.action == "RESET_CHIPS") {
             ChipTracker.reset()
             lastChipStatus = "已重置"
+            return START_STICKY
+        }
+
+        if (intent?.action == "CAPTURE_ONCE") {
+            handler.post { captureAndAnalyze() }
             return START_STICKY
         }
 
@@ -115,12 +121,15 @@ class ScreenCaptureService : Service() {
             lastError = ""
             captureCount = 0
 
-            // 每1.5秒截一次屏 + OCR分析
+            // V1.3: 按需截屏模式 - 轻量保活（只丢帧不分析，省电省资源）
             handler.postDelayed(object : Runnable {
                 override fun run() {
                     if (isRunning) {
-                        captureAndAnalyze()
-                        handler.postDelayed(this, 1500)
+                        try {
+                            val img = imageReader?.acquireLatestImage()
+                            img?.close()
+                        } catch (_: Exception) {}
+                        handler.postDelayed(this, 3000)
                     }
                 }
             }, 500)
@@ -258,6 +267,9 @@ class ScreenCaptureService : Service() {
                 lastCaptureTime = System.currentTimeMillis()
                 consecutiveFails = 0
                 lastError = ""
+                
+                // 触发按需截屏回调
+                onCaptureComplete?.invoke()
                 
                 // 异步OCR分析筹码
                 Thread {

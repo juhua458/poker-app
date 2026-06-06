@@ -145,6 +145,31 @@ class HttpServerService : Service() {
                                 addHeader("Access-Control-Allow-Origin", "*")
                             }
                         }
+                        // V1.3 新增：按需截屏+OCR
+                        session.uri == "/api/capture" -> {
+                            try {
+                                // 触发一次截屏
+                                val captureIntent = Intent(this@HttpServerService, ScreenCaptureService::class.java).apply {
+                                    action = "CAPTURE_ONCE"
+                                }
+                                startService(captureIntent)
+                                // 等待截屏完成（简单延迟）
+                                Thread.sleep(1500)
+                                val json = JSONObject().apply {
+                                    put("ok", ScreenCaptureService.latestScreenshot != null)
+                                    put("chipStatus", ScreenCaptureService.lastChipStatus)
+                                    put("captureCount", ScreenCaptureService.captureCount)
+                                }.toString()
+                                newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            } catch (e: Exception) {
+                                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", 
+                                    """{"error":"${e.message}"}""").apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            }
+                        }
                         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
                     }
                 }

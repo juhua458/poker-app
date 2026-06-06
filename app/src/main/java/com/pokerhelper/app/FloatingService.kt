@@ -277,6 +277,34 @@ class FloatingService : Service() {
             setPadding(8, 4, 8, 4)
         }
 
+        // V1.3: "我行动"按钮 - 按需截屏
+        val tvAction = TextView(this).apply {
+            text = "🎯"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 16f
+            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0xFFE65100.toInt())
+            setOnClickListener {
+                // 触发按需截屏
+                tvStatus?.text = "🎯 截屏分析中..."
+                tvAction.setBackgroundColor(0xFFFF6D00.toInt())
+                val captureIntent = Intent(this@FloatingService, ScreenCaptureService::class.java).apply {
+                    action = "CAPTURE_ONCE"
+                }
+                startService(captureIntent)
+                // 1.5秒后刷新策略（等截屏+OCR完成）
+                handler.postDelayed({
+                    // 通知WebView刷新截图和筹码数据
+                    webView?.evaluateJavascript(
+                        "if(typeof onActionCapture==='function'){onActionCapture()}",
+                        null
+                    )
+                    tvAction.setBackgroundColor(0xFFE65100.toInt())
+                    tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新" }
+                }, 1500)
+            }
+        }
+
         // V1.2: 语音输入按钮
         tvVoice = TextView(this).apply {
             text = "🎤"
@@ -310,6 +338,7 @@ class FloatingService : Service() {
         }
 
         topBar.addView(tvStatus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        topBar.addView(tvAction)
         topBar.addView(tvVoice)
         topBar.addView(tvReset)
         topBar.addView(tvCollapse)
