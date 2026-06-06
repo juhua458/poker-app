@@ -55,5 +55,18 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
+        <!-- V1.9: 无障碍截图服务（替代MediaProjection，不触发游戏黑屏检测） -->
+        <service
+            android:name=".PokerAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
     </application>
 </manifest>

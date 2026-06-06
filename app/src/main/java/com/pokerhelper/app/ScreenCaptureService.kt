@@ -29,13 +29,13 @@ class ScreenCaptureService : Service() {
     companion object {
         var isRunning = false
         var latestScreenshot: ByteArray? = null
-            private set
+            internal set
         var captureCount: Int = 0
-            private set
+            internal set
         var lastCaptureTime: Long = 0
-            private set
+            internal set
         var lastError: String = ""
-            private set
+            internal set
         var lastChipStatus: String = ""
         private const val CHANNEL_ID = "poker_screenshot"
         private const val NOTIFICATION_ID = 1

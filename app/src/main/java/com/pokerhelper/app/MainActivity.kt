@@ -89,8 +89,10 @@ class MainActivity : AppCompatActivity() {
             tvStatus = findViewById(R.id.tvStatus)
             tvHint = findViewById(R.id.tvHint)
             tvApiStatus = findViewById(R.id.tvApiStatus)
+            tvAccessibilityStatus = findViewById(R.id.tvAccessibilityStatus)
             btnStart = findViewById(R.id.btnStart)
             btnHelper = findViewById(R.id.btnHelper)
+            btnAccessibility = findViewById(R.id.btnAccessibility)
             btnSaveApi = findViewById(R.id.btnSaveApi)
             spinnerProvider = findViewById(R.id.spinnerProvider)
             etApiKey = findViewById(R.id.etApiKey)
@@ -152,6 +154,16 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Helper error", e)
                     Toast.makeText(this, "启动悬浮窗失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+
+            // V1.9: 无障碍服务按钮
+            btnAccessibility.setOnClickListener {
+                try {
+                    openAccessibilitySettings()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Accessibility settings error", e)
+                    Toast.makeText(this, "打开设置失败: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         } catch (e: Exception) {
@@ -240,8 +252,55 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * V1.9: 检测无障碍服务是否已开启
+     * 双重检测：内存状态(快) + 系统设置(可靠)
+     */
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        // 先查内存状态（快）
+        if (PokerAccessibilityService.isServiceRunning()) return true
+
+        // 查系统设置（进程重启后仍可靠）
+        try {
+            val enabledServices = Settings.Secure.getString(
+                contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: return false
+            return enabledServices.contains("$packageName/.PokerAccessibilityService") ||
+                   enabledServices.contains("$packageName/com.pokerhelper.app.PokerAccessibilityService")
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
+    /**
+     * V1.9: 一键跳转无障碍设置页面
+     * 豪哥操作不熟练，所以加Toast指引
+     */
+    private fun openAccessibilitySettings() {
+        Toast.makeText(this, "找到「扑克AI助手」→ 开启", Toast.LENGTH_LONG).show()
+        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+
     private fun updateUI() {
         try {
+            // V1.9: 更新无障碍服务状态
+            val accessibilityEnabled = isAccessibilityServiceEnabled()
+            if (accessibilityEnabled) {
+                tvAccessibilityStatus.text = "✅ 无障碍服务已开启（截图不触发黑屏）"
+                tvAccessibilityStatus.setTextColor(getColor(android.R.color.holo_green_dark))
+                btnAccessibility.text = "♿ 无障碍服务已开启"
+                btnAccessibility.backgroundTint = android.content.res.ColorStateList.valueOf(0xFF4CAF50.toInt())
+            } else {
+                tvAccessibilityStatus.text = "⚠️ 无障碍服务未开启（点下方开启，截图不黑屏）"
+                tvAccessibilityStatus.setTextColor(getColor(android.R.color.holo_orange_dark))
+                btnAccessibility.text = "♿ 开启无障碍服务"
+                btnAccessibility.backgroundTint = android.content.res.ColorStateList.valueOf(0xFF7c3aed.toInt())
+            }
+
             if (isRunning) {
                 tvStatus.text = "✅ 运行中"
                 tvStatus.setTextColor(getColor(android.R.color.holo_green_dark))
@@ -255,7 +314,7 @@ class MainActivity : AppCompatActivity() {
                 tvStatus.setTextColor(getColor(android.R.color.darker_gray))
                 btnStart.text = "🚀 开始截屏"
                 btnHelper.visibility = View.GONE
-                tvHint.text = "先点上方按钮启动截屏"
+                tvHint.text = "先开启无障碍服务，再启动截屏"
                 tvHint.setTextColor(getColor(android.R.color.darker_gray))
             }
             updateApiStatus()

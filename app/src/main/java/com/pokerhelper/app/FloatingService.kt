@@ -271,95 +271,43 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v1.2"
+            text = "🃏 Poker AI v1.9"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 12f
             setPadding(8, 4, 8, 4)
         }
 
         // V1.3: "我行动"按钮 - 按需截屏
-        val tvAction = TextView(this)
-        tvAction.text = "🎯"
-        tvAction.setTextColor(0xFFFFFFFF.toInt())
-        tvAction.textSize = 22f
-        tvAction.setPadding(10, 4, 10, 4)
-        tvAction.setBackgroundColor(0xFFE65100.toInt())
-        tvAction.setOnClickListener {
-            // V1.3: 按需截屏+API识别
+        tvAction = TextView(this)
+        tvAction?.text = "🎯"
+        tvAction?.setTextColor(0xFFFFFFFF.toInt())
+        tvAction?.textSize = 22f
+        tvAction?.setPadding(10, 4, 10, 4)
+        tvAction?.setBackgroundColor(0xFFE65100.toInt())
+        tvAction?.setOnClickListener {
+            // V1.9: 无障碍截图优先 + MediaProjection降级
             tvStatus?.text = "🎯 截屏中..."
             webView?.evaluateJavascript("document.body.classList.add('api-processing')", null)
-            tvAction.setBackgroundColor(0xFF1565C0.toInt())
-            val captureIntent = Intent(this@FloatingService, ScreenCaptureService::class.java).apply {
-                action = "CAPTURE_ONCE"
-            }
-            startService(captureIntent)
+            tvAction?.setBackgroundColor(0xFF1565C0.toInt())
             
-            // 等截屏完成
-            handler.postDelayed({
-                val screenshot = ScreenCaptureService.latestScreenshot
-                if (screenshot == null) {
-                    // V1.7: 诊断信息 + 提示重新授权
-                    val diag = when {
-                        !ScreenCaptureService.isRunning -> "❌ 截屏服务未启动，请回主界面点「启动」"
-                        ScreenCaptureService.lastError.isNotEmpty() -> "❌ 截屏失败: ${ScreenCaptureService.lastError.take(20)}"
-                        else -> "❌ 截屏失败，请回主界面重新点「启动」授权"
-                    }
-                    tvStatus?.text = diag
-                    tvAction.setBackgroundColor(0xFFE65100.toInt())
-                    webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
-                    return@postDelayed
-                }
-                
-                if (VisionApiClient.apiKey.isEmpty()) {
-                    // 没有API Key，只做本地OCR刷新
-                    webView?.evaluateJavascript(
-                        "if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')",
-                        null
-                    )
-                    tvAction.setBackgroundColor(0xFF4CAF50.toInt())
-                    tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
-                    return@postDelayed
-                }
-                
-                // 有API Key → 调用视觉模型识别牌面
-                tvStatus?.text = "🎯 API识别中..."
-                    tvAction.setBackgroundColor(0xFF1565C0.toInt())
-                Thread {
-                    try {
-                        val result = VisionApiClient.analyzeScreenshot(screenshot)
-                        if (result != null) {
-                            val resultJson = VisionApiClient.toJson(result)
-                            // 主线程刷新WebView
-                            handler.post {
-                                webView?.evaluateJavascript(
-                                    "if(typeof onVisionResult==='function'){onVisionResult($resultJson)}",
-                                    null
-                                )
-                                // 根据策略结果变色反馈
-                                val actionColor = when(result.street) {
-                                    "preflop", "pre" -> 0xFF4CAF50.toInt() // 绿色
-                                    else -> 0xFF4CAF50.toInt()
-                                }
-                                tvAction.setBackgroundColor(actionColor)
-                                val hole = result.holeCards.map { it.rank + it.suit }.joinToString(" ")
-                                tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
-                            }
+            if (PokerAccessibilityService.isServiceRunning()) {
+                // ★ 无障碍截图优先（不触发游戏黑屏检测）★
+                PokerAccessibilityService.onScreenshotReady = { success ->
+                    handler.post {
+                        if (success) {
+                            processScreenshotAndAnalyze()
                         } else {
-                            handler.post {
-                                tvAction.setBackgroundColor(0xFFE65100.toInt())
-                                tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
-                                webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        handler.post {
-                            tvAction.setBackgroundColor(0xFFE65100.toInt())
-                            tvStatus?.text = "❌ API错误"
-                            webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+                            // 无障碍截图失败，降级到MediaProjection
+                            tvStatus?.text = "⚠️ 无障碍失败，降级截屏..."
+                            fallbackToMediaProjectionCapture()
                         }
                     }
-                }.start()
-            }, 2000)
+                }
+                PokerAccessibilityService.captureScreen()
+            } else {
+                // 无障碍服务未开启，降级到MediaProjection
+                fallbackToMediaProjectionCapture()
+            }
         }
 
         // V1.2: 语音输入按钮
@@ -395,7 +343,7 @@ class FloatingService : Service() {
         }
 
         topBar.addView(tvStatus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        topBar.addView(tvAction)
+        topBar.addView(tvAction!!)
         topBar.addView(tvVoice)
         topBar.addView(tvReset)
         topBar.addView(tvCollapse)
@@ -604,6 +552,87 @@ class FloatingService : Service() {
             }
             return false
         }
+    }
+
+    /**
+     * V1.9: 处理截图并调用API分析
+     * 从 ScreenCaptureService.latestScreenshot 读取截图数据
+     * 无论来源是无障碍还是MediaProjection，数据格式统一
+     */
+    private fun processScreenshotAndAnalyze() {
+        val screenshot = ScreenCaptureService.latestScreenshot
+        if (screenshot == null) {
+            val diag = when {
+                !ScreenCaptureService.isRunning && !PokerAccessibilityService.isServiceRunning() ->
+                    "❌ 截屏失败：服务未启动，请回主界面"
+                ScreenCaptureService.lastError.isNotEmpty() ->
+                    "❌ 截屏失败: ${ScreenCaptureService.lastError.take(30)}"
+                else -> "❌ 截屏失败，请重试"
+            }
+            tvStatus?.text = diag
+            tvAction?.setBackgroundColor(0xFFE65100.toInt())
+            webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+            return
+        }
+
+        if (VisionApiClient.apiKey.isEmpty()) {
+            // 没有API Key，只做本地刷新
+            webView?.evaluateJavascript(
+                "if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')",
+                null
+            )
+            tvAction?.setBackgroundColor(0xFF4CAF50.toInt())
+            tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
+            return
+        }
+
+        // 有API Key → 调用视觉模型识别牌面
+        tvStatus?.text = "🎯 API识别中..."
+        tvAction?.setBackgroundColor(0xFF1565C0.toInt())
+        Thread {
+            try {
+                val result = VisionApiClient.analyzeScreenshot(screenshot)
+                if (result != null) {
+                    val resultJson = VisionApiClient.toJson(result)
+                    handler.post {
+                        webView?.evaluateJavascript(
+                            "if(typeof onVisionResult==='function'){onVisionResult($resultJson)}",
+                            null
+                        )
+                        tvAction?.setBackgroundColor(0xFF4CAF50.toInt())
+                        val hole = result.holeCards.map { it.rank + it.suit }.joinToString(" ")
+                        tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
+                    }
+                } else {
+                    handler.post {
+                        tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                        tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
+                        webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+                    }
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                    tvStatus?.text = "❌ API错误"
+                    webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * V1.9: 降级到MediaProjection截屏
+     * 当无障碍服务未开启或截图失败时使用
+     */
+    private fun fallbackToMediaProjectionCapture() {
+        val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
+            action = "CAPTURE_ONCE"
+        }
+        startService(captureIntent)
+
+        handler.postDelayed({
+            processScreenshotAndAnalyze()
+        }, 2000)
     }
 
     private fun toggleExpand() {

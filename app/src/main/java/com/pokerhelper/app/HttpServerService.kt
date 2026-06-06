@@ -103,7 +103,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "1.2")
+                                put("version", "1.9")
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
@@ -145,23 +145,44 @@ class HttpServerService : Service() {
                                 addHeader("Access-Control-Allow-Origin", "*")
                             }
                         }
-                        // V1.3 新增：按需截屏+OCR
+                        // V1.9: 按需截屏+API识别（无障碍优先）
                         session.uri == "/api/capture" -> {
                             try {
-                                // 触发一次截屏
-                                val captureIntent = Intent(this@HttpServerService, ScreenCaptureService::class.java).apply {
-                                    action = "CAPTURE_ONCE"
-                                }
-                                startService(captureIntent)
-                                // 等待截屏完成（简单延迟）
-                                Thread.sleep(1500)
-                                val json = JSONObject().apply {
-                                    put("ok", ScreenCaptureService.latestScreenshot != null)
-                                    put("chipStatus", ScreenCaptureService.lastChipStatus)
-                                    put("captureCount", ScreenCaptureService.captureCount)
-                                }.toString()
-                                newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
-                                    addHeader("Access-Control-Allow-Origin", "*")
+                                // V1.9: 优先使用无障碍截图
+                                if (PokerAccessibilityService.isServiceRunning()) {
+                                    val latch = java.util.concurrent.CountDownLatch(1)
+                                    var captureSuccess = false
+                                    PokerAccessibilityService.onScreenshotReady = { success ->
+                                        captureSuccess = success
+                                        latch.countDown()
+                                    }
+                                    PokerAccessibilityService.captureScreen()
+                                    latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+                                    val json = JSONObject().apply {
+                                        put("ok", ScreenCaptureService.latestScreenshot != null)
+                                        put("method", if (captureSuccess) "accessibility" else "fallback")
+                                        put("chipStatus", ScreenCaptureService.lastChipStatus)
+                                        put("captureCount", ScreenCaptureService.captureCount)
+                                    }.toString()
+                                    newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                        addHeader("Access-Control-Allow-Origin", "*")
+                                    }
+                                } else {
+                                    // 降级到MediaProjection
+                                    val captureIntent = Intent(this@HttpServerService, ScreenCaptureService::class.java).apply {
+                                        action = "CAPTURE_ONCE"
+                                    }
+                                    startService(captureIntent)
+                                    Thread.sleep(1500)
+                                    val json = JSONObject().apply {
+                                        put("ok", ScreenCaptureService.latestScreenshot != null)
+                                        put("method", "mediaProjection")
+                                        put("chipStatus", ScreenCaptureService.lastChipStatus)
+                                        put("captureCount", ScreenCaptureService.captureCount)
+                                    }.toString()
+                                    newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                        addHeader("Access-Control-Allow-Origin", "*")
+                                    }
                                 }
                             } catch (e: Exception) {
                                 newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", 
