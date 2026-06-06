@@ -74,6 +74,8 @@ object VisionApiClient {
             // 4. 解析响应
             val result = parseResponse(response)
 
+            var correctedResult: VisionResult? = null
+
             if (result != null) {
                 lastResult = result
                 lastResultTime = System.currentTimeMillis()
@@ -81,7 +83,7 @@ object VisionApiClient {
                 // V2.2: 校验识别结果合理性，并自动纠正street
                 val warnings = validateResult(result)
                 // V2.2: street和公共牌数矛盾时，以公共牌数为准纠正street
-                var correctedResult = result
+                correctedResult = result
                 val commCount = result.communityCards.size
                 val correctStreet = when {
                     commCount == 0 -> "preflop"
