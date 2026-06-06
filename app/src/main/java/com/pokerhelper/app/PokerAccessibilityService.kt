@@ -78,7 +78,6 @@ class PokerAccessibilityService : AccessibilityService() {
      * HardwareBuffer → Bitmap 必须先 copy() 再 close()
      * 否则截图空白
      */
-    @android.annotation.SuppressLint("NewApi")
     private fun performCapture() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             // API 30以下不支持takeScreenshot，回退
@@ -88,7 +87,6 @@ class PokerAccessibilityService : AccessibilityService() {
         }
 
         try {
-            // displayId=0 表示主屏幕
             @Suppress("DEPRECATION")
             val displayId = android.view.Display.DEFAULT_DISPLAY
 
@@ -102,14 +100,10 @@ class PokerAccessibilityService : AccessibilityService() {
 
                             // ★★★ 关键：必须先copy再close，否则截图空白 ★★★
                             // 1. Wrap HardwareBuffer → Hardware Bitmap
-                            val hardwareBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                // API 34+: 带 ColorSpace 的版本
-                                Bitmap.wrapHardwareBuffer(hardwareBuffer, screenshotResult.colorSpace)
-                            } else {
-                                // API 30-33: 不带 ColorSpace
-                                @Suppress("DEPRECATION")
-                                Bitmap.wrapHardwareBuffer(hardwareBuffer)
-                            }
+                            //    豪哥手机Android 15(API35)，直接用双参数版本
+                            val hardwareBitmap = Bitmap.wrapHardwareBuffer(
+                                hardwareBuffer, screenshotResult.colorSpace
+                            )
 
                             // 2. 复制为 ARGB_8888 软件Bitmap（独立于HardwareBuffer）
                             val softwareBitmap = hardwareBitmap?.copy(Bitmap.Config.ARGB_8888, false)
@@ -117,7 +111,7 @@ class PokerAccessibilityService : AccessibilityService() {
                             // 3. ★ 安全关闭硬件资源（copy之后才能close）★
                             hardwareBitmap?.recycle()
                             hardwareBuffer.close()
-                            screenshotResult.close()
+                            // ScreenshotResult没有close()方法，不需要关闭
 
                             if (softwareBitmap != null) {
                                 // 4. 压缩为JPEG
@@ -139,13 +133,13 @@ class PokerAccessibilityService : AccessibilityService() {
                                 ScreenCaptureService.lastError = "无障碍截图: Bitmap转换失败(将降级到MediaProjection)"
                                 handler.post { onScreenshotReady?.invoke(false) }
                             }
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             ScreenCaptureService.lastError = "无障碍截图处理失败: ${e.message}"
                             handler.post { onScreenshotReady?.invoke(false) }
                         }
                     }
 
-                    override fun onError(errorCode: Int) {
+                    override fun onFailure(errorCode: Int) {
                         val errMsg = when (errorCode) {
                             1 -> "内部错误"
                             2 -> "无无障碍权限"
@@ -158,7 +152,7 @@ class PokerAccessibilityService : AccessibilityService() {
                     }
                 }
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             ScreenCaptureService.lastError = "无障碍截图异常: ${e.message}"
             handler.post { onScreenshotReady?.invoke(false) }
         }
