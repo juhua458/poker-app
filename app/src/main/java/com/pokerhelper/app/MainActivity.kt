@@ -255,7 +255,8 @@ class MainActivity : AppCompatActivity() {
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: return false
             return enabledServices.contains("$packageName/.PokerAccessibilityService") ||
-                   enabledServices.contains("$packageName/com.pokerhelper.app.PokerAccessibilityService")
+                   enabledServices.contains("$packageName/com.pokerhelper.app.PokerAccessibilityService") ||
+                   enabledServices.contains("com.pokerhelper.app/com.pokerhelper.app.PokerAccessibilityService")
         } catch (e: Exception) {
             return false
         }
