@@ -98,13 +98,13 @@ class MainActivity : AppCompatActivity() {
             isRunning = ScreenCaptureService.isRunning
             updateUI()
 
-            val providers = arrayOf("openai", "dashscope", "deepseek")
-            val providerNames = arrayOf("OpenAI (GPT-4o-mini)", "通义千问VL", "DeepSeek")
+            val providers = arrayOf("openai", "dashscope", "deepseek", "siliconflow")
+            val providerNames = arrayOf("OpenAI (GPT-4o-mini)", "通义千问VL", "DeepSeek", "硅基流动(Qwen3-VL)")
             val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, providerNames)
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             spinnerProvider.adapter = adapter
 
-            val savedProvider = prefs?.getString(KEY_PROVIDER, "openai") ?: "openai"
+            val savedProvider = prefs?.getString(KEY_PROVIDER, "siliconflow") ?: "siliconflow"
             val savedKey = prefs?.getString(KEY_APIKEY, "") ?: ""
             val providerIndex = providers.indexOf(savedProvider).coerceAtLeast(0)
             spinnerProvider.setSelection(providerIndex)

@@ -294,6 +294,10 @@ object VisionApiClient {
                 apiUrl = "https://api.deepseek.com/v1/chat/completions"
                 modelName = "deepseek-chat-vision"
             }
+            "siliconflow" -> {
+                apiUrl = "https://api.siliconflow.cn/v1/chat/completions"
+                modelName = "Qwen/Qwen3-VL-8B-Instruct"
+            }
         }
     }
 }
