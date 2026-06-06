@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v1.2
-        name: "V1.2 扑克AI助手 - GTO+DRTA融合策略"
-        body: "V1.2: GTO+DRTA融合策略引擎 - OpponentTracker对手动态追踪 + StrategicBluff战略诈唬 + StrategicRetreat战略撤退 + DRTAWeight动态权重"
+        tag_name: v1.3
+        name: "V1.3 扑克AI助手 - 按需截屏模式"
+        body: "V1.3: 按需截屏模式 - 🎯我行动按钮替代自动截屏，省电省资源；轮到你时点一下即可截屏+OCR+策略刷新"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
