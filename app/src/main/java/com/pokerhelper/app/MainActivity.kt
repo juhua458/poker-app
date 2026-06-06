@@ -33,8 +33,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvHint: TextView
     private lateinit var tvApiStatus: TextView
+    private lateinit var tvAccessibilityStatus: TextView
     private lateinit var btnStart: Button
     private lateinit var btnHelper: Button
+    private lateinit var btnAccessibility: Button
     private lateinit var btnSaveApi: Button
     private lateinit var spinnerProvider: Spinner
     private lateinit var etApiKey: EditText

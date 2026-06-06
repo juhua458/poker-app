@@ -78,6 +78,7 @@ class PokerAccessibilityService : AccessibilityService() {
      * HardwareBuffer → Bitmap 必须先 copy() 再 close()
      * 否则截图空白
      */
+    @android.annotation.SuppressLint("NewApi")
     private fun performCapture() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             // API 30以下不支持takeScreenshot，回退
@@ -94,8 +95,8 @@ class PokerAccessibilityService : AccessibilityService() {
             takeScreenshot(
                 displayId,
                 { runnable -> handler.post(runnable) },
-                object : TakeScreenshotCallback {
-                    override fun onSuccess(screenshot: Screenshot) {
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.Screenshot) {
                         try {
                             val hardwareBuffer = screenshot.hardwareBuffer
 

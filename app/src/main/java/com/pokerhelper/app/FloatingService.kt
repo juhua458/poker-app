@@ -51,6 +51,7 @@ class FloatingService : Service() {
     private var floatingView: View? = null
     private var webView: WebView? = null
     private var tvStatus: TextView? = null
+    private var tvAction: TextView? = null
     private var tvVoice: TextView? = null
     private var resizeHandleLeft: View? = null
     private var resizeHandleBottom: View? = null
