@@ -1092,9 +1092,8 @@ function testKey(){
   }
 }
 
-// V1.3: 按需截屏回调 - 从Android端截屏完成后调用
+// V1.3: 按需截屏回调 - 从Android端截屏完成后调用（无API Key时的降级方案）
 function onActionCapture(){
-  // 获取最新筹码信息
   fetch('/api/chips')
     .then(function(r){return r.json();})
     .then(function(data){
@@ -1107,15 +1106,68 @@ function onActionCapture(){
       }
     })
     .catch(function(){});
-  // 获取截图预览（如果有显示区域）
-  fetch('/api/screenshot')
-    .then(function(r){
-      if(r.ok){
-        var el=document.getElementById('screenshotPreview');
-        if(el) el.src='/api/screenshot?'+Date.now();
+}
+
+// V1.3: API视觉识别结果回调 - 自动填入牌面+策略分析
+function onVisionResult(data){
+  if(!data) return;
+  
+  // 1. 自动填入手牌
+  if(data.hole_cards && data.hole_cards.length>=2){
+    G.hole=[];
+    for(var i=0;i<data.hole_cards.length && i<2;i++){
+      var c=data.hole_cards[i];
+      if(c.rank && c.suit){
+        G.hole.push({rank:c.rank,suit:c.suit});
       }
-    })
-    .catch(function(){});
+    }
+  }
+  
+  // 2. 自动填入公共牌
+  if(data.community_cards){
+    G.comm=[];
+    for(var i=0;i<data.community_cards.length && i<5;i++){
+      var c=data.community_cards[i];
+      if(c.rank && c.suit){
+        G.comm.push({rank:c.rank,suit:c.suit});
+      } else {
+        G.comm.push(null);
+      }
+    }
+    // 补齐5个位置
+    while(G.comm.length<5) G.comm.push(null);
+  }
+  
+  // 3. 更新UI
+  uCards();
+  
+  // 4. 更新筹码/底池信息
+  var info='';
+  if(data.total_players) info+=data.total_players+'人';
+  if(data.active_players) info+=' | 活跃'+data.active_players;
+  if(data.pot_size) info+=' | 底池'+data.pot_size;
+  if(data.my_chips) info+=' | 我'+data.my_chips;
+  if(data.my_position) info+=' | '+data.my_position;
+  if(data.to_call) info+=' | 跟注'+data.to_call;
+  var el=document.getElementById('chipInfo');
+  if(el && info) el.textContent=info;
+  
+  // 5. 更新SPR（如果有底池和筹码）
+  if(data.pot_size>0 && data.my_chips>0){
+    var sprEl=document.getElementById('sprVal');
+    if(sprEl) sprEl.textContent=(data.my_chips/data.pot_size).toFixed(1);
+  }
+  
+  // 6. 自动触发策略分析
+  setTimeout(go,200);
+  
+  // 7. 显示识别成功提示
+  var statusEl=document.getElementById('statusLine');
+  if(statusEl){
+    var hole=data.hole_cards?data.hole_cards.map(function(c){return c.rank+c.suit;}).join(' '):'';
+    var comm=data.community_cards?data.community_cards.map(function(c){return c.rank+c.suit;}).join(' '):'';
+    statusEl.textContent='✅ API识别: '+hole+(comm?' | '+comm:'')+' | '+data.street;
+  }
 }
 
 // 初始化

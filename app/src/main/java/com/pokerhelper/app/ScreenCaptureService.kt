@@ -271,7 +271,7 @@ class ScreenCaptureService : Service() {
                 // 触发按需截屏回调
                 onCaptureComplete?.invoke()
                 
-                // 异步OCR分析筹码
+                // 异步OCR分析筹码 + API视觉识别
                 Thread {
                     try {
                         val frame = ChipTracker.analyzeScreenshot(jpegData)
@@ -280,6 +280,21 @@ class ScreenCaptureService : Service() {
                         }
                     } catch (e: Exception) {
                         lastChipStatus = "OCR错误: ${e.message}"
+                    }
+                    
+                    // V1.3: 如果有API Key，用视觉模型识别牌面
+                    if (VisionApiClient.apiKey.isNotEmpty()) {
+                        try {
+                            lastChipStatus = (lastChipStatus ?: "") + " | API分析中..."
+                            val visionResult = VisionApiClient.analyzeScreenshot(jpegData)
+                            if (visionResult != null) {
+                                lastChipStatus = "${visionResult.totalPlayers}人 | ${visionResult.street} | ${visionResult.holeCards.map { it.rank + it.suit }.joinToString(" ")}"
+                            } else {
+                                lastChipStatus = (lastChipStatus ?: "").replace(" | API分析中...", "") + " | API:" + VisionApiClient.lastError
+                            }
+                        } catch (e: Exception) {
+                            lastChipStatus = (lastChipStatus ?: "") + " | API错误"
+                        }
                     }
                 }.start()
                 

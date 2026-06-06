@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:text="🃏"
         android:textSize="64sp"
-        android:layout_marginTop="40dp" />
+        android:layout_marginTop="30dp" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -21,15 +21,15 @@
         android:textSize="24sp"
         android:textColor="#f1f5f9"
         android:textStyle="bold"
-        android:layout_marginTop="12dp" />
+        android:layout_marginTop="8dp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="德州扑克策略助手 v1.0"
+        android:text="V1.3 · GTO+DRTA+API视觉识别"
         android:textSize="13sp"
         android:textColor="#86efac"
-        android:layout_marginTop="6dp" />
+        android:layout_marginTop="4dp" />
 
     <TextView
         android:id="@+id/tvStatus"
@@ -38,28 +38,91 @@
         android:text="⏸ 未启动"
         android:textSize="18sp"
         android:textColor="#666666"
-        android:layout_marginTop="40dp" />
+        android:layout_marginTop="24dp" />
 
     <Button
         android:id="@+id/btnStart"
         android:layout_width="240dp"
-        android:layout_height="64dp"
+        android:layout_height="56dp"
         android:text="🚀 开始截屏"
-        android:textSize="20sp"
+        android:textSize="18sp"
         android:textColor="#ffffff"
         android:backgroundTint="#22c55e"
-        android:layout_marginTop="24dp" />
+        android:layout_marginTop="16dp" />
 
     <Button
         android:id="@+id/btnHelper"
         android:layout_width="240dp"
-        android:layout_height="64dp"
+        android:layout_height="56dp"
         android:text="🃏 打开扑克AI助手"
-        android:textSize="18sp"
+        android:textSize="16sp"
         android:textColor="#ffffff"
         android:backgroundTint="#16a34a"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="12dp"
         android:visibility="gone" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="━━ API视觉识别配置 ━━"
+        android:textSize="13sp"
+        android:textColor="#f59e0b"
+        android:layout_marginTop="20dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="平台:"
+            android:textSize="14sp"
+            android:textColor="#94a3b8" />
+
+        <Spinner
+            android:id="@+id/spinnerProvider"
+            android:layout_width="120dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#374151" />
+
+        <TextView
+            android:id="@+id/tvApiStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="❌ 未配置"
+            android:textSize="12sp"
+            android:textColor="#ef4444"
+            android:layout_marginStart="12dp" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/etApiKey"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:hint="输入API Key（如 sk-xxx）"
+        android:textSize="14sp"
+        android:textColor="#e2e8f0"
+        android:textColorHint="#64748b"
+        android:backgroundTint="#374151"
+        android:inputType="textPassword"
+        android:layout_marginTop="8dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp" />
+
+    <Button
+        android:id="@+id/btnSaveApi"
+        android:layout_width="200dp"
+        android:layout_height="44dp"
+        android:text="💾 保存API配置"
+        android:textSize="14sp"
+        android:textColor="#ffffff"
+        android:backgroundTint="#d97706"
+        android:layout_marginTop="8dp" />
 
     <TextView
         android:id="@+id/tvHint"
@@ -68,16 +131,16 @@
         android:text="先点上方按钮启动截屏"
         android:textSize="13sp"
         android:textColor="#666666"
-        android:layout_marginTop="30dp"
+        android:layout_marginTop="12dp"
         android:gravity="center" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="使用步骤：\n1. 点「开始截屏」→ 允许录屏权限\n2. 点「打开扑克AI助手」→ 允许悬浮窗\n3. 选牌 + 选场景 → 获取策略建议\n4. 拖动顶部栏可移动位置，点▼可收起"
-        android:textSize="13sp"
+        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL）\n2. 点「开始截屏」→ 允许录屏权限\n3. 点「打开扑克AI助手」→ 允许悬浮窗\n4. 打牌时点🎯按钮 → 自动识别牌面+出建议"
+        android:textSize="12sp"
         android:textColor="#64748b"
-        android:layout_marginTop="20dp"
-        android:lineSpacingExtra="4dp" />
+        android:layout_marginTop="12dp"
+        android:lineSpacingExtra="3dp" />
 
 </LinearLayout>

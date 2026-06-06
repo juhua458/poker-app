@@ -285,22 +285,64 @@ class FloatingService : Service() {
         tvAction.setPadding(6, 2, 6, 2)
         tvAction.setBackgroundColor(0xFFE65100.toInt())
         tvAction.setOnClickListener {
-            // 触发按需截屏
-            tvStatus?.text = "🎯 截屏分析中..."
+            // V1.3: 按需截屏+API识别
+            tvStatus?.text = "🎯 截屏中..."
             tvAction.setBackgroundColor(0xFFFF6D00.toInt())
             val captureIntent = Intent(this@FloatingService, ScreenCaptureService::class.java).apply {
                 action = "CAPTURE_ONCE"
             }
             startService(captureIntent)
-            // 1.5秒后刷新策略（等截屏+OCR完成）
+            
+            // 等截屏完成
             handler.postDelayed({
-                // 通知WebView刷新截图和筹码数据
-                webView?.evaluateJavascript(
-                    "if(typeof onActionCapture==='function'){onActionCapture()}",
-                    null
-                )
-                tvAction.setBackgroundColor(0xFFE65100.toInt())
-                tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新" }
+                val screenshot = ScreenCaptureService.latestScreenshot
+                if (screenshot == null) {
+                    tvStatus?.text = "❌ 截屏失败"
+                    tvAction.setBackgroundColor(0xFFE65100.toInt())
+                    return@postDelayed
+                }
+                
+                if (VisionApiClient.apiKey.isEmpty()) {
+                    // 没有API Key，只做本地OCR刷新
+                    webView?.evaluateJavascript(
+                        "if(typeof onActionCapture==='function'){onActionCapture()}",
+                        null
+                    )
+                    tvAction.setBackgroundColor(0xFFE65100.toInt())
+                    tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
+                    return@postDelayed
+                }
+                
+                // 有API Key → 调用视觉模型识别牌面
+                tvStatus?.text = "🎯 API识别中..."
+                Thread {
+                    try {
+                        val result = VisionApiClient.analyzeScreenshot(screenshot)
+                        if (result != null) {
+                            val resultJson = VisionApiClient.toJson(result)
+                            // 主线程刷新WebView
+                            handler.post {
+                                webView?.evaluateJavascript(
+                                    "if(typeof onVisionResult==='function'){onVisionResult($resultJson)}",
+                                    null
+                                )
+                                tvAction.setBackgroundColor(0xFFE65100.toInt())
+                                val hole = result.holeCards.map { it.rank + it.suit }.joinToString(" ")
+                                tvStatus?.text = "🎯 $hole | ${result.street} | ${result.totalPlayers}人"
+                            }
+                        } else {
+                            handler.post {
+                                tvAction.setBackgroundColor(0xFFE65100.toInt())
+                                tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
+                            }
+                        }
+                    } catch (e: Exception) {
+                        handler.post {
+                            tvAction.setBackgroundColor(0xFFE65100.toInt())
+                            tvStatus?.text = "❌ API错误"
+                        }
+                    }
+                }.start()
             }, 1500)
         }
 

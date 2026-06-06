@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v1.3
-        name: "V1.3 扑克AI助手 - 按需截屏模式"
-        body: "V1.3: 按需截屏模式 - 🎯我行动按钮替代自动截屏，省电省资源；轮到你时点一下即可截屏+OCR+策略刷新"
+        tag_name: v1.4
+        name: "V1.4 扑克AI助手 - API视觉识别"
+        body: "V1.4: API视觉识别 - 🎯点按钮自动截屏+GPT-4o-mini识别牌面+自动填入策略引擎；支持OpenAI/通义千问VL/DeepSeek"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

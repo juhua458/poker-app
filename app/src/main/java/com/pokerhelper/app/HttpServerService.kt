@@ -170,6 +170,99 @@ class HttpServerService : Service() {
                                 }
                             }
                         }
+                        // V1.3 新增：API视觉识别（截屏+API分析牌面）
+                        session.uri == "/api/analyze" -> {
+                            try {
+                                val screenshot = ScreenCaptureService.latestScreenshot
+                                if (screenshot == null) {
+                                    // 先截一屏
+                                    val captureIntent = Intent(this@HttpServerService, ScreenCaptureService::class.java).apply {
+                                        action = "CAPTURE_ONCE"
+                                    }
+                                    startService(captureIntent)
+                                    Thread.sleep(1500)
+                                }
+                                val data = ScreenCaptureService.latestScreenshot
+                                if (data == null) {
+                                    newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                                        """{"error":"no screenshot"}""").apply {
+                                        addHeader("Access-Control-Allow-Origin", "*")
+                                    }
+                                } else if (VisionApiClient.apiKey.isEmpty()) {
+                                    newFixedLengthResponse(Response.Status.OK, "application/json",
+                                        """{"error":"no_api_key","message":"请在设置中配置API Key"}""").apply {
+                                        addHeader("Access-Control-Allow-Origin", "*")
+                                    }
+                                } else {
+                                    val result = VisionApiClient.analyzeScreenshot(data)
+                                    if (result != null) {
+                                        newFixedLengthResponse(Response.Status.OK, "application/json",
+                                            VisionApiClient.toJson(result)).apply {
+                                            addHeader("Access-Control-Allow-Origin", "*")
+                                        }
+                                    } else {
+                                        newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                                            """{"error":"${VisionApiClient.lastError}"}""").apply {
+                                            addHeader("Access-Control-Allow-Origin", "*")
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                                    """{"error":"${e.message}"}""").apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            }
+                        }
+                        // V1.3 新增：获取/设置API配置
+                        session.uri == "/api/config" -> {
+                            when (session.method) {
+                                Method.GET -> {
+                                    val json = JSONObject().apply {
+                                        put("provider", VisionApiClient.apiProvider)
+                                        put("apiKey", if (VisionApiClient.apiKey.isNotEmpty()) "***${VisionApiClient.apiKey.takeLast(4)}" else "")
+                                        put("apiUrl", VisionApiClient.apiUrl)
+                                        put("model", VisionApiClient.modelName)
+                                        put("hasKey", VisionApiClient.apiKey.isNotEmpty())
+                                    }.toString()
+                                    newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                        addHeader("Access-Control-Allow-Origin", "*")
+                                    }
+                                }
+                                Method.POST -> {
+                                    try {
+                                        val files = HashMap<String, String>()
+                                        session.parseBody(files)
+                                        val postData = files["postData"] ?: ""
+                                        val config = JSONObject(postData)
+                                        val provider = config.optString("provider", "")
+                                        val key = config.optString("apiKey", "")
+                                        if (key.isNotEmpty() && provider.isNotEmpty()) {
+                                            VisionApiClient.updateConfig(provider, key)
+                                            val json = JSONObject().apply {
+                                                put("ok", true)
+                                                put("provider", VisionApiClient.apiProvider)
+                                                put("model", VisionApiClient.modelName)
+                                            }.toString()
+                                            newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                                addHeader("Access-Control-Allow-Origin", "*")
+                                            }
+                                        } else {
+                                            newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                                                """{"error":"need provider and apiKey"}""").apply {
+                                                addHeader("Access-Control-Allow-Origin", "*")
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                                            """{"error":"${e.message}"}""").apply {
+                                            addHeader("Access-Control-Allow-Origin", "*")
+                                        }
+                                    }
+                                }
+                                else -> newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "method not allowed")
+                            }
+                        }
                         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
                     }
                 }
