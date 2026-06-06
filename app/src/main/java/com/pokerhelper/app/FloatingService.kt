@@ -298,7 +298,13 @@ class FloatingService : Service() {
             handler.postDelayed({
                 val screenshot = ScreenCaptureService.latestScreenshot
                 if (screenshot == null) {
-                    tvStatus?.text = "❌ 截屏失败"
+                    // V1.7: 诊断信息 + 提示重新授权
+                    val diag = when {
+                        !ScreenCaptureService.isRunning -> "❌ 截屏服务未启动，请回主界面点「启动」"
+                        ScreenCaptureService.lastError.isNotEmpty() -> "❌ 截屏失败: ${ScreenCaptureService.lastError.take(20)}"
+                        else -> "❌ 截屏失败，请回主界面重新点「启动」授权"
+                    }
+                    tvStatus?.text = diag
                     tvAction.setBackgroundColor(0xFFE65100.toInt())
                     webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                     return@postDelayed

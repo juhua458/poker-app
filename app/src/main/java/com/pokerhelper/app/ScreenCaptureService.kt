@@ -73,7 +73,11 @@ class ScreenCaptureService : Service() {
         }
 
         if (intent?.action == "CAPTURE_ONCE") {
-            handler.post { captureAndAnalyze() }
+            if (mediaProjection == null) {
+                lastError = "MediaProjection未授权，请在主界面重新启动"
+            } else {
+                handler.post { captureAndAnalyze() }
+            }
             return START_STICKY
         }
 
