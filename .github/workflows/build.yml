@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v1.5
-        name: "V1.4 扑克AI助手 - API视觉识别"
-        body: "V1.4: API视觉识别 - 🎯点按钮自动截屏+GPT-4o-mini识别牌面+自动填入策略引擎；支持OpenAI/通义千问VL/DeepSeek"
+        tag_name: v1.6
+        name: "V1.6 扑克AI助手 - 硅基流动视觉识别"
+        body: "V1.6: 接入硅基流动SiliconFlow - Qwen3-VL-8B永久免费视觉模型；🎯截屏识别+极速模式+GTO+DRTA策略"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
