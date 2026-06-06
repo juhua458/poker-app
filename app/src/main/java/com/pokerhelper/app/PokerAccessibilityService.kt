@@ -94,17 +94,17 @@ class PokerAccessibilityService : AccessibilityService() {
 
             takeScreenshot(
                 displayId,
-                { runnable -> handler.post(runnable) },
+                mainExecutor,
                 object : AccessibilityService.TakeScreenshotCallback {
-                    override fun onSuccess(screenshot: AccessibilityService.Screenshot) {
+                    override fun onSuccess(screenshotResult: AccessibilityService.ScreenshotResult) {
                         try {
-                            val hardwareBuffer = screenshot.hardwareBuffer
+                            val hardwareBuffer = screenshotResult.hardwareBuffer
 
                             // ★★★ 关键：必须先copy再close，否则截图空白 ★★★
                             // 1. Wrap HardwareBuffer → Hardware Bitmap
                             val hardwareBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                                 // API 34+: 带 ColorSpace 的版本
-                                Bitmap.wrapHardwareBuffer(hardwareBuffer, screenshot.colorSpace)
+                                Bitmap.wrapHardwareBuffer(hardwareBuffer, screenshotResult.colorSpace)
                             } else {
                                 // API 30-33: 不带 ColorSpace
                                 @Suppress("DEPRECATION")
@@ -117,7 +117,7 @@ class PokerAccessibilityService : AccessibilityService() {
                             // 3. ★ 安全关闭硬件资源（copy之后才能close）★
                             hardwareBitmap?.recycle()
                             hardwareBuffer.close()
-                            screenshot.close()
+                            screenshotResult.close()
 
                             if (softwareBitmap != null) {
                                 // 4. 压缩为JPEG

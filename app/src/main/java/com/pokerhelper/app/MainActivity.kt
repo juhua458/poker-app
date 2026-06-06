@@ -295,12 +295,12 @@ class MainActivity : AppCompatActivity() {
                 tvAccessibilityStatus.text = "✅ 无障碍服务已开启（截图不触发黑屏）"
                 tvAccessibilityStatus.setTextColor(getColor(android.R.color.holo_green_dark))
                 btnAccessibility.text = "♿ 无障碍服务已开启"
-                btnAccessibility.backgroundTint = android.content.res.ColorStateList.valueOf(0xFF4CAF50.toInt())
+                btnAccessibility.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF4CAF50.toInt())
             } else {
                 tvAccessibilityStatus.text = "⚠️ 无障碍服务未开启（点下方开启，截图不黑屏）"
                 tvAccessibilityStatus.setTextColor(getColor(android.R.color.holo_orange_dark))
                 btnAccessibility.text = "♿ 开启无障碍服务"
-                btnAccessibility.backgroundTint = android.content.res.ColorStateList.valueOf(0xFF7c3aed.toInt())
+                btnAccessibility.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF7c3aed.toInt())
             }
 
             if (isRunning) {
