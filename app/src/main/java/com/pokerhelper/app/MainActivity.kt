@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -51,37 +50,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val screenCaptureLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        try {
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                    putExtra("RESULT_CODE", result.resultCode)
-                    putExtra("RESULT_DATA", result.data)
-                    action = "START"
-                }
-                startForegroundService(serviceIntent)
-
-                val httpIntent = Intent(this, HttpServerService::class.java).apply { action = "START" }
-                startForegroundService(httpIntent)
-
-                isRunning = true
-                updateUI()
-                Toast.makeText(this, "🃏 截屏已启动！", Toast.LENGTH_SHORT).show()
-
-                btnHelper.postDelayed({
-                    tryLaunchFloatingHelper()
-                }, 800)
-            } else {
-                Toast.makeText(this, "需要授权才能截屏", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Capture callback error", e)
-            Toast.makeText(this, "启动出错: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
@@ -99,7 +67,7 @@ class MainActivity : AppCompatActivity() {
             spinnerProvider = findViewById(R.id.spinnerProvider)
             etApiKey = findViewById(R.id.etApiKey)
 
-            isRunning = ScreenCaptureService.isRunning
+            isRunning = FloatingService.isRunning
             updateUI()
 
             val providers = arrayOf("openai", "dashscope", "deepseek", "siliconflow")
@@ -138,7 +106,7 @@ class MainActivity : AppCompatActivity() {
 
             btnStart.setOnClickListener {
                 try {
-                    if (isRunning) stopServices() else requestScreenCapture()
+                    if (isRunning) stopServices() else startDirectly()
                 } catch (e: Exception) {
                     Log.e(TAG, "Btn click error", e)
                 }
@@ -232,19 +200,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestScreenCapture() {
+    /**
+     * V2.1: 直接启动（无需MediaProjection授权）
+     * 只启动HttpServer + 悬浮窗，截图完全依赖无障碍服务
+     * 永远不会创建MediaProjection令牌 → 游戏检测不到 → 不会黑屏
+     */
+    private fun startDirectly() {
         try {
-            val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+            // 检查无障碍服务
+            if (!isAccessibilityServiceEnabled()) {
+                Toast.makeText(this, "⚠️ 请先开启无障碍服务（点下方按钮）", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            // 启动HTTP服务器
+            val httpIntent = Intent(this, HttpServerService::class.java).apply { action = "START" }
+            startForegroundService(httpIntent)
+
+            isRunning = true
+            updateUI()
+            Toast.makeText(this, "🃏 扑克AI助手启动中...", Toast.LENGTH_SHORT).show()
+
+            // 直接启动悬浮窗
+            tryLaunchFloatingHelper()
         } catch (e: Exception) {
-            Log.e(TAG, "Request capture error", e)
-            Toast.makeText(this, "请求截屏失败: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e(TAG, "Start error", e)
+            Toast.makeText(this, "启动失败: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun stopServices() {
         try {
-            startService(Intent(this, ScreenCaptureService::class.java).apply { action = "STOP" })
             startService(Intent(this, HttpServerService::class.java).apply { action = "STOP" })
             startService(Intent(this, FloatingService::class.java).apply { action = "STOP" })
             isRunning = false
@@ -306,17 +292,17 @@ class MainActivity : AppCompatActivity() {
             if (isRunning) {
                 tvStatus.text = "✅ 运行中"
                 tvStatus.setTextColor(getColor(android.R.color.holo_green_dark))
-                btnStart.text = "⏹ 停止截屏"
+                btnStart.text = "⏹ 停止"
                 btnHelper.visibility = View.VISIBLE
                 btnHelper.text = "🃏 打开扑克AI助手"
-                tvHint.text = "👇 点「打开扑克AI助手」→ 切到扑克游戏"
+                tvHint.text = "👇 切到游戏 → 点🎯截屏识别"
                 tvHint.setTextColor(getColor(android.R.color.holo_orange_dark))
             } else {
                 tvStatus.text = "⏸ 未启动"
                 tvStatus.setTextColor(getColor(android.R.color.darker_gray))
-                btnStart.text = "🚀 开始截屏"
+                btnStart.text = "🚀 启动"
                 btnHelper.visibility = View.GONE
-                tvHint.text = "先开启无障碍服务，再启动截屏"
+                tvHint.text = "先开启无障碍服务，再点启动"
                 tvHint.setTextColor(getColor(android.R.color.darker_gray))
             }
             updateApiStatus()
@@ -328,7 +314,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         try {
-            isRunning = ScreenCaptureService.isRunning
+            isRunning = FloatingService.isRunning
             updateUI()
         } catch (e: Exception) {
             Log.e(TAG, "onResume error", e)

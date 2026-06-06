@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.0 · GTO+DRTA+识别结果展示"
+        android:text="V2.1 · GTO+DRTA·彻底移除MediaProjection"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />
@@ -44,7 +44,7 @@
         android:id="@+id/btnStart"
         android:layout_width="240dp"
         android:layout_height="56dp"
-        android:text="🚀 开始截屏"
+        android:text="🚀 启动"
         android:textSize="18sp"
         android:textColor="#ffffff"
         android:backgroundTint="#22c55e"
@@ -157,7 +157,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL）\n2. 点「开始截屏」→ 允许录屏权限\n3. 点「打开扑克AI助手」→ 允许悬浮窗\n4. 打牌时点🎯按钮 → 自动识别牌面+出建议"
+        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 点「启动」→ 允许悬浮窗\n4. 打牌时点🎯按钮 → 自动识别牌面+出建议\n★ V2.1 绝不走MediaProjection，游戏不会黑屏 ★"
         android:textSize="12sp"
         android:textColor="#64748b"
         android:layout_marginTop="12dp"

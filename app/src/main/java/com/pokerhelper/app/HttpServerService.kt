@@ -97,13 +97,14 @@ class HttpServerService : Service() {
                                 (System.currentTimeMillis() - capture.lastCaptureTime) / 1000 else -1
                             val panelW = FloatingService.currentPanelWidth
                             val json = JSONObject().apply {
-                                put("running", capture.isRunning)
+                                put("running", FloatingService.isRunning)
+                                put("accessibilityRunning", PokerAccessibilityService.isServiceRunning())
                                 put("hasScreenshot", capture.latestScreenshot != null)
                                 put("captureCount", capture.captureCount)
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.0")
+                                put("version", "2.1")
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
@@ -145,10 +146,9 @@ class HttpServerService : Service() {
                                 addHeader("Access-Control-Allow-Origin", "*")
                             }
                         }
-                        // V1.9: 按需截屏+API识别（无障碍优先）
+                        // V2.1: 按需截屏+API识别（仅无障碍截图，绝不走MediaProjection）
                         session.uri == "/api/capture" -> {
                             try {
-                                // V1.9: 优先使用无障碍截图
                                 if (PokerAccessibilityService.isServiceRunning()) {
                                     val latch = java.util.concurrent.CountDownLatch(1)
                                     var captureSuccess = false
@@ -160,7 +160,7 @@ class HttpServerService : Service() {
                                     latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
                                     val json = JSONObject().apply {
                                         put("ok", ScreenCaptureService.latestScreenshot != null)
-                                        put("method", if (captureSuccess) "accessibility" else "fallback")
+                                        put("method", if (captureSuccess) "accessibility" else "failed")
                                         put("chipStatus", ScreenCaptureService.lastChipStatus)
                                         put("captureCount", ScreenCaptureService.captureCount)
                                     }.toString()
@@ -168,17 +168,11 @@ class HttpServerService : Service() {
                                         addHeader("Access-Control-Allow-Origin", "*")
                                     }
                                 } else {
-                                    // 降级到MediaProjection
-                                    val captureIntent = Intent(this@HttpServerService, ScreenCaptureService::class.java).apply {
-                                        action = "CAPTURE_ONCE"
-                                    }
-                                    startService(captureIntent)
-                                    Thread.sleep(1500)
+                                    // V2.1: 无障碍服务未开启 → 返回错误，绝不降级MediaProjection
                                     val json = JSONObject().apply {
-                                        put("ok", ScreenCaptureService.latestScreenshot != null)
-                                        put("method", "mediaProjection")
-                                        put("chipStatus", ScreenCaptureService.lastChipStatus)
-                                        put("captureCount", ScreenCaptureService.captureCount)
+                                        put("ok", false)
+                                        put("error", "accessibility_not_enabled")
+                                        put("message", "请先开启无障碍服务")
                                     }.toString()
                                     newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
                                         addHeader("Access-Control-Allow-Origin", "*")
@@ -191,22 +185,14 @@ class HttpServerService : Service() {
                                 }
                             }
                         }
-                        // V1.3 新增：API视觉识别（截屏+API分析牌面）
+                        // V2.1: API视觉识别（仅无障碍截图）
                         session.uri == "/api/analyze" -> {
                             try {
                                 val screenshot = ScreenCaptureService.latestScreenshot
                                 if (screenshot == null) {
-                                    // 先截一屏
-                                    val captureIntent = Intent(this@HttpServerService, ScreenCaptureService::class.java).apply {
-                                        action = "CAPTURE_ONCE"
-                                    }
-                                    startService(captureIntent)
-                                    Thread.sleep(1500)
-                                }
-                                val data = ScreenCaptureService.latestScreenshot
-                                if (data == null) {
-                                    newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
-                                        """{"error":"no screenshot"}""").apply {
+                                    // V2.1: 无截图 → 返回错误提示，绝不降级MediaProjection
+                                    newFixedLengthResponse(Response.Status.OK, "application/json",
+                                        """{"error":"no_screenshot","message":"请先点击🎯截屏"}""").apply {
                                         addHeader("Access-Control-Allow-Origin", "*")
                                     }
                                 } else if (VisionApiClient.apiKey.isEmpty()) {
@@ -215,7 +201,7 @@ class HttpServerService : Service() {
                                         addHeader("Access-Control-Allow-Origin", "*")
                                     }
                                 } else {
-                                    val result = VisionApiClient.analyzeScreenshot(data)
+                                    val result = VisionApiClient.analyzeScreenshot(screenshot)
                                     if (result != null) {
                                         newFixedLengthResponse(Response.Status.OK, "application/json",
                                             VisionApiClient.toJson(result)).apply {
@@ -316,7 +302,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v2.0")
+                .setContentTitle("🃏 扑克AI助手 v2.1")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -324,7 +310,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v2.0")
+                .setContentTitle("🃏 扑克AI助手 v2.1")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

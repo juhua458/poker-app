@@ -273,7 +273,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v2.0"
+            text = "🃏 Poker AI v2.1"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 12f
             setPadding(8, 4, 8, 4)
@@ -297,28 +297,31 @@ class FloatingService : Service() {
         tvAction?.setPadding(10, 4, 10, 4)
         tvAction?.setBackgroundColor(0xFFE65100.toInt())
         tvAction?.setOnClickListener {
-            // V1.9: 无障碍截图优先 + MediaProjection降级
+            // V2.1: 只有无障碍截图一条路径，绝不走MediaProjection
             tvStatus?.text = "🎯 截屏中..."
             webView?.evaluateJavascript("document.body.classList.add('api-processing')", null)
             tvAction?.setBackgroundColor(0xFF1565C0.toInt())
             
             if (PokerAccessibilityService.isServiceRunning()) {
-                // ★ 无障碍截图优先（不触发游戏黑屏检测）★
+                // ★ 唯一路径：无障碍截图（不触发游戏黑屏检测）★
                 PokerAccessibilityService.onScreenshotReady = { success ->
                     handler.post {
                         if (success) {
                             processScreenshotAndAnalyze()
                         } else {
-                            // 无障碍截图失败，降级到MediaProjection
-                            tvStatus?.text = "⚠️ 无障碍失败，降级截屏..."
-                            fallbackToMediaProjectionCapture()
+                            // V2.1: 无障碍截图失败 → 提示重试，绝不降级MediaProjection
+                            tvStatus?.text = "❌ 截图失败，请重试 (${ScreenCaptureService.lastError.take(20)})"
+                            tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                            webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                         }
                     }
                 }
                 PokerAccessibilityService.captureScreen()
             } else {
-                // 无障碍服务未开启，降级到MediaProjection
-                fallbackToMediaProjectionCapture()
+                // V2.1: 无障碍服务未开启 → 提示开启，绝不降级MediaProjection
+                tvStatus?.text = "⚠️ 请先开启无障碍服务！回App开启"
+                tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
             }
         }
 
@@ -577,8 +580,8 @@ class FloatingService : Service() {
         val screenshot = ScreenCaptureService.latestScreenshot
         if (screenshot == null) {
             val diag = when {
-                !ScreenCaptureService.isRunning && !PokerAccessibilityService.isServiceRunning() ->
-                    "❌ 截屏失败：服务未启动，请回主界面"
+                !PokerAccessibilityService.isServiceRunning() ->
+                    "❌ 截屏失败：无障碍服务未开，请回App开启"
                 ScreenCaptureService.lastError.isNotEmpty() ->
                     "❌ 截屏失败: ${ScreenCaptureService.lastError.take(30)}"
                 else -> "❌ 截屏失败，请重试"
@@ -654,21 +657,6 @@ class FloatingService : Service() {
         }.start()
     }
 
-    /**
-     * V1.9: 降级到MediaProjection截屏
-     * 当无障碍服务未开启或截图失败时使用
-     */
-    private fun fallbackToMediaProjectionCapture() {
-        val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = "CAPTURE_ONCE"
-        }
-        startService(captureIntent)
-
-        handler.postDelayed({
-            processScreenshotAndAnalyze()
-        }, 2000)
-    }
-
     private fun toggleExpand() {
         isExpanded = !isExpanded
         webView?.visibility = if (isExpanded) View.VISIBLE else View.GONE
@@ -696,7 +684,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v2.0")
+                .setContentTitle("🃏 扑克AI助手 v2.1")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -704,7 +692,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v2.0")
+                .setContentTitle("🃏 扑克AI助手 v2.1")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

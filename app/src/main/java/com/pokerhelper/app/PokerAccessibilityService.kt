@@ -9,12 +9,11 @@ import android.view.accessibility.AccessibilityEvent
 import java.io.ByteArrayOutputStream
 
 /**
- * ★ V1.9 核心新增：无障碍截图服务 ★
+ * ★ V2.1 核心截图服务 ★
  * 
- * 替代 MediaProjection 截图方案，解决游戏黑屏问题：
- * - AccessibilityService.takeScreenshot() 不走 MediaProjection
- * - 游戏检测不到录屏令牌 → 不会黑屏
- * - 双轨制：无障碍优先，MediaProjection降级
+ * 唯一截图方案：AccessibilityService.takeScreenshot()
+ * - 不走 MediaProjection → 游戏检测不到 → 不会黑屏
+ * - V2.1 彻底移除 MediaProjection 降级路径
  * 
  * 截图结果统一存入 ScreenCaptureService.latestScreenshot
  * FloatingService 通过 onScreenshotReady 回调获知截图完成
@@ -129,8 +128,8 @@ class PokerAccessibilityService : AccessibilityService() {
 
                                 handler.post { onScreenshotReady?.invoke(true) }
                             } else {
-                                // HardwareBuffer → Bitmap 失败，需降级到 MediaProjection
-                                ScreenCaptureService.lastError = "无障碍截图: Bitmap转换失败(将降级到MediaProjection)"
+                                // HardwareBuffer → Bitmap 失败
+                                ScreenCaptureService.lastError = "无障碍截图: Bitmap转换失败"
                                 handler.post { onScreenshotReady?.invoke(false) }
                             }
                         } catch (e: Throwable) {
