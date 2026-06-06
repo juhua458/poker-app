@@ -273,7 +273,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v2.2"
+            text = "🃏 Poker AI v2.3"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 11f
             setPadding(8, 4, 8, 4)
@@ -574,7 +574,7 @@ class FloatingService : Service() {
     /**
      * V1.9: 处理截图并调用API分析
      * 从 ScreenCaptureService.latestScreenshot 读取截图数据
-     * 无论来源是无障碍还是MediaProjection，数据格式统一
+     * 数据来自AccessibilityService.takeScreenshot()（唯一截图路径）
      */
     private fun processScreenshotAndAnalyze() {
         val screenshot = ScreenCaptureService.latestScreenshot
@@ -684,7 +684,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 扑克AI助手 v2.2")
+                .setContentTitle("🃏 扑克AI助手 v2.3")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -692,7 +692,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 扑克AI助手 v2.2")
+                .setContentTitle("🃏 扑克AI助手 v2.3")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

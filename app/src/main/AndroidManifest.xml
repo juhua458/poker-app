@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 截屏权限 -->
+    <!-- V2.3: 彻底移除FOREGROUND_SERVICE_MEDIA_PROJECTION权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 悬浮窗权限 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <!-- Android 14+ 悬浮窗前台服务 -->
+    <!-- Android 14+ 前台服务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- 语音识别权限 -->
@@ -33,14 +32,13 @@
             android:theme="@style/Theme.MjScreenshot">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.action.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- 截屏前台服务 -->
+        <!-- V2.3: ScreenCaptureService不再作为前台服务，保留类定义供companion object使用 -->
         <service
             android:name=".ScreenCaptureService"
-            android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
         <!-- HTTP服务器服务 -->
@@ -55,7 +53,7 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
-        <!-- V1.9: 无障碍截图服务（替代MediaProjection，不触发游戏黑屏检测） -->
+        <!-- ★ 唯一截图方案：无障碍截图（不触发游戏黑屏检测）★ -->
         <service
             android:name=".PokerAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
