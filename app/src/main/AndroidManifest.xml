@@ -36,11 +36,6 @@
             </intent-filter>
         </activity>
 
-        <!-- V2.3: ScreenCaptureService不再作为前台服务，保留类定义供companion object使用 -->
-        <service
-            android:name=".ScreenCaptureService"
-            android:exported="false" />
-
         <!-- HTTP服务器服务 -->
         <service
             android:name=".HttpServerService"
