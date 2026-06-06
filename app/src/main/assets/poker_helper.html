@@ -1286,7 +1286,17 @@ function onVisionResult(data){
     if(data.to_call>0) info+=' | 跟注'+data.to_call;
     recInfoEl.textContent=info;
   }
-  if(recBannerEl) recBannerEl.classList.add('on');
+  if(recBannerEl){
+    recBannerEl.classList.add('on');
+    // V2.0: 如果有警告，改红色边框
+    if(data._warnings&&data._warnings.length>0){
+      recBannerEl.style.borderColor='rgba(255,71,87,.6)';
+      recBannerEl.style.background='linear-gradient(135deg,#4a0000,#8b0000)';
+    } else {
+      recBannerEl.style.borderColor='rgba(144,202,249,.3)';
+      recBannerEl.style.background='linear-gradient(135deg,#1a237e,#0d47a1)';
+    }
+  }
 }
 
 // 退出极速模式（手动编辑用）

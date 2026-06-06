@@ -626,6 +626,14 @@ class FloatingService : Service() {
                         if (commStr.isNotEmpty()) recText += " | 公共: $commStr"
                         recText += " | $streetStr | ${result.totalPlayers}人"
                         if (result.toCall > 0) recText += " | 跟注${result.toCall}"
+                        // V2.0: 显示识别校验警告
+                        val apiError = VisionApiClient.lastError
+                        if (apiError.isNotEmpty()) {
+                            recText += " ⚠️$apiError"
+                            tvRecResult?.setBackgroundColor(0xFF8B0000.toInt()) // 深红底色=有疑问
+                        } else {
+                            tvRecResult?.setBackgroundColor(0xFF1A237E.toInt()) // 蓝底=正常
+                        }
                         tvRecResult?.text = recText
                         tvRecResult?.visibility = View.VISIBLE
                     }

@@ -58,8 +58,8 @@ object VisionApiClient {
         }
 
         return try {
-            // 1. 压缩图片到1280宽度（保持宽高比）
-            val compressedJpeg = compressImage(jpegData, maxWidth = 1280)
+            // 1. 压缩图片到1920宽度（保持宽高比，高分辨率提升识别精度）
+            val compressedJpeg = compressImage(jpegData, maxWidth = 1920)
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
             val dataUri = "data:image/jpeg;base64,$base64Image"
 
@@ -78,7 +78,13 @@ object VisionApiClient {
                 lastResult = result
                 lastResultTime = System.currentTimeMillis()
                 lastError = ""
-                Log.d(TAG, "识别成功: ${result.holeCards.joinToString()} | ${result.communityCards.joinToString()} | 底池${result.potSize} | ${result.totalPlayers}人")
+                // V2.0: 校验识别结果合理性
+                val warnings = validateResult(result)
+                if (warnings.isNotEmpty()) {
+                    lastError = warnings.joinToString("; ")
+                    Log.w(TAG, "识别结果有疑问: $lastError")
+                }
+                Log.d(TAG, "识别成功: ${result.holeCards.joinToString()} | ${result.communityCards.joinToString()} | 底池${result.potSize} | ${result.totalPlayers}人${if(warnings.isNotEmpty()) " ⚠️$lastError" else ""}")
             }
 
             result
@@ -114,27 +120,25 @@ object VisionApiClient {
     }
 
     private fun buildRequest(base64Image: String): String {
-        val prompt = """你是一个德州扑克牌桌识别专家。请仔细分析这张德州扑克游戏截图，返回以下JSON格式：
-{
-  "hole_cards": [{"rank":"A","suit":"s"}],
-  "community_cards": [],
-  "pot_size": 0,
-  "my_chips": 0,
-  "total_players": 6,
-  "active_players": 4,
-  "my_position": "BTN",
-  "street": "preflop",
-  "to_call": 0,
-  "min_raise": 0
-}
+        val prompt = """你是一个德州扑克牌桌识别专家。请仔细观察这张游戏截图，按以下步骤识别：
 
-规则：
-- rank: A K Q J T 9 8 7 6 5 4 3 2
-- suit: s(黑桃♠) h(红心♥) d(方块♦) c(梅花♣)
+1. 找到你的手牌(通常在屏幕下方中间位置，2张牌)
+2. 找到公共牌(屏幕中间，0-5张)
+3. 识别底池筹码数和你的筹码数
+4. 数出总玩家数
+
+返回JSON格式：
+{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot_size":0,"my_chips":0,"total_players":6,"active_players":4,"my_position":"BTN","street":"preflop","to_call":0,"min_raise":0}
+
+严格规则：
+- rank只能是: A K Q J T 9 8 7 6 5 4 3 2（用T表示10）
+- suit: s=黑桃♠(黑色尖顶) h=红心♥(红色心形) d=方块♦(红色菱形) c=梅花♣(黑色三叶)
+- 花色区分重点：♠和♣都是黑色，但♠顶部尖、♣像三叶草；♥和♦都是红色，但♥是心形、♦是菱形
 - my_position: SB BB UTG MP CO BTN
-- street: preflop flop turn river
-- pot_size/to_call/min_raise/my_chips: 纯数字(不含逗号或符号)
-- 如果某个信息无法识别，用默认值0或空数组
+- street: preflop=只有手牌 flop=3张公共牌 turn=4张公共牌 river=5张公共牌
+- pot_size/to_call/min_raise/my_chips: 纯数字不含逗号
+- 如果不是德州扑克游戏界面，所有字段返回默认值
+- 如果某信息看不清，用默认值0或空数组，不要猜
 - 只返回JSON，不要其他文字"""
 
         val json = JSONObject().apply {
@@ -153,7 +157,7 @@ object VisionApiClient {
                             put("type", "image_url")
                             put("image_url", JSONObject().apply {
                                 put("url", base64Image)
-                                put("detail", "low")
+                                put("detail", "high")
                             })
                         })
                     })
@@ -253,9 +257,57 @@ object VisionApiClient {
     }
 
     /**
+     * V2.0: 校验识别结果合理性，返回警告列表
+     */
+    private fun validateResult(result: VisionResult): List<String> {
+        val warnings = mutableListOf<String>()
+        val validRanks = setOf("A","K","Q","J","T","9","8","7","6","5","4","3","2")
+        val validSuits = setOf("s","h","d","c")
+
+        // 检查手牌有效性
+        for (card in result.holeCards) {
+            if (card.rank !in validRanks) warnings.add("无效点数:${card.rank}")
+            if (card.suit !in validSuits) warnings.add("无效花色:${card.suit}")
+        }
+        // 检查公共牌有效性
+        for (card in result.communityCards) {
+            if (card.rank !in validRanks) warnings.add("公共牌无效点数:${card.rank}")
+            if (card.suit !in validSuits) warnings.add("公共牌无效花色:${card.suit}")
+        }
+        // 检查手牌数量
+        if (result.holeCards.size != 2) warnings.add("手牌数${result.holeCards.size}≠2")
+        // 检查公共牌数量合理性
+        if (result.communityCards.size !in 0..5) warnings.add("公共牌数${result.communityCards.size}异常")
+        // 检查street和公共牌数量一致性
+        val commCount = result.communityCards.size
+        val expectedComm = when(result.street.lowercase()) {
+            "preflop", "pre" -> 0
+            "flop" -> 3
+            "turn" -> 4
+            "river" -> 5
+            else -> -1
+        }
+        if (expectedComm >= 0 && commCount != expectedComm) {
+            warnings.add("${result.street}应有${expectedComm}张公共牌,识别到${commCount}张")
+        }
+        // 检查人数合理性
+        if (result.totalPlayers < 2 || result.totalPlayers > 20) warnings.add("人数${result.totalPlayers}异常")
+        // 检查重复牌
+        val allCards = result.holeCards + result.communityCards
+        val cardSet = mutableSetOf<String>()
+        for (card in allCards) {
+            val key = card.rank + card.suit
+            if (!cardSet.add(key)) warnings.add("重复牌:${card.rank}${card.suit}")
+        }
+
+        return warnings
+    }
+
+    /**
      * 将VisionResult转为JSON，供WebView策略引擎使用
      */
     fun toJson(result: VisionResult): String {
+        val warnings = validateResult(result)
         val json = JSONObject().apply {
             put("hole_cards", JSONArray(result.holeCards.map { 
                 JSONObject().apply { put("rank", it.rank); put("suit", it.suit) }
@@ -271,6 +323,10 @@ object VisionApiClient {
             put("street", result.street)
             put("to_call", result.toCall)
             put("min_raise", result.minRaise)
+            // V2.0: 包含校验警告
+            if (warnings.isNotEmpty()) {
+                put("_warnings", JSONArray(warnings))
+            }
         }
         return json.toString()
     }
