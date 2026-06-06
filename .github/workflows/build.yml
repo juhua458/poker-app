@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.1
-        name: "V2.1 扑克AI助手 - 彻底移除MediaProjection解决黑屏"
-        body: "V2.1: 彻底移除MediaProjection|5条触发路径全部切断|启动不再弹录屏授权|无障碍截图是唯一路径|游戏检测不到→绝不黑屏"
+        tag_name: v2.2
+        name: "V2.2 扑克AI助手 - 识别修复+策略区放大"
+        body: "V2.2: prompt强化(先数公共牌→定street)|parseCards支持JSON和字符串双格式防崩溃|street矛盾自动纠正|按钮缩小+padding加大保持触摸|策略主建议52→60px/极速80→96px|副标题18→22px"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
