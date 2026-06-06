@@ -359,7 +359,7 @@ class FloatingService : Service() {
                         }
                     }
                 }.start()
-            }, 1500)
+            }, 2000)
         }
 
         // V1.2: 语音输入按钮

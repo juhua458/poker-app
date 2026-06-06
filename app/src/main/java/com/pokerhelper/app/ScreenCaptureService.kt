@@ -17,6 +17,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
@@ -36,49 +37,41 @@ class ScreenCaptureService : Service() {
         var lastError: String = ""
             private set
         var lastChipStatus: String = ""
-            internal set
-        var onCaptureComplete: (() -> Unit)? = null
+            private set
         private const val CHANNEL_ID = "poker_screenshot"
         private const val NOTIFICATION_ID = 1
     }
 
     private var mediaProjection: MediaProjection? = null
-    private var virtualDisplay: VirtualDisplay? = null
-    private var imageReader: ImageReader? = null
+    private val handler = Handler(Looper.getMainLooper())
     private var resultCode: Int = 0
     private var resultData: Intent? = null
-    private val handler = Handler(Looper.getMainLooper())
     private var screenWidth = 540
     private var screenHeight = 1200
     private var screenDensity = 160
-    private var consecutiveFails = 0
+    private var isCapturing = false
+    private var captureThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        captureThread = HandlerThread("CaptureThread").apply { start() }
+        captureHandler = Handler(captureThread!!.looper)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP") {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
-        if (intent?.action == "RESET_CHIPS") {
-            ChipTracker.reset()
-            lastChipStatus = "已重置"
-            return START_STICKY
-        }
-
-        if (intent?.action == "CAPTURE_ONCE") {
-            if (mediaProjection == null) {
-                lastError = "MediaProjection未授权，请在主界面重新启动"
-            } else {
-                handler.post { captureAndAnalyze() }
+        when (intent?.action) {
+            "STOP" -> {
+                stopSelf()
+                return START_NOT_STICKY
             }
-            return START_STICKY
+            "CAPTURE_ONCE" -> {
+                performCaptureOnce()
+                return START_STICKY
+            }
         }
 
         if (isRunning && mediaProjection != null) {
@@ -103,223 +96,159 @@ class ScreenCaptureService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        startScreenCapture()
+        initMediaProjection()
         isRunning = true
-
         return START_STICKY
     }
 
-    private fun startScreenCapture() {
+    /**
+     * 只初始化MediaProjection，不创建VirtualDisplay
+     * 这样游戏不会检测到录屏，不会黑屏
+     */
+    private fun initMediaProjection() {
         try {
             val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = projectionManager.getMediaProjection(resultCode, resultData!!)
             
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
-                    lastError = "MediaProjection被停止(可能需要重新授权)"
+                    lastError = "MediaProjection被停止(可回主界面重新授权)"
+                    mediaProjection = null
                 }
             }, handler)
 
-            setupVirtualDisplay()
-
             lastError = ""
-            captureCount = 0
-
-            // V1.3: 按需截屏模式 - 轻量保活（只丢帧不分析，省电省资源）
-            handler.postDelayed(object : Runnable {
-                override fun run() {
-                    if (isRunning) {
-                        try {
-                            val img = imageReader?.acquireLatestImage()
-                            img?.close()
-                        } catch (_: Exception) {}
-                        handler.postDelayed(this, 3000)
-                    }
-                }
-            }, 500)
         } catch (e: Exception) {
-            lastError = "启动失败: ${e.message}"
+            lastError = "MediaProjection启动失败: ${e.message}"
             e.printStackTrace()
             isRunning = false
             stopSelf()
         }
     }
 
-    private fun setupVirtualDisplay() {
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val realW: Int
-        val realH: Int
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = wm.currentWindowMetrics.bounds
-            realW = bounds.width()
-            realH = bounds.height()
-        } else {
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            wm.defaultDisplay.getRealMetrics(metrics)
-            realW = metrics.widthPixels
-            realH = metrics.heightPixels
+    /**
+     * ★ 核心改进：按需单次截屏 ★
+     * 流程：创建VirtualDisplay → 等500ms截一帧 → 立即释放VirtualDisplay
+     * VirtualDisplay只存在<1秒，游戏检测不到，不会黑屏
+     */
+    fun performCaptureOnce() {
+        if (isCapturing) {
+            return // 防止重复触发
         }
-        val newWidth = realW * 3 / 4
-        val newHeight = realH * 3 / 4
-        val newDensity = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            wm.currentWindowMetrics.density.toInt() * 3 / 4
-        } else {
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            wm.defaultDisplay.getRealMetrics(metrics)
-            metrics.densityDpi * 3 / 4
+        if (mediaProjection == null) {
+            lastError = "MediaProjection未就绪(可回主界面重新授权)"
+            return
         }
 
-        screenWidth = newWidth
-        screenHeight = newHeight
-        screenDensity = newDensity
+        isCapturing = true
+        var virtualDisplay: VirtualDisplay? = null
+        var imageReader: ImageReader? = null
 
-        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "PokerScreenCapture",
-            screenWidth, screenHeight, screenDensity,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface,
-            null, null
-        )
-    }
-
-    private fun captureAndAnalyze() {
-        try {
-            val image: Image? = imageReader?.acquireLatestImage()
-            if (image != null) {
-                val planes = image.planes
-                val buffer = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * screenWidth
-
-                var bitmap = Bitmap.createBitmap(
-                    screenWidth + rowPadding / pixelStride,
-                    screenHeight, Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
-                image.close()
-
-                // 检查旋转
+        captureHandler?.post {
+            try {
+                // 获取屏幕尺寸
                 val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                val realW: Int
-                val realH: Int
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     val bounds = wm.currentWindowMetrics.bounds
-                    realW = bounds.width()
-                    realH = bounds.height()
+                    screenWidth = bounds.width() * 3 / 4
+                    screenHeight = bounds.height() * 3 / 4
+                    screenDensity = wm.currentWindowMetrics.density.toInt() * 3 / 4
                 } else {
-                    val dm = DisplayMetrics()
+                    val metrics = DisplayMetrics()
                     @Suppress("DEPRECATION")
-                    wm.defaultDisplay.getRealMetrics(dm)
-                    realW = dm.widthPixels
-                    realH = dm.heightPixels
+                    wm.defaultDisplay.getRealMetrics(metrics)
+                    screenWidth = metrics.widthPixels * 3 / 4
+                    screenHeight = metrics.heightPixels * 3 / 4
+                    screenDensity = metrics.densityDpi * 3 / 4
                 }
-                val isRealLandscape = realW > realH
-                val isCaptureLandscape = bitmap.width > bitmap.height
 
-                if (isRealLandscape != isCaptureLandscape) {
-                    try {
-                        try { virtualDisplay?.release() } catch (_: Exception) {}
-                        try { imageReader?.close() } catch (_: Exception) {}
+                // 创建ImageReader
+                imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
 
-                        screenWidth = realW * 3 / 4
-                        screenHeight = realH * 3 / 4
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            screenDensity = wm.currentWindowMetrics.density.toInt() * 3 / 4
-                        } else {
-                            val m = DisplayMetrics()
-                            @Suppress("DEPRECATION")
-                            wm.defaultDisplay.getRealMetrics(m)
-                            screenDensity = m.densityDpi * 3 / 4
-                        }
+                // 创建VirtualDisplay
+                virtualDisplay = mediaProjection?.createVirtualDisplay(
+                    "PokerCaptureOnce",
+                    screenWidth, screenHeight, screenDensity,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    imageReader?.surface,
+                    null, null
+                )
 
-                        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
-                        virtualDisplay = mediaProjection?.createVirtualDisplay(
-                            "PokerScreenCapture",
-                            screenWidth, screenHeight, screenDensity,
-                            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                            imageReader?.surface,
-                            null, null
-                        )
-                        lastError = "旋转重建VD ${screenWidth}x${screenHeight}"
-                    } catch (re: Exception) {
-                        lastError = "旋转重建失败: ${re.message}"
-                    }
+                // 等500ms让VirtualDisplay产出第一帧
+                Thread.sleep(500)
+
+                // 读取帧
+                val image: Image? = imageReader?.acquireLatestImage()
+                if (image != null) {
+                    val planes = image.planes
+                    val buffer = planes[0].buffer
+                    val pixelStride = planes[0].pixelStride
+                    val rowStride = planes[0].rowStride
+                    val rowPadding = rowStride - pixelStride * screenWidth
+
+                    val bitmap = Bitmap.createBitmap(
+                        screenWidth + rowPadding / pixelStride,
+                        screenHeight, Bitmap.Config.ARGB_8888
+                    )
+                    bitmap.copyPixelsFromBuffer(buffer)
+                    image.close()
+
+                    val stream = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+                    latestScreenshot = stream.toByteArray()
                     bitmap.recycle()
-                    return
-                }
-
-                // 检查bitmap方向（Android 15旋转修正）
-                if (bitmap.width < bitmap.height && isRealLandscape) {
-                    val matrix = android.graphics.Matrix()
-                    matrix.postRotate(-90f)
-                    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-                    bitmap.recycle()
-                    bitmap = rotated
-                }
-
-                val stream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
-                val jpegData = stream.toByteArray()
-                latestScreenshot = jpegData
-                bitmap.recycle()
-                
-                captureCount++
-                lastCaptureTime = System.currentTimeMillis()
-                consecutiveFails = 0
-                lastError = ""
-                
-                // 触发按需截屏回调
-                onCaptureComplete?.invoke()
-                
-                // 异步OCR分析筹码 + API视觉识别
-                Thread {
-                    try {
-                        val frame = ChipTracker.analyzeScreenshot(jpegData)
-                        if (frame != null) {
-                            lastChipStatus = "${frame.tablePlayerCount}人 | 活跃${frame.activePlayerCount} | 下注${frame.totalBetAmount}"
-                        }
-                    } catch (e: Exception) {
-                        lastChipStatus = "OCR错误: ${e.message}"
-                    }
                     
-                    // V1.3: 如果有API Key，用视觉模型识别牌面
-                    if (VisionApiClient.apiKey.isNotEmpty()) {
-                        try {
-                            lastChipStatus = (lastChipStatus ?: "") + " | API分析中..."
-                            val visionResult = VisionApiClient.analyzeScreenshot(jpegData)
-                            if (visionResult != null) {
-                                lastChipStatus = "${visionResult.totalPlayers}人 | ${visionResult.street} | ${visionResult.holeCards.map { it.rank + it.suit }.joinToString(" ")}"
-                            } else {
-                                lastChipStatus = (lastChipStatus ?: "").replace(" | API分析中...", "") + " | API:" + VisionApiClient.lastError
-                            }
-                        } catch (e: Exception) {
-                            lastChipStatus = (lastChipStatus ?: "") + " | API错误"
-                        }
+                    captureCount++
+                    lastCaptureTime = System.currentTimeMillis()
+                    lastError = ""
+                } else {
+                    // 第一帧没拿到，再等300ms试一次
+                    Thread.sleep(300)
+                    val image2: Image? = imageReader?.acquireLatestImage()
+                    if (image2 != null) {
+                        val planes = image2.planes
+                        val buffer = planes[0].buffer
+                        val pixelStride = planes[0].pixelStride
+                        val rowStride = planes[0].rowStride
+                        val rowPadding = rowStride - pixelStride * screenWidth
+
+                        val bitmap = Bitmap.createBitmap(
+                            screenWidth + rowPadding / pixelStride,
+                            screenHeight, Bitmap.Config.ARGB_8888
+                        )
+                        bitmap.copyPixelsFromBuffer(buffer)
+                        image2.close()
+
+                        val stream = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+                        latestScreenshot = stream.toByteArray()
+                        bitmap.recycle()
+                        
+                        captureCount++
+                        lastCaptureTime = System.currentTimeMillis()
+                        lastError = ""
+                    } else {
+                        lastError = "按需截屏: 未获取到帧(可重试)"
                     }
-                }.start()
-                
-            } else {
-                consecutiveFails++
-                if (consecutiveFails > 10) {
-                    lastError = "连续${consecutiveFails}次未获取到帧"
                 }
+            } catch (e: Exception) {
+                lastError = "按需截屏失败: ${e.message}"
+                e.printStackTrace()
+            } finally {
+                // ★ 立即释放VirtualDisplay，游戏不会检测到 ★
+                try { virtualDisplay?.release() } catch (_: Exception) {}
+                try { imageReader?.close() } catch (_: Exception) {}
+                isCapturing = false
             }
-        } catch (e: Exception) {
-            consecutiveFails++
-            lastError = "截屏错误: ${e.message}"
         }
     }
 
     override fun onDestroy() {
         isRunning = false
         handler.removeCallbacksAndMessages(null)
-        virtualDisplay?.release()
-        imageReader?.close()
+        captureThread?.quitSafely()
         mediaProjection?.stop()
+        mediaProjection = null
         latestScreenshot = null
         super.onDestroy()
     }
@@ -338,7 +267,7 @@ class ScreenCaptureService : Service() {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("🃏 扑克AI助手")
-                .setContentText("截屏+OCR服务运行中")
+                .setContentText("截屏服务就绪(按需截屏)")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setOngoing(true)
                 .build()
@@ -346,7 +275,7 @@ class ScreenCaptureService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
                 .setContentTitle("🃏 扑克AI助手")
-                .setContentText("截屏+OCR服务运行中")
+                .setContentText("截屏服务就绪")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setOngoing(true)
                 .build()
