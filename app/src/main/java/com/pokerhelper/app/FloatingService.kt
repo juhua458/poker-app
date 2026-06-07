@@ -114,19 +114,19 @@ class FloatingService : Service() {
                 override fun onReadyForSpeech(params: Bundle?) {
                     isListening = true
                     tvVoice?.text = "🎤 听..."
-                    tvVoice?.setBackgroundColor(0xFF4CAF50.toInt())
+                    tvVoice?.alpha = 0.5f
                 }
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {
                     isListening = false
-                    tvVoice?.setBackgroundColor(0xFF37474F.toInt())
+                    tvVoice?.alpha = 1.0f
                 }
                 override fun onError(error: Int) {
                     isListening = false
                     tvVoice?.text = "🎤"
-                    tvVoice?.setBackgroundColor(0xFF37474F.toInt())
+                    tvVoice?.alpha = 1.0f
                     val errMsg = when(error) {
                         SpeechRecognizer.ERROR_NO_MATCH -> "未识别"
                         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "超时"
@@ -137,7 +137,7 @@ class FloatingService : Service() {
                 override fun onResults(results: Bundle?) {
                     isListening = false
                     tvVoice?.text = "🎤"
-                    tvVoice?.setBackgroundColor(0xFF37474F.toInt())
+                    tvVoice?.alpha = 1.0f
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
                         val text = matches[0]
@@ -289,20 +289,14 @@ class FloatingService : Service() {
             visibility = View.GONE
         }
 
-        // V2.9.1: 🎯截图按钮 - 小圆按钮，固定32x32dp不撑大
+        // V2.9.1: 🎯截图按钮 - 无背景，只显示emoji，最小点击区域
         tvAction = TextView(this)
         tvAction?.text = "🎯"
         tvAction?.setTextColor(0xFFFFFFFF.toInt())
-        tvAction?.textSize = 12f
+        tvAction?.textSize = 14f
         tvAction?.gravity = Gravity.CENTER
-        val actionDp = 32
-        val actionPx = (actionDp * resources.displayMetrics.density).toInt()
-        tvAction?.layoutParams = LinearLayout.LayoutParams(actionPx, actionPx)
-        tvAction?.setPadding(0, 0, 0, 0)
-        val actionBg = android.graphics.drawable.GradientDrawable()
-        actionBg.cornerRadius = actionPx / 2f
-        actionBg.setColor(0xFFE65100.toInt())
-        tvAction?.background = actionBg
+        tvAction?.setPadding(6, 2, 6, 2)
+        tvAction?.setBackgroundColor(0x00000000) // 完全透明，无背景
         tvAction?.setOnClickListener {
             // V2.9: 识别前先清空旧数据，防止残留上一局手牌
             webView?.evaluateJavascript("if(typeof clr==='function'){clr()}", null)
@@ -312,7 +306,7 @@ class FloatingService : Service() {
             // V2.1: 只有无障碍截图一条路径，绝不走MediaProjection
             tvStatus?.text = "🎯 截屏中..."
             webView?.evaluateJavascript("document.body.classList.add('api-processing')", null)
-            tvAction?.setBackgroundColor(0xFF1565C0.toInt())
+            tvAction?.alpha = 0.5f // 截屏中半透明
             
             if (PokerAccessibilityService.isServiceRunning()) {
                 // ★ 唯一路径：无障碍截图（不触发游戏黑屏检测）★
@@ -323,7 +317,7 @@ class FloatingService : Service() {
                         } else {
                             // V2.1: 无障碍截图失败 → 提示重试，绝不降级MediaProjection
                             tvStatus?.text = "❌ 截图失败，请重试 (${ScreenCaptureService.lastError.take(20)})"
-                            tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                            tvAction?.alpha = 1.0f // 恢复正常
                             webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                         }
                     }
@@ -332,27 +326,28 @@ class FloatingService : Service() {
             } else {
                 // V2.1: 无障碍服务未开启 → 提示开启，绝不降级MediaProjection
                 tvStatus?.text = "⚠️ 请先开启无障碍服务！回App开启"
-                tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                tvAction?.alpha = 1.0f // 恢复正常
                 webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
             }
         }
 
-        // V1.2: 语音输入按钮
+        // V1.2: 语音输入按钮 - 无背景
         tvVoice = TextView(this).apply {
             text = "🎤"
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 14f
-            setPadding(10, 6, 10, 6)
-            setBackgroundColor(0xFF37474F.toInt())
+            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0x00000000)
             setOnClickListener { startVoiceInput() }
         }
 
-        // V1.2: 筹码重置按钮
+        // V1.2: 筹码重置按钮 - 无背景
         val tvReset = TextView(this).apply {
             text = "🔄"
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 12f
-            setPadding(10, 6, 10, 6)
+            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0x00000000)
             setOnClickListener {
                 ChipTracker.reset()
                 ScreenCaptureService.lastChipStatus = "已重置"
@@ -599,7 +594,7 @@ class FloatingService : Service() {
                 else -> "❌ 截屏失败，请重试"
             }
             tvStatus?.text = diag
-            tvAction?.setBackgroundColor(0xFFE65100.toInt())
+            tvAction?.alpha = 1.0f // 恢复正常
             webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
             return
         }
@@ -610,14 +605,14 @@ class FloatingService : Service() {
                 "if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')",
                 null
             )
-            tvAction?.setBackgroundColor(0xFF4CAF50.toInt())
+            tvAction?.alpha = 1.0f // 恢复正常
             tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
             return
         }
 
         // 有API Key → 调用视觉模型识别牌面
         tvStatus?.text = "🎯 API识别中..."
-        tvAction?.setBackgroundColor(0xFF1565C0.toInt())
+        tvAction?.alpha = 0.5f // 截屏中半透明
         Thread {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
@@ -628,7 +623,7 @@ class FloatingService : Service() {
                             "if(typeof onVisionResult==='function'){onVisionResult($resultJson)}",
                             null
                         )
-                        tvAction?.setBackgroundColor(0xFF4CAF50.toInt())
+                        tvAction?.alpha = 1.0f // 恢复正常
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
                         // V2.0: 显示识别结果到原生行
@@ -654,14 +649,14 @@ class FloatingService : Service() {
                     }
                 } else {
                     handler.post {
-                        tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                        tvAction?.alpha = 1.0f // 恢复正常
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
                         webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                     }
                 }
             } catch (e: Exception) {
                 handler.post {
-                    tvAction?.setBackgroundColor(0xFFE65100.toInt())
+                    tvAction?.alpha = 1.0f // 恢复正常
                     tvStatus?.text = "❌ API错误"
                     webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
                 }
