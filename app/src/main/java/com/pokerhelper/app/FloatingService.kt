@@ -283,7 +283,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.6"
+            text = "🃏 v2.9.7"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 10f
             setPadding(4, 1, 4, 1)
@@ -714,7 +714,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.6")
+                .setContentTitle("🃏 牌局智囊 v2.9.7")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -722,7 +722,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.6")
+                .setContentTitle("🃏 牌局智囊 v2.9.7")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

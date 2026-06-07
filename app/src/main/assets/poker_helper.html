@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v14 · GTO+DRTA融合版</title>
+<title>扑克AI v14.1 · GTO+DRTA融合版</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
+body.speed-mode{max-width:none}
 .res{background:linear-gradient(135deg,#0f1b2e,#16213e);border-radius:14px;padding:12px;text-align:center;margin-bottom:4px;min-height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .r-a{font-size:60px;font-weight:900;letter-spacing:3px;line-height:1}
 .r-a.raise{color:#2ed573;text-shadow:0 0 25px rgba(46,213,115,.6)}
@@ -167,7 +168,7 @@ body.speed-mode .mx-wrap,
 body.speed-mode .adv-t,
 body.speed-mode .adv,
 body.speed-mode .cam-mini{display:none!important}
-body.speed-mode .res{min-height:280px;border-radius:18px;padding:20px 16px;background:linear-gradient(135deg,#0d2137,#162d50);border:2px solid rgba(46,213,115,.3)}
+body.speed-mode .res{min-height:auto;border-radius:18px;padding:20px 16px;background:linear-gradient(135deg,#0d2137,#1a3a6e);border:2px solid rgba(46,213,115,.5);justify-content:flex-start;box-shadow:0 0 15px rgba(46,213,115,.15)}
 body.speed-mode .r-a{font-size:22px;letter-spacing:2px;padding:6px 16px;border-radius:8px;display:inline-block;margin-bottom:8px}
 body.speed-mode .r-v{font-size:18px;margin-top:4px}
 body.speed-mode .r-d{font-size:14px;margin-top:3px}
@@ -1241,6 +1242,7 @@ function onVisionResult(data){
   // 7. ★ 进入极速模式 ★
   document.body.classList.add('speed-mode');
   document.body.classList.remove('api-processing');
+  window.scrollTo(0,0);
   
   // 8. 触发策略分析
   go();
