@@ -76,8 +76,8 @@ class MainActivity : AppCompatActivity() {
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             spinnerProvider.adapter = adapter
 
-            val savedProvider = prefs?.getString(KEY_PROVIDER, "siliconflow") ?: "siliconflow"
-            val savedKey = prefs?.getString(KEY_APIKEY, "") ?: ""
+            val savedProvider = prefs?.getString(KEY_PROVIDER, "dashscope") ?: "dashscope"
+            val savedKey = prefs?.getString(KEY_APIKEY, "sk-392a0016c35c4e788670d8b05bd741a6") ?: "sk-392a0016c35c4e788670d8b05bd741a6"
             val providerIndex = providers.indexOf(savedProvider).coerceAtLeast(0)
             spinnerProvider.setSelection(providerIndex)
             if (savedKey.isNotEmpty()) {
