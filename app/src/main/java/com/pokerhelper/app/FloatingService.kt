@@ -283,7 +283,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.4"
+            text = "🃏 v2.9.5"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 10f
             setPadding(4, 1, 4, 1)
@@ -418,22 +418,26 @@ class FloatingService : Service() {
         val bottomHandleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16)
         container.addView(resizeHandleBottom, bottomHandleParams)
 
+        // V2.9.5: ★ 回退V2.8加载方式（loadUrl+onReceivedError重试）★
+        // V2.9.2~V2.9.4黑屏根因：about:blank/loadDataWithBaseURL方案都不如直接loadUrl稳定
         wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = true
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            cacheMode = WebSettings.LOAD_NO_CACHE
             setSupportZoom(false)
             builtInZoomControls = false
         }
-        // V2.9.4: 清除旧缓存+历史，确保新版本HTML立即生效
-        wv.clearCache(true)
-        wv.clearHistory()
+
         wv.webViewClient = object : WebViewClient() {
+            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                // V2.8经典方案：HTTP服务器未就绪时自动重试
+                if (errorCode == -2 || errorCode == -6) {
+                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 2000)
+                }
+            }
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // V2.9.4: 直接从assets加载，onPageFinished=页面真正渲染完成
                 if (!webViewReady) {
                     webViewReady = true
                     // 执行所有排队的JS调用
@@ -447,21 +451,7 @@ class FloatingService : Service() {
         }
         wv.webChromeClient = WebChromeClient()
 
-        // V2.9.4: ★ 直接从assets加载HTML，不依赖HttpServerService ★
-        // 彻底消除黑屏根因：之前loadUrl("http://127.0.0.1:8666")依赖HTTP服务器启动时序
-        // 用loadDataWithBaseURL直接注入HTML内容，baseURL设为http://127.0.0.1:8666
-        // 这样页面立即渲染，且fetch('/api/*')请求仍走HTTP服务器
-        try {
-            val is_ = assets.open("poker_helper.html")
-            val reader = java.io.InputStreamReader(is_, "UTF-8")
-            val htmlContent = reader.readText()
-            reader.close()
-            wv.loadDataWithBaseURL("http://127.0.0.1:8666", htmlContent, "text/html; charset=utf-8", "UTF-8", null)
-        } catch (e: Exception) {
-            // 极端情况：assets读取失败，回退到HTTP加载
-            wv.loadUrl("http://127.0.0.1:8666")
-        }
-
+        // ★ 关键：addJavascriptInterface必须在loadUrl之前注册 ★
         wv.addJavascriptInterface(object : Any() {
             @JavascriptInterface
             fun updateStatus(text: String) {
@@ -492,6 +482,11 @@ class FloatingService : Service() {
                 return VoiceInputManager.toJson(result)
             }
         }, "AndroidBridge")
+
+        // V2.9.5: ★ 回到V2.8经典加载方式 ★
+        // addJavascriptInterface已注册，直接loadUrl
+        // onReceivedError会在HTTP服务器未就绪时自动重试
+        wv.loadUrl("http://127.0.0.1:8666")
 
         floatingView = container
 
@@ -719,7 +714,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.4")
+                .setContentTitle("🃏 牌局智囊 v2.9.5")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -727,7 +722,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.4")
+                .setContentTitle("🃏 牌局智囊 v2.9.5")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
