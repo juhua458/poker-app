@@ -283,7 +283,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.5"
+            text = "🃏 v2.9.6"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 10f
             setPadding(4, 1, 4, 1)
@@ -418,7 +418,7 @@ class FloatingService : Service() {
         val bottomHandleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16)
         container.addView(resizeHandleBottom, bottomHandleParams)
 
-        // V2.9.5: ★ 回退V2.8加载方式（loadUrl+onReceivedError重试）★
+        // V2.9.6: ★ 回退V2.8加载方式（loadUrl+onReceivedError重试）★
         // V2.9.2~V2.9.4黑屏根因：about:blank/loadDataWithBaseURL方案都不如直接loadUrl稳定
         wv.settings.apply {
             javaScriptEnabled = true
@@ -483,7 +483,7 @@ class FloatingService : Service() {
             }
         }, "AndroidBridge")
 
-        // V2.9.5: ★ 回到V2.8经典加载方式 ★
+        // V2.9.6: ★ 回到V2.8经典加载方式 ★
         // addJavascriptInterface已注册，直接loadUrl
         // onReceivedError会在HTTP服务器未就绪时自动重试
         wv.loadUrl("http://127.0.0.1:8666")
@@ -714,7 +714,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.5")
+                .setContentTitle("🃏 牌局智囊 v2.9.6")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -722,7 +722,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.5")
+                .setContentTitle("🃏 牌局智囊 v2.9.6")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

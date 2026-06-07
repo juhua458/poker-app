@@ -141,7 +141,7 @@ object VisionApiClient {
 
 ★第一步：先数公共牌数量！0张=preflop, 3张=flop, 4张=turn, 5张=river。street必须和公共牌数量一致！
 第二步：找到你的手牌(屏幕下方中间位置，2张牌)
-第三步：数出总玩家数——看屏幕上有几个玩家头像/座位框/名字框，你自己也算一个
+第三步：数出实际在场的玩家数(total_players)——只数有筹码显示的头像/座位，空座(灰色/暗色/无筹码)不算！你自己也算一个。注意：桌面上可能有6个座位框，但只有5个有人，那就报5
 第四步：识别底池筹码数和你的筹码数
 
 返回JSON格式：
@@ -153,6 +153,7 @@ object VisionApiClient {
 - 花色区分重点：♠和♣都是黑色，但♠顶部尖、♣像三叶草；♥和♦都是红色，但♥是心形、♦是菱形
 - my_position: SB BB UTG MP CO BTN
 - street必须与community_cards数量一致：0张→preflop, 3张→flop, 4张→turn, 5张→river
+- total_players=在场有筹码的玩家数，空座位不算
 - pot_size/to_call/min_raise/my_chips: 纯数字不含逗号
 - 如果不是德州扑克游戏界面，所有字段返回默认值
 - 如果某信息看不清，用默认值0或空数组，不要猜
