@@ -289,14 +289,18 @@ class FloatingService : Service() {
             visibility = View.GONE
         }
 
-        // V2.9.1: 🎯截图按钮 - 缩成小圆按钮
+        // V2.9.1: 🎯截图按钮 - 小圆按钮，固定32x32dp不撑大
         tvAction = TextView(this)
         tvAction?.text = "🎯"
         tvAction?.setTextColor(0xFFFFFFFF.toInt())
-        tvAction?.textSize = 10f
-        tvAction?.setPadding(4, 2, 4, 2)
+        tvAction?.textSize = 12f
+        tvAction?.gravity = Gravity.CENTER
+        val actionDp = 32
+        val actionPx = (actionDp * resources.displayMetrics.density).toInt()
+        tvAction?.layoutParams = LinearLayout.LayoutParams(actionPx, actionPx)
+        tvAction?.setPadding(0, 0, 0, 0)
         val actionBg = android.graphics.drawable.GradientDrawable()
-        actionBg.cornerRadius = 20f
+        actionBg.cornerRadius = actionPx / 2f
         actionBg.setColor(0xFFE65100.toInt())
         tvAction?.background = actionBg
         tvAction?.setOnClickListener {
