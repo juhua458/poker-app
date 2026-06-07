@@ -273,7 +273,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v2.8"
+            text = "🃏 Poker AI v2.9.1"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 11f
             setPadding(8, 4, 8, 4)
@@ -289,13 +289,16 @@ class FloatingService : Service() {
             visibility = View.GONE
         }
 
-        // V1.3: "我行动"按钮 - 按需截屏
+        // V2.9.1: 🎯截图按钮 - 缩成小圆按钮
         tvAction = TextView(this)
         tvAction?.text = "🎯"
         tvAction?.setTextColor(0xFFFFFFFF.toInt())
-        tvAction?.textSize = 18f
-        tvAction?.setPadding(14, 8, 14, 8)
-        tvAction?.setBackgroundColor(0xFFE65100.toInt())
+        tvAction?.textSize = 10f
+        tvAction?.setPadding(4, 2, 4, 2)
+        val actionBg = android.graphics.drawable.GradientDrawable()
+        actionBg.cornerRadius = 20f
+        actionBg.setColor(0xFFE65100.toInt())
+        tvAction?.background = actionBg
         tvAction?.setOnClickListener {
             // V2.9: 识别前先清空旧数据，防止残留上一局手牌
             webView?.evaluateJavascript("if(typeof clr==='function'){clr()}", null)
@@ -689,7 +692,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.8")
+                .setContentTitle("🃏 牌局智囊 v2.9.1")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -697,7 +700,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.8")
+                .setContentTitle("🃏 牌局智囊 v2.9.1")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
