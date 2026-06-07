@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.8
-        name: "V2.8 扑克AI助手 - 彻底移除MediaProjection永不黑屏"
-        body: "V2.8: 彻底移除ScreenCaptureService中所有MediaProjection代码|移除AndroidManifest中mediaProjection权限和服务类型|ScreenCaptureService仅保留companion object做数据存储|截图唯一路径=AccessibilityService.takeScreenshot()|覆盖安装不会残留旧MediaProjection令牌"
+        tag_name: v2.9
+        name: "V2.9 牌局智囊 - 修复识别问题(T→10显示/清空旧手牌/CSS比例)"
+        body: "V2.9: 修复3个识别问题|1.T→10显示转换(HTML识别横幅+Kotlin原生行+tvStatus)|2.点击识别前先清空旧数据防止残留上一局手牌|3.极速模式CSS比例调整(主建议96→52px/绿色建议12→16px/说明文字14→15px)"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
