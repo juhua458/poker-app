@@ -17,6 +17,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;
 .r-v{font-size:22px;color:#ccc;margin-top:2px;font-weight:bold}
 .r-d{font-size:11px;color:#888;margin-top:2px;line-height:1.4}
 .r-tip{font-size:10px;color:#2ed573;margin-top:4px;font-weight:bold;padding:3px 12px;background:rgba(46,213,115,.1);border-radius:20px;display:inline-block}
+body.speed-mode .r-tip.fold-tip{color:#ff4757;background:rgba(255,71,87,.12)}
+body.speed-mode .r-tip.call-tip{color:#ffa502;background:rgba(255,165,2,.12)}
+body.speed-mode .r-tip.raise-tip{color:#2ed573;background:rgba(46,213,115,.12)}
+body.speed-mode .r-tip.check-tip{color:#aaa;background:rgba(170,170,170,.1)}
+body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
 .r-exploit{font-size:9px;padding:2px 8px;border-radius:10px;margin-top:3px;display:inline-block}
 .r-exploit.fish{background:rgba(46,213,115,.15);color:#2ed573}
 .r-exploit.tp{background:rgba(93,173,226,.15);color:#5dade2}
@@ -163,10 +168,10 @@ body.speed-mode .adv-t,
 body.speed-mode .adv,
 body.speed-mode .cam-mini{display:none!important}
 body.speed-mode .res{min-height:250px;border-radius:18px;padding:16px 12px}
-body.speed-mode .r-a{font-size:52px;letter-spacing:4px}
-body.speed-mode .r-v{font-size:24px;margin-top:4px}
-body.speed-mode .r-d{font-size:15px;margin-top:4px}
-body.speed-mode .r-tip{font-size:16px;padding:8px 18px;margin-top:6px}
+body.speed-mode .r-a{font-size:18px;letter-spacing:2px;padding:4px 14px;border-radius:8px;display:inline-block;margin-bottom:6px}
+body.speed-mode .r-v{font-size:16px;margin-top:4px}
+body.speed-mode .r-d{font-size:13px;margin-top:3px}
+body.speed-mode .r-tip{font-size:42px;padding:12px 20px;margin-top:8px;font-weight:900;border-radius:14px;display:block}
 body.speed-mode .r-class{font-size:10px;margin-top:3px}
 body.speed-mode .r-drta{font-size:10px;margin-top:4px}
 body.speed-mode .r-spr{font-size:10px;margin-top:3px}
@@ -862,21 +867,22 @@ function show(r){
   }
   var am={raise:'加注',call:'跟注',fold:'弃牌',check:'过牌',allin:'全下'};
   var cn=am[r.a]||r.a;
-  var h='<div class="r-a '+r.a+'">'+cn+'</div>';
-  if(r.v)h+='<div class="r-v">'+r.v+' BB</div>';
-  h+='<div class="r-d">'+r.r+'</div>';
-  if(r.hClass){
-    var classMap={NUTS:'nuts',STRONG:'strong',MEDIUM:'medium',WEAK:'weak',DRAW:'draw',AIR:'air'};
-    var cls=classMap[r.hClass.name]||'';
-    h+='<div class="r-class '+cls+'">🎯'+r.hClass.name+'级 | '+r.hClass.desc+'</div>';
-  }
+  // V2.9.1: 极速模式建议做大、动作缩成小标签
   var tip='';
   if(r.a==='raise'||r.a==='allin')tip='位好可加注';
   else if(r.a==='call')tip='赔率够可跟';
   else if(r.a==='fold')tip='牌力不够弃牌';
   else if(r.a==='check')tip='牌力中等过牌';
   if(G.stk<=30)tip='短码→'+cn;
-  if(tip)h+='<div class="r-tip">💡 '+tip+'</div>';
+  var h='<div class="r-a '+r.a+'">'+cn+'</div>';
+  if(tip)h+='<div class="r-tip '+r.a+'-tip">💡 '+tip+'</div>';
+  if(r.hClass){
+    var classMap={NUTS:'nuts',STRONG:'strong',MEDIUM:'medium',WEAK:'weak',DRAW:'draw',AIR:'air'};
+    var cls=classMap[r.hClass.name]||'';
+    h+='<div class="r-class '+cls+'">🎯'+r.hClass.name+'级 | '+r.hClass.desc+'</div>';
+  }
+  if(r.v)h+='<div class="r-v">'+r.v+' BB</div>';
+  h+='<div class="r-d">'+r.r+'</div>';
   if(r.exploit){
     var exClass={fish:'fish',tight:'tp',lag:'lag'}[G.opp]||'';
     h+='<div class="r-exploit '+exClass+'">'+r.exploit+'</div>';
