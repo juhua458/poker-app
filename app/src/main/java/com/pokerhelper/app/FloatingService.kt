@@ -297,6 +297,11 @@ class FloatingService : Service() {
         tvAction?.setPadding(14, 8, 14, 8)
         tvAction?.setBackgroundColor(0xFFE65100.toInt())
         tvAction?.setOnClickListener {
+            // V2.9: 识别前先清空旧数据，防止残留上一局手牌
+            webView?.evaluateJavascript("if(typeof clr==='function'){clr()}", null)
+            tvRecResult?.text = ""
+            tvRecResult?.visibility = View.GONE
+            
             // V2.1: 只有无障碍截图一条路径，绝不走MediaProjection
             tvStatus?.text = "🎯 截屏中..."
             webView?.evaluateJavascript("document.body.classList.add('api-processing')", null)
@@ -617,13 +622,13 @@ class FloatingService : Service() {
                             null
                         )
                         tvAction?.setBackgroundColor(0xFF4CAF50.toInt())
-                        val hole = result.holeCards.map { it.rank + it.suit }.joinToString(" ")
+                        val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
                         // V2.0: 显示识别结果到原生行
                         val suitSym = mapOf("s" to "♠", "h" to "♥", "d" to "♦", "c" to "♣")
                         val streetCN = mapOf("preflop" to "翻前", "flop" to "翻牌", "turn" to "转牌", "river" to "河牌")
-                        val holeStr = result.holeCards.map { "${it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
-                        val commStr = result.communityCards.map { "${it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
+                        val holeStr = result.holeCards.map { "${if(it.rank=="T") "10" else it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
+                        val commStr = result.communityCards.map { "${if(it.rank=="T") "10" else it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
                         val streetStr = streetCN[result.street] ?: result.street
                         var recText = "🔍 手牌: $holeStr"
                         if (commStr.isNotEmpty()) recText += " | 公共: $commStr"

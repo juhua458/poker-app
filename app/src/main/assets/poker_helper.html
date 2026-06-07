@@ -163,10 +163,10 @@ body.speed-mode .adv-t,
 body.speed-mode .adv,
 body.speed-mode .cam-mini{display:none!important}
 body.speed-mode .res{min-height:250px;border-radius:18px;padding:16px 12px}
-body.speed-mode .r-a{font-size:96px;letter-spacing:5px}
-body.speed-mode .r-v{font-size:28px;margin-top:4px}
-body.speed-mode .r-d{font-size:14px;margin-top:3px}
-body.speed-mode .r-tip{font-size:12px;padding:4px 14px;margin-top:5px}
+body.speed-mode .r-a{font-size:52px;letter-spacing:4px}
+body.speed-mode .r-v{font-size:24px;margin-top:4px}
+body.speed-mode .r-d{font-size:15px;margin-top:4px}
+body.speed-mode .r-tip{font-size:16px;padding:8px 18px;margin-top:6px}
 body.speed-mode .r-class{font-size:10px;margin-top:3px}
 body.speed-mode .r-drta{font-size:10px;margin-top:4px}
 body.speed-mode .r-spr{font-size:10px;margin-top:3px}
@@ -1166,6 +1166,9 @@ function onActionCapture(){
 function onVisionResult(data){
   if(!data) return;
   
+  // V2.9: 先重置所有牌面，防止残留上一局数据
+  G.hole=[null,null];G.comm=[null,null,null,null,null];
+  
   // 1. 自动填入手牌
   if(data.hole_cards && data.hole_cards.length>=2){
     G.hole=[];
@@ -1253,7 +1256,7 @@ function onVisionResult(data){
     if(!c||!c.rank) return '';
     var sym=suitSymbol[c.suit]||'?';
     var cls=suitColor[c.suit]||'blk';
-    return '<div class="rec-card '+cls+'"><span class="rc-r">'+c.rank+'</span><span class="rc-s">'+sym+'</span></div>';
+    return '<div class="rec-card '+cls+'"><span class="rc-r">'+(c.rank==='T'?'10':c.rank)+'</span><span class="rc-s">'+sym+'</span></div>';
   }
   
   var cardsHtml='';
