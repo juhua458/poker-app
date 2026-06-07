@@ -397,7 +397,7 @@ object VisionApiClient {
             }
             "dashscope" -> {
                 apiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-                modelName = "qwen2.5-vl-72b-instruct"
+                modelName = "qwen3-vl-plus"
             }
             "deepseek" -> {
                 apiUrl = "https://api.deepseek.com/v1/chat/completions"
