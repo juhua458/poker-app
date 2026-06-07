@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.12
-        name: "V2.9.12 牌局智囊 - 修复翻后无建议+speed-mode保持+模拟提速"
-        body: "V2.9.12: setScene不再覆盖pot/bet+speed-mode始终开启+mcVsRange降2000次防卡死"
+        tag_name: v2.9.13
+        name: "V2.9.13 牌局智囊 - go异步化+思考中提示+try-catch兜底+下注关键词"
+        body: "V2.9.13: go()异步化解冻UI+思考中提示+try-catch兜底+下注按钮识别"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
