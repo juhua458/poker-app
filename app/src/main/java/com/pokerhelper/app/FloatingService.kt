@@ -62,12 +62,9 @@ class FloatingService : Service() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
 
-    // V2.9.3: WebView加载追踪 + JS调用队列
+    // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
     private val pendingJsCalls = mutableListOf<String>()
-    private var webViewRetryCount = 0
-    private val maxWebViewRetries = 20
-    private var webViewRetryRunnable: Runnable? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,7 +95,6 @@ class FloatingService : Service() {
         isRunning = false
         currentPanelWidth = 0
         currentPanelHeight = 0
-        webViewRetryRunnable?.let { handler.removeCallbacks(it) }
         handler.removeCallbacksAndMessages(null)
         speechRecognizer?.destroy()
         try {
@@ -258,29 +254,13 @@ class FloatingService : Service() {
         }
     }
 
-    // V2.9.3: 统一JS调用入口 — WebView未就绪时自动排队
+    // V2.9.4: 统一JS调用入口 — WebView未就绪时自动排队
     private fun executeJs(js: String) {
         if (webViewReady && webView != null) {
             webView?.evaluateJavascript(js, null)
         } else {
             pendingJsCalls.add(js)
-            // 如果WebView还没开始加载，立即尝试
-            scheduleWebViewRetry()
         }
-    }
-
-    // V2.9.3: WebView重试加载 — 指数退避，最多maxWebViewRetries次
-    private fun scheduleWebViewRetry() {
-        if (webViewReady || webViewRetryCount >= maxWebViewRetries) return
-        webViewRetryRunnable?.let { handler.removeCallbacks(it) }
-        val delayMs = (500L * (webViewRetryCount + 1)).coerceAtMost(3000L)
-        webViewRetryRunnable = Runnable {
-            if (!webViewReady && webViewRetryCount < maxWebViewRetries) {
-                webViewRetryCount++
-                webView?.loadUrl("http://127.0.0.1:8666")
-            }
-        }
-        handler.postDelayed(webViewRetryRunnable!!, delayMs)
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -303,7 +283,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.3"
+            text = "🃏 v2.9.4"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 10f
             setPadding(4, 1, 4, 1)
@@ -447,44 +427,40 @@ class FloatingService : Service() {
             setSupportZoom(false)
             builtInZoomControls = false
         }
+        // V2.9.4: 清除旧缓存+历史，确保新版本HTML立即生效
+        wv.clearCache(true)
+        wv.clearHistory()
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // V2.9.3: 真正页面加载完成才标记ready
-                if (url != null && url != "about:blank") {
+                // V2.9.4: 直接从assets加载，onPageFinished=页面真正渲染完成
+                if (!webViewReady) {
                     webViewReady = true
-                    webViewRetryCount = 0
                     // 执行所有排队的JS调用
                     val calls = ArrayList(pendingJsCalls)
                     pendingJsCalls.clear()
                     for (js in calls) {
                         view?.evaluateJavascript(js, null)
                     }
-                    tvStatus?.text = "🃏 v2.9.3 ✅就绪"
-                }
-            }
-
-            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                super.onReceivedError(view, errorCode, description, failingUrl)
-                if (failingUrl != "about:blank") {
-                    webViewReady = false
-                    scheduleWebViewRetry()
-                }
-            }
-
-            override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                super.onReceivedError(view, request, error)
-                if (request?.isForMainFrame == true) {
-                    webViewReady = false
-                    scheduleWebViewRetry()
                 }
             }
         }
         wv.webChromeClient = WebChromeClient()
 
-        // V2.9.3: 先加载about:blank防黑屏，然后开始重试加载真实页面
-        wv.loadUrl("about:blank")
-        handler.postDelayed({ scheduleWebViewRetry() }, 500)
+        // V2.9.4: ★ 直接从assets加载HTML，不依赖HttpServerService ★
+        // 彻底消除黑屏根因：之前loadUrl("http://127.0.0.1:8666")依赖HTTP服务器启动时序
+        // 用loadDataWithBaseURL直接注入HTML内容，baseURL设为http://127.0.0.1:8666
+        // 这样页面立即渲染，且fetch('/api/*')请求仍走HTTP服务器
+        try {
+            val is_ = assets.open("poker_helper.html")
+            val reader = java.io.InputStreamReader(is_, "UTF-8")
+            val htmlContent = reader.readText()
+            reader.close()
+            wv.loadDataWithBaseURL("http://127.0.0.1:8666", htmlContent, "text/html; charset=utf-8", "UTF-8", null)
+        } catch (e: Exception) {
+            // 极端情况：assets读取失败，回退到HTTP加载
+            wv.loadUrl("http://127.0.0.1:8666")
+        }
 
         wv.addJavascriptInterface(object : Any() {
             @JavascriptInterface
@@ -743,7 +719,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.3")
+                .setContentTitle("🃏 牌局智囊 v2.9.4")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -751,7 +727,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.3")
+                .setContentTitle("🃏 牌局智囊 v2.9.4")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
