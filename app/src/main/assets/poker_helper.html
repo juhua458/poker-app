@@ -935,7 +935,7 @@ function show(r){
   }
 }
 
-function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){try{var r=decide();show(r);}catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';};},50);}
+function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){try{var r=decide();show(r);try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var fullAdv=adv+(val?' '+val:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}}}}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}}catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}},50);}
 function setPhase(p){
   G.phase=p;
   document.getElementById('tabPre').classList.toggle('on',p==='pre');
@@ -1288,30 +1288,8 @@ function onVisionResult(data){
   window.scrollTo(0,0);
   
   // 8. 触发策略分析（唯一的go()调用，数据此时已全部就绪）
+  // V2.9.13: showAdvice+脉冲动画已移到go()内部异步回调中，确保decide()完成后才执行
   go();
-  
-  // V2.9.10: 回传建议到原生TextView（用按钮文字）
-  try{
-    var resEl2=document.getElementById('res');
-    if(resEl2){
-      var aDiv=resEl2.querySelector('.r-a');
-      var vDiv=resEl2.querySelector('.r-v');
-      if(aDiv){
-        var adv=aDiv.textContent.trim();
-        var val=vDiv?vDiv.textContent.trim():'';
-        var fullAdv=adv+(val?' '+val:'');
-        if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}
-      }
-    }
-  }catch(e){}
-  
-  // 9. 结果脉冲动画
-  var resEl=document.getElementById('res');
-  if(resEl){
-    resEl.classList.remove('result-pulse','border-flash');
-    void resEl.offsetWidth; // 强制reflow
-    resEl.classList.add('result-pulse','border-flash');
-  }
   
   // 10. ★ V2.0: 显示识别结果横幅 ★
   var suitSymbol={s:'♠',h:'♥',d:'♦',c:'♣'};
