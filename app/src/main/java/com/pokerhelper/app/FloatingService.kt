@@ -274,19 +274,19 @@ class FloatingService : Service() {
             setBackgroundColor(0xEE0a1a0a.toInt())
         }
 
-        // Top bar with buttons
+        // Top bar with buttons - V2.9.14: 半透明紧凑顶栏
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(0xFF166534.toInt())
-            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0x990a1a0a.toInt()) // V2.9.14: 半透明深色背景替代绿色
+            setPadding(4, 1, 4, 1) // V2.9.14: 更紧凑padding
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.13"
+            text = "🃏 v2.9.14"
             setTextColor(0xFFe8edf5.toInt())
-            textSize = 10f
-            setPadding(4, 1, 4, 1)
+            textSize = 9f // V2.9.14: 更紧凑
+            setPadding(2, 0, 2, 0)
         }
 
         // V2.0: 识别结果展示行 - 大字显示识别到的牌面
@@ -732,7 +732,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.13")
+                .setContentTitle("🃏 牌局智囊 v2.9.14")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -740,7 +740,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.13")
+                .setContentTitle("🃏 牌局智囊 v2.9.14")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
