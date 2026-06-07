@@ -269,22 +269,22 @@ class FloatingService : Service() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(0xFF166534.toInt())
-            setPadding(12, 6, 12, 6)
+            setPadding(6, 2, 6, 2)
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 Poker AI v2.9.1"
+            text = "🃏 v2.9.2"
             setTextColor(0xFFe8edf5.toInt())
-            textSize = 11f
-            setPadding(8, 4, 8, 4)
+            textSize = 10f
+            setPadding(4, 1, 4, 1)
         }
 
         // V2.0: 识别结果展示行 - 大字显示识别到的牌面
         tvRecResult = TextView(this).apply {
             text = ""
             setTextColor(0xFF90CAF9.toInt())
-            textSize = 11f
-            setPadding(8, 2, 8, 2)
+            textSize = 10f
+            setPadding(4, 1, 4, 1)
             setBackgroundColor(0xFF1A237E.toInt())
             visibility = View.GONE
         }
@@ -357,10 +357,10 @@ class FloatingService : Service() {
         }
 
         val tvCollapse = TextView(this).apply {
-            text = "  ▼  "
+            text = "▼"
             setTextColor(0xFF4ade80.toInt())
-            textSize = 14f
-            setPadding(8, 6, 8, 6)
+            textSize = 10f
+            setPadding(4, 2, 4, 2)
             setOnClickListener { toggleExpand() }
         }
 
@@ -420,11 +420,15 @@ class FloatingService : Service() {
         wv.webViewClient = object : WebViewClient() {
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
                 if (errorCode == -2 || errorCode == -6) {
-                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 2000)
+                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 1500)
                 }
             }
         }
         wv.webChromeClient = WebChromeClient()
+
+        // V2.9.2: 延迟1秒加载WebView，等HttpServerService先启动完成，防黑屏
+        wv.loadUrl("about:blank")
+        handler.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 1000)
 
         wv.addJavascriptInterface(object : Any() {
             @JavascriptInterface
@@ -456,8 +460,6 @@ class FloatingService : Service() {
                 return VoiceInputManager.toJson(result)
             }
         }, "AndroidBridge")
-
-        wv.loadUrl("http://127.0.0.1:8666")
 
         floatingView = container
 
@@ -691,7 +693,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.1")
+                .setContentTitle("🃏 牌局智囊 v2.9.2")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -699,7 +701,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.1")
+                .setContentTitle("🃏 牌局智囊 v2.9.2")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
