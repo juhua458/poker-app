@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v2.9.11 · GTO+DRTA融合版</title>
+<title>扑克AI v2.9.12 · GTO+DRTA融合版</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -722,7 +722,7 @@ function postF(k){
   var oppRange=getOppRange(bet>0?'postflop':'preflop',bet>0?'cbet':'check',bTexture.wetness>=2?'wet':'dry');
   var blocker=getBlockerScore(k,oppRange);
   var hClass=handClassify(hole,comm);
-  var sim=mcVsRange(hole,comm,oppRange,5000);
+  var sim=mcVsRange(hole,comm,oppRange,2000);
   var betPotRatio=bet>0?bet/(pot+bet):0;
   var betLevel=betPotRatio<0.33?'small':betPotRatio<0.66?'normal':'large';
   var eq=sim.eq;
@@ -1072,7 +1072,7 @@ function selHFromMx(k,i,j){
   uCards();afterPick();
 }
 function e5(cards){var best=0;var all5=[];var n=cards.length;for(var i=0;i<n-4;i++)for(var j=i+1;j<n-3;j++)for(var k=j+1;k<n-2;k++)for(var l=k+1;l<n-1;l++)for(var m=l+1;m<n;m++)all5.push([cards[i],cards[j],cards[k],cards[l],cards[m]]);for(var idx=0;idx<all5.length;idx++){var v=eH(all5[idx]);if(v>best)best=v;}return best;}
-function mcVsRange(hole,comm,oppRange,iterations){if(iterations===undefined)iterations=5000;var known=[].concat(hole,comm.filter(function(c){return c;}));var deck=[];for(var ri=0;ri<R.length;ri++){for(var si=0;si<SU.length;si++){var rank=R[ri];var suit=SU[si];if(!known.some(function(c){return c.rank===rank&&c.suit===suit;})){deck.push({rank:rank,suit:suit});}}}var cn=comm.filter(function(c){return c;}).length;var nd=5-cn;var oppHands=[];for(var ki=0;ki<oppRange.length;ki++){var key=oppRange[ki];var hands=handKeyToCards(key);for(var hi=0;hi<hands.length;hi++){var h=hands[hi];if(!known.some(function(c){return c.rank===h[0].rank&&c.suit===h[0].suit;})&&!known.some(function(c){return c.rank===h[1].rank&&c.suit===h[1].suit;})){oppHands.push(h);}}}var w=0,t=0;var hv=eH([].concat(hole,comm.filter(function(c){return c;})));for(var i=0;i<iterations;i++){var sh=[].concat(deck);for(var j=sh.length-1;j>sh.length-1-nd&&j>0;j--){var k=Math.floor(Math.random()*(j+1));var tmp=sh[j];sh[j]=sh[k];sh[k]=tmp;}var board=[].concat(comm.filter(function(c){return c;}),sh.slice(-nd));var myBest=eH([].concat(hole,board));var oppBest=0;if(oppHands.length>0){var oppIdx=Math.floor(Math.random()*oppHands.length);var oppHole=oppHands[oppIdx];if(oppHole)oppBest=eH([].concat(oppHole,board));}else{var oppSh=[].concat(deck.slice(0,-nd));for(var jj=oppSh.length-1;jj>oppSh.length-3&&jj>0;jj--){var kk=Math.floor(Math.random()*(jj+1));var tmp2=oppSh[jj];oppSh[jj]=oppSh[kk];oppSh[kk]=tmp2;}oppBest=eH([oppSh[0],oppSh[1]].concat(board));}if(myBest>oppBest)w++;else if(myBest===oppBest)t++;}return{eq:(w+t*0.5)/iterations*100,win:w/iterations*100,tie:t/iterations*100};}
+function mcVsRange(hole,comm,oppRange,iterations){if(iterations===undefined)iterations=2000;var known=[].concat(hole,comm.filter(function(c){return c;}));var deck=[];for(var ri=0;ri<R.length;ri++){for(var si=0;si<SU.length;si++){var rank=R[ri];var suit=SU[si];if(!known.some(function(c){return c.rank===rank&&c.suit===suit;})){deck.push({rank:rank,suit:suit});}}}var cn=comm.filter(function(c){return c;}).length;var nd=5-cn;var oppHands=[];for(var ki=0;ki<oppRange.length;ki++){var key=oppRange[ki];var hands=handKeyToCards(key);for(var hi=0;hi<hands.length;hi++){var h=hands[hi];if(!known.some(function(c){return c.rank===h[0].rank&&c.suit===h[0].suit;})&&!known.some(function(c){return c.rank===h[1].rank&&c.suit===h[1].suit;})){oppHands.push(h);}}}var w=0,t=0;var hv=eH([].concat(hole,comm.filter(function(c){return c;})));for(var i=0;i<iterations;i++){var sh=[].concat(deck);for(var j=sh.length-1;j>sh.length-1-nd&&j>0;j--){var k=Math.floor(Math.random()*(j+1));var tmp=sh[j];sh[j]=sh[k];sh[k]=tmp;}var board=[].concat(comm.filter(function(c){return c;}),sh.slice(-nd));var myBest=eH([].concat(hole,board));var oppBest=0;if(oppHands.length>0){var oppIdx=Math.floor(Math.random()*oppHands.length);var oppHole=oppHands[oppIdx];if(oppHole)oppBest=eH([].concat(oppHole,board));}else{var oppSh=[].concat(deck.slice(0,-nd));for(var jj=oppSh.length-1;jj>oppSh.length-3&&jj>0;jj--){var kk=Math.floor(Math.random()*(jj+1));var tmp2=oppSh[jj];oppSh[jj]=oppSh[kk];oppSh[kk]=tmp2;}oppBest=eH([oppSh[0],oppSh[1]].concat(board));}if(myBest>oppBest)w++;else if(myBest===oppBest)t++;}return{eq:(w+t*0.5)/iterations*100,win:w/iterations*100,tie:t/iterations*100};}
 function handKeyToCards(key){var results=[];var r1=key[0],r2=key[1];var isSuited=key.indexOf('s')!==-1;var isPaired=r1===r2;if(isPaired){for(var s1i=0;s1i<SU.length;s1i++){for(var s2i=0;s2i<SU.length;s2i++){if(SU[s1i]!==SU[s2i])results.push([{rank:r1,suit:SU[s1i]},{rank:r2,suit:SU[s2i]}]);}}}else if(isSuited){for(var si=0;si<SU.length;si++){results.push([{rank:r1,suit:SU[si]},{rank:r2,suit:SU[si]}]);}}else{for(var s1j=0;s1j<SU.length;s1j++){for(var s2j=0;s2j<SU.length;s2j++){if(SU[s1j]!==SU[s2j])results.push([{rank:r1,suit:SU[s1j]},{rank:r2,suit:SU[s2j]}]);}}}return results;}
 async function toggleCamModal(){
   var m=document.getElementById('camModal');
@@ -1179,7 +1179,7 @@ function onActionCapture(){
     .catch(function(){});
 }
 
-// V2.9.11: 从按钮文字自动推导场景（替代手动选择）
+// V2.9.12: 从按钮文字自动推导场景（替代手动选择）
 function detectSceneFromButtons(buttons, street, activePlayers) {
   if (!buttons || buttons.length === 0) {
     return street === 'preflop' ? 'open' : 'check';
@@ -1233,7 +1233,7 @@ function onVisionResult(data){
     while(G.comm.length<5) G.comm.push(null);
   }
   
-  // 3. V2.9.11: 从按钮文字自动推导阶段和场景（替代手动选择）
+  // 3. V2.9.12: 从按钮文字自动推导场景（不调setScene，避免覆盖pot/bet和重复go）
   if(data.street){
     var street=(data.street||'').toLowerCase();
     var activeP=parseInt(data.active_players)||2;
@@ -1243,7 +1243,7 @@ function onVisionResult(data){
       G.phase='post';
     }
     var detectedScene=detectSceneFromButtons(data.buttons||[],street,activeP);
-    setScene(detectedScene);
+    G.scene=detectedScene;
   }
   
   // 4. 自动设定桌型和位置
@@ -1257,7 +1257,7 @@ function onVisionResult(data){
   }
   
   // 5. 更新筹码/底池/面对下注
-  // V2.9.11: 先算BB，再用BB转换pot和stk
+  // V2.9.12: 先算BB，再用BB转换pot和stk
   var bbValue=1000; // 默认盲注
   if(data.my_chips>0){
     // 从筹码推算BB（假设100BB初始筹码）
@@ -1279,11 +1279,12 @@ function onVisionResult(data){
   // 6. 更新UI
   uCards();
   
-  // 7. ★ 极速模式已默认开启 ★
+  // 7. ★ V2.9.12: 确保极速模式始终开启 + 移除loading ★
+  document.body.classList.add('speed-mode');
   document.body.classList.remove('api-processing');
   window.scrollTo(0,0);
   
-  // 8. 触发策略分析
+  // 8. 触发策略分析（唯一的go()调用，数据此时已全部就绪）
   go();
   
   // V2.9.10: 回传建议到原生TextView（用按钮文字）
