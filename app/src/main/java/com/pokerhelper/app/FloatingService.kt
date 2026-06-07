@@ -62,6 +62,13 @@ class FloatingService : Service() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
 
+    // V2.9.3: WebView加载追踪 + JS调用队列
+    private var webViewReady = false
+    private val pendingJsCalls = mutableListOf<String>()
+    private var webViewRetryCount = 0
+    private val maxWebViewRetries = 20
+    private var webViewRetryRunnable: Runnable? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,6 +98,7 @@ class FloatingService : Service() {
         isRunning = false
         currentPanelWidth = 0
         currentPanelHeight = 0
+        webViewRetryRunnable?.let { handler.removeCallbacks(it) }
         handler.removeCallbacksAndMessages(null)
         speechRecognizer?.destroy()
         try {
@@ -143,10 +151,7 @@ class FloatingService : Service() {
                         val text = matches[0]
                         val result = VoiceInputManager.parseVoiceText(text)
                         // 传给WebView
-                        webView?.evaluateJavascript(
-                            "if(typeof onVoiceInput==='function'){onVoiceInput(${VoiceInputManager.toJson(result)})}",
-                            null
-                        )
+                        executeJs("if(typeof onVoiceInput==='function'){onVoiceInput(${VoiceInputManager.toJson(result)})}")
                         tvStatus?.text = "语音: ${result.holeCards.joinToString(" ")} ${result.rawText}"
                     }
                 }
@@ -253,6 +258,31 @@ class FloatingService : Service() {
         }
     }
 
+    // V2.9.3: 统一JS调用入口 — WebView未就绪时自动排队
+    private fun executeJs(js: String) {
+        if (webViewReady && webView != null) {
+            webView?.evaluateJavascript(js, null)
+        } else {
+            pendingJsCalls.add(js)
+            // 如果WebView还没开始加载，立即尝试
+            scheduleWebViewRetry()
+        }
+    }
+
+    // V2.9.3: WebView重试加载 — 指数退避，最多maxWebViewRetries次
+    private fun scheduleWebViewRetry() {
+        if (webViewReady || webViewRetryCount >= maxWebViewRetries) return
+        webViewRetryRunnable?.let { handler.removeCallbacks(it) }
+        val delayMs = (500L * (webViewRetryCount + 1)).coerceAtMost(3000L)
+        webViewRetryRunnable = Runnable {
+            if (!webViewReady && webViewRetryCount < maxWebViewRetries) {
+                webViewRetryCount++
+                webView?.loadUrl("http://127.0.0.1:8666")
+            }
+        }
+        handler.postDelayed(webViewRetryRunnable!!, delayMs)
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun showFloatingWindow() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -273,7 +303,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.2"
+            text = "🃏 v2.9.3"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 10f
             setPadding(4, 1, 4, 1)
@@ -299,13 +329,13 @@ class FloatingService : Service() {
         tvAction?.setBackgroundColor(0x00000000) // 完全透明，无背景
         tvAction?.setOnClickListener {
             // V2.9: 识别前先清空旧数据，防止残留上一局手牌
-            webView?.evaluateJavascript("if(typeof clr==='function'){clr()}", null)
+            executeJs("if(typeof clr==='function'){clr()}")
             tvRecResult?.text = ""
             tvRecResult?.visibility = View.GONE
             
             // V2.1: 只有无障碍截图一条路径，绝不走MediaProjection
             tvStatus?.text = "🎯 截屏中..."
-            webView?.evaluateJavascript("document.body.classList.add('api-processing')", null)
+            executeJs("document.body.classList.add('api-processing')")
             tvAction?.alpha = 0.5f // 截屏中半透明
             
             if (PokerAccessibilityService.isServiceRunning()) {
@@ -318,7 +348,7 @@ class FloatingService : Service() {
                             // V2.1: 无障碍截图失败 → 提示重试，绝不降级MediaProjection
                             tvStatus?.text = "❌ 截图失败，请重试 (${ScreenCaptureService.lastError.take(20)})"
                             tvAction?.alpha = 1.0f // 恢复正常
-                            webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+                            executeJs("document.body.classList.remove('api-processing')")
                         }
                     }
                 }
@@ -327,7 +357,7 @@ class FloatingService : Service() {
                 // V2.1: 无障碍服务未开启 → 提示开启，绝不降级MediaProjection
                 tvStatus?.text = "⚠️ 请先开启无障碍服务！回App开启"
                 tvAction?.alpha = 1.0f // 恢复正常
-                webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+                executeJs("document.body.classList.remove('api-processing')")
             }
         }
 
@@ -351,7 +381,7 @@ class FloatingService : Service() {
             setOnClickListener {
                 ChipTracker.reset()
                 ScreenCaptureService.lastChipStatus = "已重置"
-                webView?.evaluateJavascript("if(typeof onChipReset==='function'){onChipReset()}", null)
+                executeJs("if(typeof onChipReset==='function'){onChipReset()}")
                 tvStatus?.text = "筹码已重置"
             }
         }
@@ -418,17 +448,43 @@ class FloatingService : Service() {
             builtInZoomControls = false
         }
         wv.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                // V2.9.3: 真正页面加载完成才标记ready
+                if (url != null && url != "about:blank") {
+                    webViewReady = true
+                    webViewRetryCount = 0
+                    // 执行所有排队的JS调用
+                    val calls = ArrayList(pendingJsCalls)
+                    pendingJsCalls.clear()
+                    for (js in calls) {
+                        view?.evaluateJavascript(js, null)
+                    }
+                    tvStatus?.text = "🃏 v2.9.3 ✅就绪"
+                }
+            }
+
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                if (errorCode == -2 || errorCode == -6) {
-                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 1500)
+                super.onReceivedError(view, errorCode, description, failingUrl)
+                if (failingUrl != "about:blank") {
+                    webViewReady = false
+                    scheduleWebViewRetry()
+                }
+            }
+
+            override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                super.onReceivedError(view, request, error)
+                if (request?.isForMainFrame == true) {
+                    webViewReady = false
+                    scheduleWebViewRetry()
                 }
             }
         }
         wv.webChromeClient = WebChromeClient()
 
-        // V2.9.2: 延迟1秒加载WebView，等HttpServerService先启动完成，防黑屏
+        // V2.9.3: 先加载about:blank防黑屏，然后开始重试加载真实页面
         wv.loadUrl("about:blank")
-        handler.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 1000)
+        handler.postDelayed({ scheduleWebViewRetry() }, 500)
 
         wv.addJavascriptInterface(object : Any() {
             @JavascriptInterface
@@ -597,16 +653,13 @@ class FloatingService : Service() {
             }
             tvStatus?.text = diag
             tvAction?.alpha = 1.0f // 恢复正常
-            webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+            executeJs("document.body.classList.remove('api-processing')")
             return
         }
 
         if (VisionApiClient.apiKey.isEmpty()) {
             // 没有API Key，只做本地刷新
-            webView?.evaluateJavascript(
-                "if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')",
-                null
-            )
+            executeJs("if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')")
             tvAction?.alpha = 1.0f // 恢复正常
             tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
             return
@@ -621,10 +674,7 @@ class FloatingService : Service() {
                 if (result != null) {
                     val resultJson = VisionApiClient.toJson(result)
                     handler.post {
-                        webView?.evaluateJavascript(
-                            "if(typeof onVisionResult==='function'){onVisionResult($resultJson)}",
-                            null
-                        )
+                        executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}")
                         tvAction?.alpha = 1.0f // 恢复正常
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
@@ -653,14 +703,14 @@ class FloatingService : Service() {
                     handler.post {
                         tvAction?.alpha = 1.0f // 恢复正常
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
-                        webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+                        executeJs("document.body.classList.remove('api-processing')")
                     }
                 }
             } catch (e: Exception) {
                 handler.post {
                     tvAction?.alpha = 1.0f // 恢复正常
                     tvStatus?.text = "❌ API错误"
-                    webView?.evaluateJavascript("document.body.classList.remove('api-processing')", null)
+                    executeJs("document.body.classList.remove('api-processing')")
                 }
             }
         }.start()
@@ -693,7 +743,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.2")
+                .setContentTitle("🃏 牌局智囊 v2.9.3")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -701,7 +751,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.2")
+                .setContentTitle("🃏 牌局智囊 v2.9.3")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
