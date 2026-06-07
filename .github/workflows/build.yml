@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.7
-        name: "V2.9.7 牌局智囊 - 极速模式窗口建议可见修复"
-        body: "V2.9.7: justify-content:flex-start+min-height:auto+max-width:none+scrollTo(0,0)+背景加亮"
+        tag_name: v2.9.8
+        name: "V2.9.8 牌局智囊 - 原生建议+CSS fixed双保险"
+        body: "V2.9.8: 原生TextView显示建议+CSS position:fixed双保险+颜色编码"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -283,7 +283,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.7"
+            text = "🃏 v2.9.8"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 10f
             setPadding(4, 1, 4, 1)
@@ -480,6 +480,23 @@ class FloatingService : Service() {
             fun parseVoice(text: String): String {
                 val result = VoiceInputManager.parseVoiceText(text)
                 return VoiceInputManager.toJson(result)
+            }
+            
+            @JavascriptInterface
+            fun showAdvice(advice: String) {
+                handler.post {
+                    val currentText = tvRecResult?.text?.toString() ?: ""
+                    if (advice.isNotEmpty()) {
+                        tvRecResult?.text = "$advice | $currentText"
+                        when {
+                            advice.contains("弃牌") -> tvRecResult?.setBackgroundColor(0xFF8B0000.toInt())
+                            advice.contains("跟注") -> tvRecResult?.setBackgroundColor(0xFFE65100.toInt())
+                            advice.contains("加注") -> tvRecResult?.setBackgroundColor(0xFF1B5E20.toInt())
+                            advice.contains("全下") -> tvRecResult?.setBackgroundColor(0xFF4A148C.toInt())
+                            advice.contains("过牌") -> tvRecResult?.setBackgroundColor(0xFF424242.toInt())
+                        }
+                    }
+                }
             }
         }, "AndroidBridge")
 
@@ -714,7 +731,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.7")
+                .setContentTitle("🃏 牌局智囊 v2.9.8")
                 .setContentText("悬浮窗+语音+OCR运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -722,7 +739,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.7")
+                .setContentTitle("🃏 牌局智囊 v2.9.8")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
