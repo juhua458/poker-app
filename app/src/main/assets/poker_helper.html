@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v14.2 · GTO+DRTA融合版</title>
+<title>扑克AI v2.9.11 · GTO+DRTA融合版</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -207,13 +207,13 @@ body.speed-mode .rec-info{font-size:12px;font-weight:bold}
 body.speed-mode .rec-label{font-size:10px}
 </style>
 </head>
-<body>
+<body class="speed-mode">
 <div class="rec-banner" id="recBanner">
   <div class="rec-label">🔍 识别结果</div>
   <div class="rec-cards" id="recCards"></div>
   <div class="rec-info" id="recInfo"></div>
 </div>
-<div class="res" id="res"><div style="color:#555;font-size:14px">👇 选牌 + 点场景</div></div>
+<div class="res" id="res"><div style="color:#555;font-size:14px">📷 截图即可开始分析</div></div>
 <div class="tracker-wrap" id="trackerWrap">
   <div class="tracker-title"><span class="t-icon">🎯</span>对手追踪 <span id="oppTypeTag" style="font-size:9px;padding:1px 5px;background:rgba(199,125,255,.2);border-radius:3px;color:#c77dff">unknown</span></div>
   <div class="tracker-stats" id="trackerStats">
@@ -1179,6 +1179,28 @@ function onActionCapture(){
     .catch(function(){});
 }
 
+// V2.9.11: 从按钮文字自动推导场景（替代手动选择）
+function detectSceneFromButtons(buttons, street, activePlayers) {
+  if (!buttons || buttons.length === 0) {
+    return street === 'preflop' ? 'open' : 'check';
+  }
+  var hasAllin = buttons.some(function(b){return b.indexOf('全下')>=0;});
+  if (hasAllin) return 'allin';
+  var hasReraise = buttons.some(function(b){return b.indexOf('再加注')>=0;});
+  if (hasReraise) return 'reraise';
+  var hasCall = buttons.some(function(b){return b.indexOf('跟注')>=0;});
+  var hasCheck = buttons.some(function(b){return b.indexOf('过牌')>=0;});
+  var hasRaise = buttons.some(function(b){return b.indexOf('加注')>=0;});
+  if (hasCall && street === 'preflop') {
+    return (activePlayers > 2) ? 'call' : 'raise';
+  }
+  if (hasCall && street !== 'preflop') return 'bet';
+  if (hasCheck && hasRaise) return 'check';
+  if (hasCheck) return 'check';
+  if (hasRaise && !hasCall && !hasCheck) return 'open';
+  return street === 'preflop' ? 'open' : 'check';
+}
+
 // V1.3: API视觉识别结果回调 - 自动填入牌面+策略分析
 function onVisionResult(data){
   if(!data) return;
@@ -1211,21 +1233,17 @@ function onVisionResult(data){
     while(G.comm.length<5) G.comm.push(null);
   }
   
-  // 3. 自动设定阶段和场景（根据API返回的street）
+  // 3. V2.9.11: 从按钮文字自动推导阶段和场景（替代手动选择）
   if(data.street){
     var street=(data.street||'').toLowerCase();
+    var activeP=parseInt(data.active_players)||2;
     if(street==='preflop'||street==='pre'){
       G.phase='pre';
-      if(data.to_call && data.to_call>0) setScene('call');
-      else if(data.last_action==='raise'||data.last_action==='reraise') setScene('raise');
-      else setScene('open');
     } else {
       G.phase='post';
-      if(data.to_call && data.to_call>0) setScene('call');
-      else if(data.last_action==='bet') setScene('bet');
-      else if(data.last_action==='raise') setScene('raise');
-      else setScene('check');
     }
+    var detectedScene=detectSceneFromButtons(data.buttons||[],street,activeP);
+    setScene(detectedScene);
   }
   
   // 4. 自动设定桌型和位置
@@ -1239,11 +1257,16 @@ function onVisionResult(data){
   }
   
   // 5. 更新筹码/底池/面对下注
-  if(data.pot_size>0) G.pot=parseInt(data.pot_size)||G.pot;
+  // V2.9.11: 先算BB，再用BB转换pot和stk
+  var bbValue=1000; // 默认盲注
+  if(data.my_chips>0){
+    // 从筹码推算BB（假设100BB初始筹码）
+    bbValue=Math.max(100,Math.round(data.my_chips/100));
+  }
+  if(data.pot_size>0) G.pot=Math.max(1,Math.round(parseInt(data.pot_size)/bbValue));
   if(data.to_call!==undefined) G.bet=parseInt(data.to_call)||0;
   if(data.my_chips>0){
-    var bb=Math.max(1,Math.round(data.my_chips/100));
-    G.stk=Math.max(5,Math.round(data.my_chips/bb));
+    G.stk=Math.max(5,Math.round(data.my_chips/bbValue));
   }
   
   // V2.9.10: 保存按钮文字
@@ -1256,8 +1279,7 @@ function onVisionResult(data){
   // 6. 更新UI
   uCards();
   
-  // 7. ★ 进入极速模式 ★
-  document.body.classList.add('speed-mode');
+  // 7. ★ 极速模式已默认开启 ★
   document.body.classList.remove('api-processing');
   window.scrollTo(0,0);
   
