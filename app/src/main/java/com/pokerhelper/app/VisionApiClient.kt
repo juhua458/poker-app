@@ -38,6 +38,7 @@ object VisionApiClient {
         val street: String,                 // 翻前/翻牌/转牌/河牌
         val toCall: Int,                    // 需要跟注金额
         val minRaise: Int,                  // 最小加注
+        val buttons: List<String>,          // 操作按钮文字（如"弃牌""跟注10K""加注"）
         val rawResponse: String             // 原始API返回
     )
 
@@ -137,26 +138,24 @@ object VisionApiClient {
     }
 
     private fun buildRequest(base64Image: String): String {
-        val prompt = """你是一个德州扑克牌桌识别专家。请仔细观察这张游戏截图，按以下步骤识别：
+        val prompt = """你是德州扑克识别专家。观察截图识别以下信息：
 
-★第一步：先数公共牌数量！0张=preflop, 3张=flop, 4张=turn, 5张=river。street必须和公共牌数量一致！
-第二步：找到你的手牌(屏幕下方中间位置，2张牌)
-第三步：数出实际在场的玩家数(total_players)——只数有筹码显示的头像/座位，空座(灰色/暗色/无筹码)不算！你自己也算一个。注意：桌面上可能有6个座位框，但只有5个有人，那就报5
-第四步：识别底池筹码数和你的筹码数
+1. 手牌：屏幕最下方中间，2张正面朝上的牌（你自己的牌）
+2. 公共牌：桌面中央区域的牌（0/3/4/5张，横向排列）
+3. 操作按钮：屏幕最底部的3个按钮，原样输出按钮文字，如"弃牌""跟注10K""加注"
+4. 你的筹码数
+5. 在场有筹码的玩家数
 
-返回JSON格式：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot_size":0,"my_chips":0,"total_players":6,"active_players":4,"my_position":"BTN","street":"preflop","to_call":0,"min_raise":0}
+★重要：手牌在屏幕最下面（你的头像前方），公共牌在桌子中间。不要把手牌误认为公共牌！
 
-严格规则：
-- rank只能是: A K Q J T 9 8 7 6 5 4 3 2（用T表示10，不要用10）
-- suit: s=黑桃♠(黑色尖顶) h=红心♥(红色心形) d=方块♦(红色菱形) c=梅花♣(黑色三叶)
-- 花色区分重点：♠和♣都是黑色，但♠顶部尖、♣像三叶草；♥和♦都是红色，但♥是心形、♦是菱形
-- my_position: SB BB UTG MP CO BTN
-- street必须与community_cards数量一致：0张→preflop, 3张→flop, 4张→turn, 5张→river
-- total_players=在场有筹码的玩家数，空座位不算
-- pot_size/to_call/min_raise/my_chips: 纯数字不含逗号
-- 如果不是德州扑克游戏界面，所有字段返回默认值
-- 如果某信息看不清，用默认值0或空数组，不要猜
+返回JSON：
+{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"total_players":6,"street":"preflop"}
+
+规则：
+- rank: A K Q J T 9 8 7 6 5 4 3 2（T=10，不要用10）
+- suit: s=黑桃♠ h=红心♥ d=方块♦ c=梅花♣
+- buttons: 底部按钮完整文字原样输出，不修改
+- street由公共牌数量决定：0=preflop 3=flop 4=turn 5=river
 - 只返回JSON，不要其他文字"""
 
         val json = JSONObject().apply {
@@ -224,6 +223,16 @@ object VisionApiClient {
         val jsonStr = extractJson(content) ?: return null
         val data = JSONObject(jsonStr)
 
+        // V2.9.10: 解析按钮文字
+        val buttonsArr = data.optJSONArray("buttons")
+        val buttons = if (buttonsArr != null) {
+            (0 until buttonsArr.length()).map { buttonsArr.getString(it) }
+        } else emptyList()
+
+        // V2.9.10: 从按钮文字解析跟注金额（比模型直接识别更可靠）
+        val callFromButtons = parseCallAmountFromButtons(buttons)
+        val finalToCall = if (callFromButtons >= 0) callFromButtons else data.optInt("to_call", 0)
+
         return VisionResult(
             holeCards = parseCards(data.optJSONArray("hole_cards")),
             communityCards = parseCards(data.optJSONArray("community_cards")),
@@ -233,8 +242,9 @@ object VisionApiClient {
             activePlayers = data.optInt("active_players", 2),
             myPosition = data.optString("my_position", ""),
             street = data.optString("street", "preflop"),
-            toCall = data.optInt("to_call", 0),
+            toCall = finalToCall,
             minRaise = data.optInt("min_raise", 0),
+            buttons = buttons,
             rawResponse = content
         )
     }
@@ -312,6 +322,31 @@ object VisionApiClient {
     /**
      * V2.0: 校验识别结果合理性，返回警告列表
      */
+    /**
+     * V2.9.10: 从按钮文字解析跟注金额（比模型直接识别更可靠）
+     * "跟注10K" → 10000, "跟注87K" → 87000, "跟注5000" → 5000, "过牌" → 0
+     * @return 跟注金额，无跟注按钮返回-1
+     */
+    private fun parseCallAmountFromButtons(buttons: List<String>): Int {
+        for (btn in buttons) {
+            if (btn.contains("过牌")) return 0
+            if (btn.contains("跟注")) {
+                val numStr = btn.replace("跟注", "").trim()
+                if (numStr.isEmpty()) return 0
+                return try {
+                    if (numStr.endsWith("K", ignoreCase = true)) {
+                        (numStr.dropLast(1).toFloat() * 1000).toInt()
+                    } else if (numStr.endsWith("M", ignoreCase = true)) {
+                        (numStr.dropLast(1).toFloat() * 1000000).toInt()
+                    } else {
+                        numStr.replace(",", "").toInt()
+                    }
+                } catch (e: Exception) { -1 }
+            }
+        }
+        return -1 // 没有跟注/过牌按钮
+    }
+
     private fun validateResult(result: VisionResult): List<String> {
         val warnings = mutableListOf<String>()
         val validRanks = setOf("A","K","Q","J","T","9","8","7","6","5","4","3","2")
@@ -376,6 +411,8 @@ object VisionApiClient {
             put("street", result.street)
             put("to_call", result.toCall)
             put("min_raise", result.minRaise)
+            // V2.9.10: 输出按钮文字给策略引擎
+            put("buttons", JSONArray(result.buttons))
             // V2.0: 包含校验警告
             if (warnings.isNotEmpty()) {
                 put("_warnings", JSONArray(warnings))
@@ -397,7 +434,7 @@ object VisionApiClient {
             }
             "dashscope" -> {
                 apiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-                modelName = "qwen3-vl-plus"
+                modelName = "qwen3-vl-flash"
             }
             "deepseek" -> {
                 apiUrl = "https://api.deepseek.com/v1/chat/completions"

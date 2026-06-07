@@ -323,7 +323,7 @@ var SU=['h','d','s','c'];
 var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,hole:[null,null],comm:[null,null,null,null,null]};
+var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[]};
 var _pi=null,_ms='h';
 var camStream=null,scanTimer=null,scanning=false;
 var mxVisible=true;
@@ -868,6 +868,16 @@ function show(r){
   }
   var am={raise:'加注',call:'跟注',fold:'弃牌',check:'过牌',allin:'全下'};
   var cn=am[r.a]||r.a;
+  // V2.9.10: 匹配实际按钮文字（比默认文字更准确）
+  var btnText='';
+  if(G.buttons && G.buttons.length>0){
+    if(r.a==='fold') btnText=G.buttons.find(function(b){return b.indexOf('弃牌')>=0;})||'';
+    else if(r.a==='call') btnText=G.buttons.find(function(b){return b.indexOf('跟注')>=0||b.indexOf('过牌')>=0;})||'';
+    else if(r.a==='raise') btnText=G.buttons.find(function(b){return b.indexOf('加注')>=0||b.indexOf('全下')>=0;})||'';
+    else if(r.a==='check') btnText=G.buttons.find(function(b){return b.indexOf('过牌')>=0;})||'';
+    else if(r.a==='allin') btnText=G.buttons.find(function(b){return b.indexOf('全下')>=0;})||'';
+  }
+  var displayAction=btnText||cn;
   // V2.9.1: 极速模式建议做大、动作缩成小标签
   var tip='';
   if(r.a==='raise'||r.a==='allin')tip='位好可加注';
@@ -875,7 +885,7 @@ function show(r){
   else if(r.a==='fold')tip='牌力不够弃牌';
   else if(r.a==='check')tip='牌力中等过牌';
   if(G.stk<=30)tip='短码→'+cn;
-  var h='<div class="r-a '+r.a+'">'+cn+'</div>';
+  var h='<div class="r-a '+r.a+'">💡按【'+displayAction+'】</div>';
   if(tip)h+='<div class="r-tip '+r.a+'-tip">💡 '+tip+'</div>';
   if(r.hClass){
     var classMap={NUTS:'nuts',STRONG:'strong',MEDIUM:'medium',WEAK:'weak',DRAW:'draw',AIR:'air'};
@@ -1236,6 +1246,13 @@ function onVisionResult(data){
     G.stk=Math.max(5,Math.round(data.my_chips/bb));
   }
   
+  // V2.9.10: 保存按钮文字
+  if(data.buttons && data.buttons.length>0){
+    G.buttons=data.buttons;
+  } else {
+    G.buttons=[];
+  }
+  
   // 6. 更新UI
   uCards();
   
@@ -1247,17 +1264,17 @@ function onVisionResult(data){
   // 8. 触发策略分析
   go();
   
-  // V2.9.9: 回传建议到原生TextView（双保险，即使WebView不可见也能看到建议）
+  // V2.9.10: 回传建议到原生TextView（用按钮文字）
   try{
     var resEl2=document.getElementById('res');
     if(resEl2){
       var aDiv=resEl2.querySelector('.r-a');
       var vDiv=resEl2.querySelector('.r-v');
       if(aDiv){
-        var act=aDiv.textContent.trim();
+        var adv=aDiv.textContent.trim();
         var val=vDiv?vDiv.textContent.trim():'';
-        var adv='💡'+act+(val?' '+val:'');
-        if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(adv);}
+        var fullAdv=adv+(val?' '+val:'');
+        if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}
       }
     }
   }catch(e){}
