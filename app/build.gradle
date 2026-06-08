@@ -8,11 +8,11 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "win.pkr.ai"
+        applicationId "win.opt.view"
         minSdk 26
         targetSdk 34
-        versionCode 29
-        versionName "2.9.16"
+        versionCode 30
+        versionName "2.9.17"
     }
 
     buildTypes {

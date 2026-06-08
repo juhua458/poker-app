@@ -245,7 +245,7 @@ class FloatingService : Service() {
                 resizeHandleBottom?.visibility = View.GONE
             }
         } else {
-            params.width = if (isLandscape) 140 else (screenWidth * 0.4).toInt()
+            params.width = if (isLandscape) 80 else (screenWidth * 0.4).toInt()
             params.height = WindowManager.LayoutParams.WRAP_CONTENT
             currentPanelWidth = 0
             currentPanelHeight = 0
@@ -283,7 +283,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "🃏 v2.9.16"
+            text = "📱 v2.9.17"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f // V2.9.14: 更紧凑
             setPadding(2, 0, 2, 0)
@@ -722,8 +722,8 @@ class FloatingService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "智囊悬浮窗", NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "牌局智囊运行中" }
+                CHANNEL_ID, "显示优化", NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "显示优化运行中" }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
@@ -732,15 +732,15 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.16")
-                .setContentText("悬浮窗+语音+OCR运行中")
+                .setContentTitle("📱 视优 v2.9.17")
+                .setContentText("显示优化运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
                 .build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.16")
+                .setContentTitle("📱 视优 v2.9.17")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

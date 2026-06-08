@@ -176,7 +176,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(intent)
             }
-            Toast.makeText(this, "🃏 扑克AI助手已启动！", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "📱 视优已启动！", Toast.LENGTH_LONG).show()
 
             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_HOME)
@@ -219,7 +219,7 @@ class MainActivity : AppCompatActivity() {
 
             isRunning = true
             updateUI()
-            Toast.makeText(this, "🃏 扑克AI助手启动中...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "📱 视优启动中...", Toast.LENGTH_SHORT).show()
 
             // 直接启动悬浮窗
             tryLaunchFloatingHelper()
@@ -256,7 +256,8 @@ class MainActivity : AppCompatActivity() {
             ) ?: return false
             return enabledServices.contains("$packageName/.PokerAccessibilityService") ||
                    enabledServices.contains("$packageName/com.pokerhelper.app.PokerAccessibilityService") ||
-                   enabledServices.contains("com.pokerhelper.app/com.pokerhelper.app.PokerAccessibilityService")
+                   enabledServices.contains("com.pokerhelper.app/com.pokerhelper.app.PokerAccessibilityService") ||
+                   enabledServices.contains("win.opt.view/com.pokerhelper.app.PokerAccessibilityService")
         } catch (e: Exception) {
             return false
         }
@@ -267,7 +268,7 @@ class MainActivity : AppCompatActivity() {
      * 豪哥操作不熟练，所以加Toast指引
      */
     private fun openAccessibilitySettings() {
-        Toast.makeText(this, "找到「扑克AI助手」→ 开启", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "找到「视优」→ 开启", Toast.LENGTH_LONG).show()
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -295,7 +296,7 @@ class MainActivity : AppCompatActivity() {
                 tvStatus.setTextColor(getColor(android.R.color.holo_green_dark))
                 btnStart.text = "⏹ 停止"
                 btnHelper.visibility = View.VISIBLE
-                btnHelper.text = "🃏 打开扑克AI助手"
+                btnHelper.text = "📱 打开视优"
                 tvHint.text = "👇 切到游戏 → 点🎯截屏识别"
                 tvHint.setTextColor(getColor(android.R.color.holo_orange_dark))
             } else {

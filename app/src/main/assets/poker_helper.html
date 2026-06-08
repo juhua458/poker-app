@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v2.9.16 · GTO+DRTA融合版</title>
+<title>扑克AI v2.9.17 · GTO+DRTA融合版</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -27,6 +27,9 @@ body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
 .r-exploit.fish{background:rgba(46,213,115,.15);color:#2ed573}
 .r-exploit.tp{background:rgba(93,173,226,.15);color:#5dade2}
 .r-exploit.lag{background:rgba(255,71,87,.15);color:#ff6b7a}
+.r-exploit.maniac{background:rgba(200,50,150,.15);color:#c83296}
+.r-exploit.calling_station{background:rgba(100,180,220,.15);color:#64b4dc}
+.r-exploit.nit{background:rgba(180,180,50,.15);color:#b4b432}
 .r-drta{font-size:9px;padding:2px 8px;border-radius:8px;margin-top:3px;display:inline-block;background:rgba(199,125,255,.15);color:#c77dff}
 .r-plan{font-size:9px;color:#c77dff;margin-top:3px;padding:2px 8px;background:rgba(199,125,255,.1);border-radius:8px;display:inline-block}
 .r-ev-sm{font-size:10px;color:#555;margin-top:3px}
@@ -115,6 +118,9 @@ body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
 .ex-btn:active{transform:scale(.95)}
 .ex-btn.on{color:#fff}
 .ex-btn.fish.on{background:linear-gradient(135deg,#1a5c30,#0d3d1f)}
+.ex-btn.maniac.on{background:linear-gradient(135deg,#5c1a4a,#3d0d30)}
+.ex-btn.cs.on{background:linear-gradient(135deg,#1a3d5c,#0d2d3d)}
+.ex-btn.nit.on{background:linear-gradient(135deg,#3d3d1a,#2d2d0d)}
 .ex-btn.tp.on{background:linear-gradient(135deg,#1a3d5c,#0d2840)}
 .ex-btn.lag.on{background:linear-gradient(135deg,#5c1a1a,#3d0d0d)}
 .ex-btn.unknown.on{background:linear-gradient(135deg,#333,#222);color:#888}
@@ -326,6 +332,8 @@ var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 // 全局状态
 var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[]};
 var _pi=null,_ms='h';
+var _decisionCache={};var _cacheMax=200;
+function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('');}
 var camStream=null,scanTimer=null,scanning=false;
 var mxVisible=true;
 
@@ -336,8 +344,8 @@ var DRTA={
   bluffCalled:0,
   lastHands:0,
   STORAGE_KEY:'poker_v14_tracker',
-  BLUFF_FREQ:{tight:0.35,tag:0.20,lag:0.10,fish:0.05,unknown:0.10},
-  TYPE_INIT:{fish:{vpip:60,pfr:15,af:0.6},tight:{vpip:18,pfr:15,af:0.8},lag:{vpip:50,pfr:35,af:2.5},unknown:{vpip:30,pfr:20,af:1.0}},
+  BLUFF_FREQ:{nit:0.45,tight:0.35,tag:0.20,lag:0.10,fish:0.05,calling_station:0.02,maniac:0.15,unknown:0.10},
+  TYPE_INIT:{fish:{vpip:60,pfr:15,af:0.6},nit:{vpip:12,pfr:10,af:0.5},tight:{vpip:18,pfr:15,af:0.8},tag:{vpip:22,pfr:18,af:1.8},lag:{vpip:50,pfr:35,af:2.5},calling_station:{vpip:55,pfr:10,af:0.3},maniac:{vpip:70,pfr:45,af:3.5},unknown:{vpip:30,pfr:20,af:1.0}},
   
   init:function(){
     this.tracker={
@@ -385,9 +393,12 @@ var DRTA={
   
   classify:function(p){
     var vpip=p.vpip,af=p.af,ftb=p.fold_to_bet;
+    if(vpip>=65&&af>=3.0)return'maniac';
+    if(vpip>=50&&af<0.5)return'calling_station';
     if(vpip>=40&&af<1.0)return'fish';
-    if(vpip<25&&ftb>=55)return'tight';
-    if(vpip<25&&af>=1.5)return'tag';
+    if(vpip<15&&ftb>=60)return'nit';
+    if(vpip<=25&&ftb>=55)return'tight';
+    if(vpip<=25&&af>=1.5)return'tag';
     if(vpip>=35&&af>=2.0)return'lag';
     if(vpip>=30&&ftb>=50)return'tight';
     if(vpip>=30&&af>=1.5)return'tag';
@@ -397,20 +408,28 @@ var DRTA={
   getDRTAWeight:function(profile){
     var type=profile.type,conf=profile.confidence;
     var base={
+      maniac:{gto:0.25,drta:0.75},
+      calling_station:{gto:0.25,drta:0.75},
       fish:{gto:0.30,drta:0.70},
-      tight:{gto:0.35,drta:0.65},
+      nit:{gto:0.35,drta:0.65},
+      tight:{gto:0.40,drta:0.60},
       lag:{gto:0.55,drta:0.45},
       tag:{gto:0.75,drta:0.25},
-      unknown:{gto:0.70,drta:0.30}
+      unknown:{gto:0.85,drta:0.15}
     };
     var b=base[type]||base.unknown;
-    // 置信度<50%时，逐步回归到GTO 80%
-    if(conf<0.5){
-      var safetyGto=0.80,safetyDrta=0.20;
-      var adj=conf/0.5;
+    // 动态权重: 样本不足时回归GTO
+    // <5手→GTO 95%, <15手→线性过渡, >=30手→完全使用base权重
+    var minHands=5,midHands=15,fullHands=30;
+    if(conf<0.33){
+      return{gto:0.95,drta:0.05};
+    }
+    if(conf<1.0){
+      var t=(conf-0.33)/0.67;
+      var safeGto=0.90,safeDrta=0.10;
       return{
-        gto:b.gto*adj+safetyGto*(1-adj),
-        drta:b.drta*adj+safetyDrta*(1-adj)
+        gto:b.gto*t+safeGto*(1-t),
+        drta:b.drta*t+safeDrta*(1-t)
       };
     }
     return b;
@@ -456,12 +475,12 @@ var DRTA={
     document.getElementById('tFtB').textContent=p.hands>=3?p.fold_to_bet+'%':'--';
     document.getElementById('tRagg').textContent=p.hands>=3?p.recent_agg.toFixed(1):'--';
     document.getElementById('tConfFill').style.width=(p.confidence*100)+'%';
-    var tagMap={fish:'🐟鱼',tight:'🎯紧被动',lag:'🔥松凶',tag:'🏆紧凶',unknown:'❓未知'};
+    var tagMap={maniac:'😈疯子',calling_station:'📞跟注站',fish:'🐟鱼',nit:'🔒超紧',tight:'🎯紧被动',lag:'🔥松凶',tag:'🏆紧凶',unknown:'❓未知'};
     document.getElementById('oppTypeTag').textContent=tagMap[p.type]||'❓未知';
-    ['Unknown','Fish','TP','LAG'].forEach(function(t){
+    ['Unknown','Maniac','CS','Fish','NIT','TP','LAG'].forEach(function(t){
       document.getElementById('tBtn'+t).classList.remove('on');
     });
-    var btnMap={unknown:'Unknown',fish:'Fish',tight:'TP',lag:'LAG'};
+    var btnMap={unknown:'Unknown',maniac:'Maniac',calling_station:'CS',fish:'Fish',nit:'NIT',tight:'TP',lag:'LAG'};
     var btnId='tBtn'+btnMap[p.type];
     if(document.getElementById(btnId))document.getElementById(btnId).classList.add('on');
   },
@@ -509,7 +528,43 @@ function getBlockerScore(k,oppRange){return blocker(G.hole.map(function(c){retur
 function compareEVs(eq,pot,betToCall,raiseSz){var results={};if(betToCall>0){var callEV=eq*(pot+betToCall)/pot-(1-eq)*betToCall/pot;results.call=callEV;}if(raiseSz>0){var raiseEV=eq*(pot+raiseSz)/(pot+betToCall+raiseSz)*0.9;results.raise=raiseEV;}return results;}
 function getOppRange(phase,action,bTexture){if(phase==='preflop')return gO(G.pos);var wetness=bTexture?bTexture.wetness:0;if(action==='cbet')return wetness>=2?CB6[G.pos]||CB6.co:CB6[G.pos]||CB6.co;return gO(G.pos);}
 function planStreets(hClass,eq,scene,opp,spr){var plans={'NUTS':{v:'河牌价值|对手check后下注'},'STRONG':{v:'翻/转价值|河牌保护'},'MEDIUM':{v:'翻牌控池|转牌决断'},'WEAK':{v:'过牌控池|弃弱保命'},'DRAW':{v:'半池追牌|控制投入'},'AIR':{v:'放弃追牌|找机会偷池'}};return plans[hClass.name]||plans['WEAK'];}
-function applyExploit(eq,action,oppType,ctx){ctx=ctx||{};var mod=1,exploit='';var oppMods={fish:{call:8,raise:-5,fold:-3},tight:{call:-5,raise:5,fold:8},lag:{call:-3,raise:-8,fold:5}};var m=oppMods[oppType]||{};if(m[action])mod+=m[action]/100;if(ctx.bet&&ctx.pot){var bp=ctx.bet/ctx.pot;if(bp>0.66)mod-=0.05;}if(ctx.facing3bet)mod-=0.08;return{eq:Math.max(0,Math.min(100,eq*mod)),exploit:exploit,sizingMod:mod};}
+function applyExploit(eq,action,oppType,ctx){ctx=ctx||{};var mod=1,exploit='',sizingMod=1;
+  // V2.9.17: 7类对手多维度剥削
+  var oppMods={
+    maniac:{call:10,raise:-12,fold:-8},
+    calling_station:{call:12,raise:-3,fold:-10},
+    fish:{call:8,raise:-5,fold:-3},
+    nit:{call:-8,raise:8,fold:12},
+    tight:{call:-5,raise:5,fold:8},
+    lag:{call:-3,raise:-8,fold:5},
+    tag:{call:-2,raise:3,fold:4},
+    unknown:{call:0,raise:0,fold:0}
+  };
+  var m=oppMods[oppType]||oppMods.unknown;
+  if(m[action])mod+=m[action]/100;
+  // 下注尺度剥削
+  if(ctx.bet&&ctx.pot){
+    var bp=ctx.bet/ctx.pot;
+    if(bp>0.66)mod-=0.05;
+    // vs calling_station: 大注也不怕→跟注不减少
+    if(oppType==='calling_station'&&bp>0.66)mod+=0.03;
+    // vs nit: 大注更怕→弃牌倾向增强
+    if(oppType==='nit'&&bp>0.5)mod-=0.05;
+  }
+  if(ctx.facing3bet)mod-=0.08;
+  // 尺度调整: 对不敏感对手加大价值尺度
+  var sizingMap={
+    maniac:1.0,calling_station:0.7,fish:0.8,nit:1.3,tight:1.1,lag:0.9,tag:1.0,unknown:1.0
+  };
+  sizingMod=sizingMap[oppType]||1.0;
+  // 剥削标签
+  var tagMap={
+    maniac:'⚠️疯子剥削',calling_station:'📞跟注站剥削',fish:'🐟鱼剥削',
+    nit:'🔒超紧剥削',tight:'🎯紧剥削',lag:'🔥松凶剥削',tag:'🏆紧凶剥削',unknown:''
+  };
+  exploit=tagMap[oppType]||'';
+  return{eq:Math.max(0,Math.min(100,eq*mod)),exploit:exploit,sizingMod:sizingMod};
+}
 
 // ===== P1: StrategicBluff - 战略性诈唬 =====
 var StrategicBluff={
@@ -521,6 +576,9 @@ var StrategicBluff={
     if(street==='river'&&hClass.name==='AIR'&&(scene==='check'||scene==='opponent_check')){
       if(ftb>=50&&opponents<=2&&isDryBoard&&conf>=0.3){
         var bf=DRTA.BLUFF_FREQ[type]||0.10;
+        // vs nit/tight: 更高诈唬频率
+        if(type==='nit')bf=Math.min(0.6,bf*1.3);
+        if(type==='tight')bf=Math.min(0.5,bf*1.2);
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
         if(Math.random()<bf){
@@ -544,8 +602,9 @@ var StrategicBluff={
   
   thinValue:function(eq,hClass,street,scene,profile,opponents){
     // 薄价值下注: 鱼玩家+50%+equity
-    if(profile.type==='fish'&&eq>=50&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
-      return{action:'raise',strategy:'薄价值下注',sizing:Math.round(G.pot*0.5)};
+    if((profile.type==='fish'||profile.type==='calling_station')&&eq>=45&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
+      var thinSz=profile.type==='calling_station'?Math.round(G.pot*0.4):Math.round(G.pot*0.5);
+      return{action:'raise',strategy:'薄价值下注('+profile.type+')',sizing:thinSz};
     }
     return{action:null};
   }
@@ -557,7 +616,7 @@ var StrategicRetreat={
     var type=profile.type,conf=profile.confidence,af=profile.af||1,ra=profile.recent_agg||0;
     var ret={action:null,strategy:null};
     // set/trap识别: 紧凶/紧被动在湿面raise→弃STRONG/MEDIUM
-    if((type==='tag'||type==='tight')&&conf>=0.4){
+    if((type==='tag'||type==='tight'||type==='nit')&&conf>=0.4){
       if(bTexture&&bTexture.wetness>=2&&(scene==='bet'||scene==='raise'||scene==='allin')){
         if(hClass.name==='STRONG'||hClass.name==='MEDIUM'){
           ret.action='fold';ret.strategy='陷阱弃牌(set/trap识别)';
@@ -573,7 +632,7 @@ var StrategicRetreat={
       }
     }
     // 鱼突变检测: 近期侵略指数飙升→弃牌
-    if(type==='fish'&&ra>=1.2){
+    if((type==='fish'||type==='maniac')&&ra>=1.5){
       if(hClass.name==='MEDIUM'||hClass.name==='WEAK'||hClass.name==='DRAW'){
         ret.action='fold';ret.strategy='鱼突变警戒(RAgg='+ra.toFixed(1)+')';
         return ret;
@@ -596,13 +655,13 @@ var LagTrap={
   check:function(eq,hClass,street,scene,profile){
     // 翻/转牌 对LAG慢打STRONG/NUTS
     // 关键: 河牌不trap!
-    if(profile.type==='lag'&&(hClass.name==='STRONG'||hClass.name==='NUTS')&&eq>=60){
+    if((profile.type==='lag'||profile.type==='maniac')&&(hClass.name==='STRONG'||hClass.name==='NUTS')&&eq>=60){
       if(scene==='check'&&(street==='flop'||street==='turn')){
         return{action:'check',strategy:'LAG慢打(trap)'};
       }
     }
     // 河牌NUTS必须价值下注
-    if(profile.type==='lag'&&hClass.name==='NUTS'&&street==='river'&&scene==='check'){
+    if((profile.type==='lag'||profile.type==='maniac')&&hClass.name==='NUTS'&&street==='river'&&scene==='check'){
       return{action:'raise',strategy:'河牌NUTS价值下注',sizing:Math.round(G.pot*0.7)};
     }
     return{action:null};
@@ -621,9 +680,17 @@ function multiPlayerEquity(eq,opponents){
 function decide(){
   var k=getHandKey();
   if(!k)return null;
+  // L1缓存: 相同场景直接返回
+  var ck=cacheKey();
+  if(_decisionCache[ck])return _decisionCache[ck];
   var cc=G.comm.filter(function(c){return c;}).length;
-  if(cc>0)return postF(k);
-  return preF(k);
+  var result=cc>0?postF(k):preF(k);
+  if(result){
+    var keys=Object.keys(_decisionCache);
+    if(keys.length>=_cacheMax)delete _decisionCache[keys[0]];
+    _decisionCache[ck]=result;
+  }
+  return result;
 }
 
 function preF(k){
