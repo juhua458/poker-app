@@ -289,13 +289,13 @@ class FloatingService : Service() {
             setPadding(2, 0, 2, 0)
         }
 
-        // V2.0: 识别结果展示行 - 大字显示识别到的牌面
+        // V2.0: 识别结果展示行 - V2.9.33: 紧凑半透明，不再大色块
         tvRecResult = TextView(this).apply {
             text = ""
-            setTextColor(0xFF90CAF9.toInt())
-            textSize = 10f
-            setPadding(4, 1, 4, 1)
-            setBackgroundColor(0xFF1A237E.toInt())
+            setTextColor(0xFFE0E0E0.toInt())
+            textSize = 9f
+            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0x990a1a0a.toInt()) // 半透明深色，与topBar一致
             visibility = View.GONE
         }
 
@@ -489,12 +489,14 @@ class FloatingService : Service() {
                     val currentText = tvRecResult?.text?.toString() ?: ""
                     if (advice.isNotEmpty()) {
                         tvRecResult?.text = "$advice | $currentText"
+                        tvRecResult?.visibility = View.VISIBLE
+                        // V2.9.33: 只改文字颜色，不改背景色块
                         when {
-                            advice.contains("弃牌") -> tvRecResult?.setBackgroundColor(0xFF8B0000.toInt())
-                            advice.contains("跟注") -> tvRecResult?.setBackgroundColor(0xFFE65100.toInt())
-                            advice.contains("加注") -> tvRecResult?.setBackgroundColor(0xFF1B5E20.toInt())
-                            advice.contains("全下") -> tvRecResult?.setBackgroundColor(0xFF4A148C.toInt())
-                            advice.contains("过牌") -> tvRecResult?.setBackgroundColor(0xFF424242.toInt())
+                            advice.contains("弃牌") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
+                            advice.contains("跟注") -> tvRecResult?.setTextColor(0xFFFFAB40.toInt())
+                            advice.contains("加注") -> tvRecResult?.setTextColor(0xFF69F0AE.toInt())
+                            advice.contains("全下") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
+                            advice.contains("过牌") -> tvRecResult?.setTextColor(0xFFBDBDBD.toInt())
                         }
                     }
                 }
