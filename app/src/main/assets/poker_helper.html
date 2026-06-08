@@ -496,6 +496,28 @@ var DRTA={
 
 function setTrackerType(type){DRTA.setType(type);G.opp=type;setOppType(type);}
 
+// V2.9.29: DRTA自动采集 - 从场景推导对手动作
+var _lastRecordedKey=''; // 防止同一手牌同一场景重复记录
+function inferOpponentAction(scene,street){
+  if(scene==='reraise')return{action:'reraise',isFacingBet:true};
+  if(scene==='raise')return{action:'raise',isFacingBet:true};
+  if(scene==='allin')return{action:'reraise',isFacingBet:true};
+  if(scene==='bet')return{action:'bet',isFacingBet:true};
+  if(scene==='call')return{action:'call',isFacingBet:true};
+  if(scene==='check')return{action:'check',isFacingBet:false};
+  return null;
+}
+function autoRecordOpponent(scene,street){
+  if(!G.hole[0]||!G.hole[1])return;
+  var key=G.phase+'_'+scene+'_'+G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit;
+  if(key===_lastRecordedKey)return;
+  var inferred=inferOpponentAction(scene,street);
+  if(inferred){
+    DRTA.record(inferred.action,street,inferred.isFacingBet);
+    _lastRecordedKey=key;
+  }
+}
+
 // GTO范围表
 var O6={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo','KJo'],mp:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','65s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo'],co:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','J9o','T9o'],btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','JTs','J9s','J8s','J7s','J6s','J5s','J4s','T9s','T8s','T7s','T6s','T5s','T4s','98s','97s','96s','95s','94s','87s','86s','85s','84s','76s','75s','74s','73s','65s','64s','63s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','KQo','KJo','KTo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','T9o']};
 var O9={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A5s','KQs','KJs','QJs','JTs','T9s','AKo','AQo','AJo','KQo'],utg1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','AKo','AQo','AJo','ATo','KQo','KJo'],mp:O6.mp,mp1:O6.co,hj:O6.co,co:O6.co,btn:O6.btn,sb:O6.sb,bb:O6.bb};
@@ -696,10 +718,13 @@ var LagTrap={
 // ===== P2: 多人池equity衰减 =====
 function multiPlayerEquity(eq,opponents){
   if(opponents<=2)return eq;
-  // V2.9.24: 温和线性衰减(原0.6375双倍衰减已修)
-  var decay=1-(opponents-2)*0.04; // 每多1对手减4%
-  decay=Math.max(0.72,decay); // 最低保72%
-  return eq*decay;
+  // V2.9.29: 非线性衰减(基于PokerStove实际数据拟合)
+  // AA: hu=85%, 3way=73%, 4way=64%, 5way=56%
+  // AKs: hu=67%, 3way=52%, 4way=42%, 5way=35%
+  var decayFactors={3:0.86, 4:0.73, 5:0.63, 6:0.55};
+  var factor=decayFactors[opponents];
+  if(!factor) factor=Math.max(0.40, 0.55-(opponents-6)*0.08);
+  return Math.round(eq*factor*10)/10;
 }
 
 // ===== 核心决策函数 =====
@@ -741,6 +766,8 @@ function preF(k){
   else if(scene==='raise'){eq-=4;sceneLabel='面对加注';}
   else if(scene==='call'){eq-=2;sceneLabel='多人跟注';}
   else{sceneLabel='开池';}
+  // V2.9.29: 翻前多人池范围收窄(基于GTO原则: 多人进池需更强手牌)
+  if(G.act>=5)eq-=15;else if(G.act===4)eq-=10;else if(G.act===3)eq-=5;
   var actualBet=bet;
   if(scene==='raise'&&bet===0)actualBet=3;
   else if(scene==='reraise'&&bet===0)actualBet=9;
@@ -834,15 +861,16 @@ function postF(k){
   var oppRange=getOppRange(bet>0?'postflop':'preflop',bet>0?'cbet':'check',bTexture.wetness>=2?'wet':'dry');
   var blocker=getBlockerScore(k,oppRange);
   var hClass=handClassify(hole,comm);
-  var sim=mcVsRange(hole,comm,oppRange,bc.length===5?10000:bc.length===4?4000:2000);
+  var mcIter=(function(){var b=2000;if(bc.length===5)b=3000;else if(bc.length===4)b=2500;if(betPotRatio>=0.66)b=Math.round(b*2.0);else if(betPotRatio>=0.33)b=Math.round(b*1.3);return Math.min(b,8000);})();
+  var sim=mcVsRange(hole,comm,oppRange,mcIter);
   var betPotRatio=bet>0?bet/(pot+bet):0;
   var betLevel=betPotRatio<0.33?'small':betPotRatio<0.66?'normal':'large';
   var eq=sim.eq;
-  // P2: 多人池equity衰减
-  var opponents=G.act;  // V2.9.24: 用实际活跃人数而非桌人数
+  // P2: 多人池equity非线性衰减(V2.9.29: 基于PokerStove实际数据)
+  var opponents=G.act;
   eq=multiPlayerEquity(eq,opponents);
   if(ip)eq+=3;else eq-=2;
-  if(G.act===3)eq-=4;else if(G.act>=4)eq-=8;  // V2.9.24: 温和扣减(原-8/-15太猛)
+  // V2.9.29: 已用非线性衰减替代旧的线性扣减，不再额外减eq
   if(bTexture.wetness>=2)eq-=2;else if(bTexture.wetness<0)eq+=2;
   if(bTexture.rangeAdv==='hero')eq+=2;else if(bTexture.rangeAdv==='villain')eq-=2;
   var boardInfo=bTexture.desc;
@@ -924,6 +952,10 @@ function postF(k){
     // V2.9.21: C-bet频率根据牌面+对手类型调整raise阈值
     var cbetFreq=50;
     if(bTexture.category&&CBET_FREQ[bTexture.category]){cbetFreq=(CBET_FREQ[bTexture.category][G.opp||'unknown']||50);}
+    // V2.9.29: 多人池C-bet频率衰减(GTO: 3人×0.7, 4人×0.5, 5+人×0.35)
+    if(G.act>=5)cbetFreq=Math.round(cbetFreq*0.35);
+    else if(G.act===4)cbetFreq=Math.round(cbetFreq*0.5);
+    else if(G.act===3)cbetFreq=Math.round(cbetFreq*0.7);
     var cbetThresh=55-(cbetFreq-50)*0.3; // V2.9.28: 降5点让TPTK够bet
     if(street==='river'&&hClass.name==='MEDIUM'){var exploitRiverMP=applyExploit(eq,'check',G.opp,{pot:pot});return{a:'check',r:'河牌中对过牌',eq:exploitRiverMP.eq,c:'m',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};}
     if(street==='river'&&(hClass.name==='AIR'||hClass.name==='WEAK')){
@@ -1059,7 +1091,10 @@ function show(r){
   }
 }
 
-function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){try{var r=decide();show(r);try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var fullAdv=adv+(val?' '+val:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}}}}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}}catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}},50);}
+function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){try{
+  // V2.9.29: 自动采集对手动作(在decide之前)
+  if(G.hole[0]&&G.hole[1])autoRecordOpponent(G.scene,G.phase==='pre'?'preflop':'postflop');
+  var r=decide();show(r);try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var fullAdv=adv+(val?' '+val:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}}}}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}}catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}},50);}
 function setPhase(p){
   G.phase=p;
   document.getElementById('tabPre').classList.toggle('on',p==='pre');
