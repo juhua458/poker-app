@@ -40,7 +40,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.25
+        tag_name: v2.9.26
         name: "V2.9.17 视优 - 策略优化+合规化"
         body: "V2.9.17: 剥削策略升级(7类对手+多维度失衡检测+动态权重)+包名/名字合规化+悬浮窗极小化+决策缓存"
         files: app/build/outputs/apk/debug/app-debug.apk
