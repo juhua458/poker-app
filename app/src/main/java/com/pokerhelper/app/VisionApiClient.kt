@@ -59,7 +59,7 @@ object VisionApiClient {
         }
 
         return try {
-            // V2.9.15: 压缩到1280宽度+quality70，detail=high保证识别精度
+            // V2.9.16: 压缩到1280宽度+quality70，detail=high保证识别精度
             val compressedJpeg = compressImage(jpegData, maxWidth = 1280)
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
             val dataUri = "data:image/jpeg;base64,$base64Image"
@@ -98,11 +98,14 @@ object VisionApiClient {
                     correctedResult = result.copy(street = correctStreet)
                     lastResult = correctedResult
                 }
+                // V2.9.16: 校验纠错层 - 纠正API返回的矛盾数据
+                correctedResult = applyValidationCorrections(correctedResult)
+                lastResult = correctedResult
                 if (warnings.isNotEmpty()) {
                     lastError = warnings.joinToString("; ")
                     Log.w(TAG, "识别结果有疑问: $lastError")
                 }
-                Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}人${if(warnings.isNotEmpty()) " ⚠️$lastError" else ""}")
+                Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌/活跃${correctedResult.activePlayers}人${if(lastError.isNotEmpty()) " ⚠️$lastError" else ""}")
             }
 
             correctedResult
@@ -397,6 +400,92 @@ object VisionApiClient {
         }
 
         return warnings
+    }
+
+    /**
+     * V2.9.16: 校验纠错层 - 规则校验+自动纠正API识别结果
+     * 核心原则：策略引擎的输入必须是合理的，矛盾数据必须纠错
+     * 纠错日志会记录到lastError，方便排查
+     */
+    private fun applyValidationCorrections(result: VisionResult): VisionResult {
+        var corrected = result
+        val corrections = mutableListOf<String>()
+
+        // === 规则1: active_players 不能超过 total_players ===
+        if (corrected.activePlayers > corrected.totalPlayers) {
+            val old = corrected.activePlayers
+            corrected = corrected.copy(activePlayers = corrected.totalPlayers)
+            corrections.add("active($old)>total(${corrected.totalPlayers})→active=${corrected.totalPlayers}")
+        }
+
+        // === 规则2: active_players 至少2人（否则游戏不存在）===
+        if (corrected.activePlayers < 2) {
+            val old = corrected.activePlayers
+            corrected = corrected.copy(activePlayers = corrected.totalPlayers)
+            corrections.add("active($old)<2→降级为total=${corrected.totalPlayers}")
+        }
+
+        // === 规则3: total_players 至少2人 ===
+        if (corrected.totalPlayers < 2) {
+            corrected = corrected.copy(totalPlayers = 6, activePlayers = 6)
+            corrections.add("total(${result.totalPlayers})<2→默认6人桌")
+        }
+
+        // === 规则4: total_players 不能超过20 ===
+        if (corrected.totalPlayers > 20) {
+            val old = corrected.totalPlayers
+            corrected = corrected.copy(totalPlayers = 9, activePlayers = minOf(corrected.activePlayers, 9))
+            corrections.add("total($old)>20→上限9")
+        }
+
+        // === 规则5: preflop阶段 active_players 应该等于 total_players（没人弃牌）===
+        if (corrected.street.lowercase() in listOf("preflop", "pre") 
+            && corrected.activePlayers < corrected.totalPlayers) {
+            // preflop还没人弃牌，active应该等于total
+            val old = corrected.activePlayers
+            corrected = corrected.copy(activePlayers = corrected.totalPlayers)
+            corrections.add("preflop active($old)<total(${corrected.totalPlayers})→active=total")
+        }
+
+        // === 规则6: pot_size 不能为负 ===
+        if (corrected.potSize < 0) {
+            corrected = corrected.copy(potSize = 0)
+            corrections.add("pot(${result.potSize})<0→0")
+        }
+
+        // === 规则7: to_call 不能为负 ===
+        if (corrected.toCall < 0) {
+            corrected = corrected.copy(toCall = 0)
+            corrections.add("to_call(${result.toCall})<0→0")
+        }
+
+        // === 规则8: to_call > pot_size 时需警惕（跟注额不应超过底池的极端值）===
+        if (corrected.toCall > corrected.potSize * 5 && corrected.potSize > 0) {
+            // 这种情况可能是底池识别过小，记录警告但不纠正
+            corrections.add("⚠️to_call(${corrected.toCall})远大于pot(${corrected.potSize})，底池可能识别偏小")
+        }
+
+        // === 规则9: 翻前无公共牌时，社区牌应为空 ===
+        if (corrected.street.lowercase() in listOf("preflop", "pre") 
+            && corrected.communityCards.isNotEmpty()) {
+            val oldCount = corrected.communityCards.size
+            // 不删除公共牌，而是纠正street（以公共牌为准）
+            corrections.add("⚠️preflop但有${oldCount}张公共牌，以公共牌数纠正street")
+        }
+
+        // === 规则10: 手牌必须有2张 ===
+        if (corrected.holeCards.size != 2) {
+            corrections.add("⚠️手牌数${corrected.holeCards.size}≠2，策略引擎可能无法工作")
+        }
+
+        if (corrections.isNotEmpty()) {
+            lastError = corrections.joinToString("; ")
+            Log.w(TAG, "校验纠错: $lastError")
+        } else {
+            Log.d(TAG, "校验纠错: 无需纠正")
+        }
+
+        return corrected
     }
 
     /**

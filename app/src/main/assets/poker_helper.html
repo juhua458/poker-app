@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v2.9.15 · GTO+DRTA融合版</title>
+<title>扑克AI v2.9.16 · GTO+DRTA融合版</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1260,6 +1260,22 @@ function onVisionResult(data){
   } else if(data.total_players){
     G.act=G.tt; // 兼容：旧版API无active_players时降级
   }
+  // V2.9.16: JS端二次校验——防止矛盾数据进策略引擎
+  (function validateAndCorrect(){
+    var corrections=[];
+    // 规则1: active不能超过total
+    if(G.act>G.tt){corrections.push('act('+G.act+')>tt('+G.tt+')→act=tt');G.act=G.tt;}
+    // 规则2: active至少2人
+    if(G.act<2){corrections.push('act('+G.act+')<2→act=tt('+G.tt+')');G.act=G.tt;}
+    // 规则3: preflop阶段active应等于total（没人弃牌）
+    if(G.phase==='pre'&&G.act<G.tt){corrections.push('preflop act('+G.act+')<tt('+G.tt+')→act=tt');G.act=G.tt;}
+    // 规则4: to_call不应为负
+    if(G.bet<0){corrections.push('bet('+G.bet+')<0→0');G.bet=0;}
+    // 规则5: 手牌必须有2张
+    var holeCount=G.hole.filter(function(c){return c!==null;}).length;
+    if(holeCount!==2){corrections.push('手牌'+holeCount+'张≠2');}
+    if(corrections.length>0){console.log('[校验纠错] '+corrections.join('; '));}
+  })();
   if(data.my_position){
     var posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',mp:'mp',utg:'utg',sb:'sb',bb:'bb',utg1:'utg',utg2:'utg',mp1:'mp',mp2:'mp',hijack:'mp'};
     G.pos=posMap[(data.my_position||'').toLowerCase()]||'btn';

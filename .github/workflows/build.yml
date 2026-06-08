@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.15
-        name: "V2.9.15 牌局智囊 - 活跃玩家识别+速度优化"
-        body: "V2.9.15: Prompt明确活跃玩家(面前有牌)+荷官筹码排除+G.act不再被total覆盖+HTML缓存+图片压缩优化(detail=low)"
+        tag_name: v2.9.16
+        name: "V2.9.16 牌局智囊 - 校验纠错层"
+        body: "V2.9.16: Kotlin+JS双层校验纠错(active_players/pot/street规则校验+自动纠正)，防止API幻觉和矛盾数据进策略引擎"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
