@@ -478,11 +478,13 @@ var DRTA={
     var tagMap={maniac:'😈疯子',calling_station:'📞跟注站',fish:'🐟鱼',nit:'🔒超紧',tight:'🎯紧被动',lag:'🔥松凶',tag:'🏆紧凶',unknown:'❓未知'};
     document.getElementById('oppTypeTag').textContent=tagMap[p.type]||'❓未知';
     ['Unknown','Maniac','CS','Fish','NIT','TP','LAG'].forEach(function(t){
-      document.getElementById('tBtn'+t).classList.remove('on');
+      var el=document.getElementById('tBtn'+t);
+      if(el)el.classList.remove('on');
     });
     var btnMap={unknown:'Unknown',maniac:'Maniac',calling_station:'CS',fish:'Fish',nit:'NIT',tight:'TP',lag:'LAG'};
     var btnId='tBtn'+btnMap[p.type];
-    if(document.getElementById(btnId))document.getElementById(btnId).classList.add('on');
+    var btnEl=document.getElementById(btnId);
+    if(btnEl)btnEl.classList.add('on');
   },
   
   setType:function(type){
@@ -1139,7 +1141,7 @@ function setScene(s){
   document.getElementById('betInp').value=G.bet;
   go();
 }
-function setOppType(t){G.opp=t;DRTA.setType(t);DRTA.updateUI();document.querySelectorAll('.ex-btn').forEach(function(b){b.classList.remove('on');});var ids={unknown:'exUnknown',fish:'exFish',tight:'exTP',lag:'exLAG'};document.getElementById(ids[t]).classList.add('on');go();}
+function setOppType(t){G.opp=t;DRTA.setType(t);DRTA.updateUI();document.querySelectorAll('.ex-btn').forEach(function(b){b.classList.remove('on');});var ids={unknown:'exUnknown',fish:'exFish',tight:'exTP',lag:'exLAG',nit:'exTP',maniac:'exLAG',calling_station:'exFish',tag:'exTP'};var exEl=document.getElementById(ids[t]);if(exEl)exEl.classList.add('on');go();}
 function resetTracker(){DRTA.reset();}
 function sPos(p){G.pos=p;document.getElementById('posBtn').textContent=pL(p);go();}
 function sTT(t){G.tt=t;G.act=t;go();}
