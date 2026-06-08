@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v2.9.14 · GTO+DRTA融合版</title>
+<title>扑克AI v2.9.15 · GTO+DRTA融合版</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1251,9 +1251,14 @@ function onVisionResult(data){
   }
   
   // 4. 自动设定桌型和位置
+  // V2.9.15: active_players必须用API返回值，不能用total_players覆盖
   if(data.total_players){
     G.tt=parseInt(data.total_players)||6;
-    G.act=G.tt;
+  }
+  if(data.active_players){
+    G.act=parseInt(data.active_players)||G.tt;
+  } else if(data.total_players){
+    G.act=G.tt; // 兼容：旧版API无active_players时降级
   }
   if(data.my_position){
     var posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',mp:'mp',utg:'utg',sb:'sb',bb:'bb',utg1:'utg',utg2:'utg',mp1:'mp',mp2:'mp',hijack:'mp'};

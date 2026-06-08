@@ -11,8 +11,8 @@ android {
         applicationId "win.pkr.ai"
         minSdk 26
         targetSdk 34
-        versionCode 27
-        versionName "2.9.14"
+        versionCode 28
+        versionName "2.9.15"
     }
 
     buildTypes {

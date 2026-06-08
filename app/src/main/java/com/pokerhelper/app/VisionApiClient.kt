@@ -59,8 +59,8 @@ object VisionApiClient {
         }
 
         return try {
-            // 1. 压缩图片到1920宽度（保持宽高比，高分辨率提升识别精度）
-            val compressedJpeg = compressImage(jpegData, maxWidth = 1920)
+            // V2.9.15: 压缩到1280宽度+quality60，detail=low → API响应更快
+            val compressedJpeg = compressImage(jpegData, maxWidth = 1280)
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
             val dataUri = "data:image/jpeg;base64,$base64Image"
 
@@ -121,7 +121,7 @@ object VisionApiClient {
         if (scale >= 1f) {
             // 只压缩质量
             val stream = ByteArrayOutputStream()
-            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, stream)
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, stream)
             bitmap.recycle()
             return stream.toByteArray()
         }
@@ -132,7 +132,7 @@ object VisionApiClient {
         bitmap.recycle()
 
         val stream = ByteArrayOutputStream()
-        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, stream)
+        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, stream)
         scaled.recycle()
         return stream.toByteArray()
     }
@@ -145,19 +145,24 @@ object VisionApiClient {
 3. 操作按钮：屏幕最底部的3个按钮，原样输出按钮文字，如"弃牌""跟注10K""加注""再加注""全下"
 4. 你的筹码数
 5. 底池总筹码（桌面上显示的底池金额）
-6. 在场有筹码的玩家数
+6. 桌上座位总人数（有头像的座位数）
 7. 当前手仍在场的活跃玩家数
 
-★重要：手牌在屏幕最下面（你的头像前方），公共牌在桌子中间。不要把手牌误认为公共牌！
+★★★ 关键识别规则 ★★★
+- active_players：只有面前有扑克牌（明牌或红色/蓝色牌背）的玩家才算"活跃"，已弃牌的玩家面前没有牌！
+- total_players：桌上有头像的座位总数（包括已弃牌但还坐着的玩家）
+- 荷官/发牌员面前的筹码=底池(pot_size)，不是任何玩家的筹码，不要误算为玩家下注！
+- 手牌在屏幕最下面（你的头像前方），公共牌在桌子中间。不要把手牌误认为公共牌！
 
 返回JSON：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":2,"street":"preflop"}
+{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":3,"street":"preflop"}
 
 规则：
 - rank: A K Q J T 9 8 7 6 5 4 3 2（T=10，不要用10）
 - suit: s=黑桃♠ h=红心♥ d=方块♦ c=梅花♣
 - buttons: 底部按钮完整文字原样输出，不修改
-- pot_size: 底池总筹码数值，带K/M后缀的要转换（10K=10000）
+- pot_size: 底池总筹码数值，带K/M后缀的要转换（10K=10000），荷官面前筹码=底池
+- active_players: 仅统计面前有扑克牌的玩家数（已弃牌面前无牌的不算）
 - street由公共牌数量决定：0=preflop 3=flop 4=turn 5=river
 - 只返回JSON，不要其他文字"""
 
@@ -177,7 +182,7 @@ object VisionApiClient {
                             put("type", "image_url")
                             put("image_url", JSONObject().apply {
                                 put("url", base64Image)
-                                put("detail", "high")
+                                put("detail", "low")
                             })
                         })
                     })

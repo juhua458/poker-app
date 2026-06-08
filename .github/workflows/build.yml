@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.14
-        name: "V2.9.14 牌局智囊 - 紧凑UI+修s未定义+showAdvice异步"
-        body: "V2.9.14: 顶栏半透明紧凑+res精简+getBlockerScore修s→SS+showAdvice异步回传"
+        tag_name: v2.9.15
+        name: "V2.9.15 牌局智囊 - 活跃玩家识别+速度优化"
+        body: "V2.9.15: Prompt明确活跃玩家(面前有牌)+荷官筹码排除+G.act不再被total覆盖+HTML缓存+图片压缩优化(detail=low)"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

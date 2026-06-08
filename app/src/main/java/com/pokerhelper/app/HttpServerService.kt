@@ -66,7 +66,7 @@ class HttpServerService : Service() {
                 override fun serve(session: IHTTPSession): Response {
                     return when {
                         session.uri == "/" || session.uri == "/poker" || session.uri == "/helper" || session.uri == "/index.html" -> {
-                            pokerHelperHtml = null
+                            // V2.9.15: 不再每次请求清空缓存！pokerHelperHtml只加载一次到内存
                             val html = loadPokerHelperHtml()
                             newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html).apply {
                                 addHeader("Access-Control-Allow-Origin", "*")
@@ -104,7 +104,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.14")
+                                put("version", "2.9.15")
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
@@ -302,7 +302,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("🃏 牌局智囊 v2.9.14")
+                .setContentTitle("🃏 牌局智囊 v2.9.15")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -310,7 +310,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("🃏 牌局智囊 v2.9.14")
+                .setContentTitle("🃏 牌局智囊 v2.9.15")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
