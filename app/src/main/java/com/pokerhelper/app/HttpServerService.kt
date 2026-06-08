@@ -13,29 +13,48 @@ import android.content.pm.ServiceInfo
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+import java.io.File
+import java.net.URL
 
 class HttpServerService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "poker_http"
         private const val NOTIFICATION_ID = 3
+        // V2.9.33: 热更新远程JS地址（ghfast代理GitHub raw）
+        private const val HOTLOAD_URL = "https://ghfast.top/https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
+        private const val HOTLOAD_FILE = "poker_helper_hot.html"
+        private const val HOTLOAD_TIMEOUT = 15000 // 15秒超时
     }
 
     private var server: NanoHTTPD? = null
     private var pokerHelperHtml: String? = null
+    private var hotloadSource: String = "local" // "local" or "remote"
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun loadPokerHelperHtml(): String {
         if (pokerHelperHtml == null) {
+            // V2.9.33: 优先加载热更新文件（持久化的远程版本）
             try {
-                val is_ = assets.open("poker_helper.html")
-                val reader = java.io.InputStreamReader(is_, "UTF-8")
-                pokerHelperHtml = reader.readText()
-                reader.close()
-            } catch (e: Exception) {
-                pokerHelperHtml = "<html><body><h2>策略引擎加载失败</h2><p>${e.message}</p></body></html>"
+                val hotFile = File(filesDir, HOTLOAD_FILE)
+                if (hotFile.exists()) {
+                    pokerHelperHtml = hotFile.readText(Charsets.UTF_8)
+                    hotloadSource = "remote"
+                }
+            } catch (_: Exception) {}
+            // 没有热更新文件则从assets加载
+            if (pokerHelperHtml == null) {
+                try {
+                    val is_ = assets.open("poker_helper.html")
+                    val reader = java.io.InputStreamReader(is_, "UTF-8")
+                    pokerHelperHtml = reader.readText()
+                    reader.close()
+                    hotloadSource = "local"
+                } catch (e: Exception) {
+                    pokerHelperHtml = "<html><body><h2>策略引擎加载失败</h2><p>${e.message}</p></body></html>"
+                }
             }
         }
         return pokerHelperHtml ?: ""
@@ -104,7 +123,8 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.32")
+                                put("version", "2.9.33")
+                                put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
@@ -143,6 +163,59 @@ class HttpServerService : Service() {
                             ChipTracker.reset()
                             ScreenCaptureService.lastChipStatus = "已重置"
                             newFixedLengthResponse(Response.Status.OK, "application/json", """{"ok":true}""").apply {
+                                addHeader("Access-Control-Allow-Origin", "*")
+                            }
+                        }
+                        // V2.9.33: 热更新——从GitHub下载最新poker_helper.html
+                        session.uri == "/api/hotload" -> {
+                            try {
+                                val conn = URL(HOTLOAD_URL).openConnection()
+                                conn.connectTimeout = HOTLOAD_TIMEOUT
+                                conn.readTimeout = HOTLOAD_TIMEOUT
+                                val html = conn.getInputStream().bufferedReader(Charsets.UTF_8).readText()
+                                if (html.isNotEmpty() && html.contains("poker") && html.length > 1000) {
+                                    // 验证下载内容有效（包含poker关键词且大于1KB）
+                                    pokerHelperHtml = html
+                                    hotloadSource = "remote"
+                                    // 持久化到文件，重启App也能用
+                                    try {
+                                        File(filesDir, HOTLOAD_FILE).writeText(html, Charsets.UTF_8)
+                                    } catch (_: Exception) {}
+                                    // 提取版本号
+                                    val verMatch = Regex("""V(\d+\.\d+\.\d+)""").find(html)
+                                    val remoteVer = verMatch?.groupValues?.get(1) ?: "unknown"
+                                    val json = JSONObject().apply {
+                                        put("ok", true)
+                                        put("size", html.length)
+                                        put("version", remoteVer)
+                                        put("source", "remote")
+                                    }.toString()
+                                    newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                        addHeader("Access-Control-Allow-Origin", "*")
+                                    }
+                                } else {
+                                    newFixedLengthResponse(Response.Status.OK, "application/json",
+                                        """{"ok":false,"error":"invalid_content","msg":"下载内容无效"}""").apply {
+                                        addHeader("Access-Control-Allow-Origin", "*")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                newFixedLengthResponse(Response.Status.OK, "application/json",
+                                    """{"ok":false,"error":"download_failed","msg":"${e.message}"}""").apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            }
+                        }
+                        // V2.9.33: 恢复本地版本
+                        session.uri == "/api/hotload/revert" -> {
+                            pokerHelperHtml = null // 清空缓存，下次请求重新从assets加载
+                            hotloadSource = "local"
+                            try {
+                                val hotFile = File(filesDir, HOTLOAD_FILE)
+                                if (hotFile.exists()) hotFile.delete()
+                            } catch (_: Exception) {}
+                            newFixedLengthResponse(Response.Status.OK, "application/json",
+                                """{"ok":true,"source":"local"}""").apply {
                                 addHeader("Access-Control-Allow-Origin", "*")
                             }
                         }
@@ -302,7 +375,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("📱 视优 v2.9.32")
+                .setContentTitle("📱 视优 v2.9.33")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -310,7 +383,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("📱 视优 v2.9.32")
+                .setContentTitle("📱 视优 v2.9.33")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

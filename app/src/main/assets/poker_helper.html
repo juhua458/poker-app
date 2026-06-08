@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>扑克AI v2.9.23 · GTO+DRTA融合版</title>
+<title>扑克AI V2.9.33 · GTO+DRTA融合版·热更新</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -303,6 +303,8 @@ body.speed-mode .rec-label{font-size:10px}
   <div class="adv-row"><span class="adv-l">面对</span><input type="number" class="adv-inp" id="betInp" value="0" min="0" max="500" onchange="updateBet()"><span style="color:#444;font-size:9px">BB</span></div>
 </div>
 <button class="clr" onclick="clr()">🔄 下一手</button>
+<button class="clr" style="background:#1a3a5c;font-size:9px;padding:3px 6px" id="hotBtn" onclick="hotUpdate()">📡策略更新</button>
+<button class="clr" style="background:#3a1a1a;font-size:9px;padding:3px 6px;display:none" id="revertBtn" onclick="revertLocal()">↩恢复本地</button>
 <div class="cam-mini"><button class="cam-mini-btn" id="camMiniBtn" onclick="toggleCamModal()">📷</button></div>
 <div class="modal" id="modal">
   <div class="mt" id="mTitle">选牌</div>
@@ -1547,6 +1549,48 @@ function exitSpeedMode(){
   document.body.classList.remove('speed-mode');
 }
 
+
+// V2.9.33: 热更新系统
+function hotUpdate(){
+  var btn=document.getElementById('hotBtn');
+  if(!btn)return;
+  btn.textContent='⏳下载中...';btn.disabled=true;
+  fetch('/api/hotload').then(function(r){return r.json()}).then(function(d){
+    if(d.ok){
+      btn.textContent='✅V'+d.version;
+      var rv=document.getElementById('revertBtn');
+      if(rv)rv.style.display='inline-block';
+      setTimeout(function(){location.reload()},800);
+    }else{
+      btn.textContent='❌失败';btn.disabled=false;
+      alert('更新失败: '+(d.msg||d.error||'未知错误'));
+      setTimeout(function(){btn.textContent='📡策略更新'},2000);
+    }
+  }).catch(function(e){
+    btn.textContent='❌网络错误';btn.disabled=false;
+    setTimeout(function(){btn.textContent='📡策略更新'},2000);
+  });
+}
+function revertLocal(){
+  fetch('/api/hotload/revert').then(function(r){return r.json()}).then(function(d){
+    if(d.ok){
+      var rv=document.getElementById('revertBtn');
+      if(rv)rv.style.display='none';
+      var btn=document.getElementById('hotBtn');
+      if(btn){btn.textContent='📡策略更新';btn.disabled=false;}
+      location.reload();
+    }
+  });
+}
+// 启动时检查是否为远程版本，显示恢复按钮
+(function(){
+  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+    if(d.htmlSource==='remote'){
+      var rv=document.getElementById('revertBtn');
+      if(rv)rv.style.display='inline-block';
+    }
+  }).catch(function(){});
+})();
 
 // 初始化
 DRTA.init();

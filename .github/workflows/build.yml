@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.32
-        name: "V2.9.32 5人桌+A高优化"
-        body: "V2.9.32: 5人桌范围表修复(gO/gT/gC tt<=6用O6)+A高overcard outs(3outs)+翻前多人池eq衰减优化(5人-10/6人-15)+DRTA空指针修复"
+        tag_name: v2.9.33
+        name: "V2.9.33 热更新系统"
+        body: "V2.9.33: 热更新系统(改策略免重装APK)+持久化远程HTML+恢复本地版本+api/hotload端点"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
