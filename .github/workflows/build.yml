@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.36
-        name: "V2.9.36 青云·更名+多人桌+allin场景"
-        body: "V2.9.36: 改名青云, 翻前allin场景处理, 6/9人桌eq衰减修正, KJo/QJo面对raise弃牌, 66场景97%正确率"
+        tag_name: v2.9.37
+        name: "V2.9.37 青云·赔率逻辑+短码全下修复"
+        body: "V2.9.37: KJo/QJo赔率跟注Bug修复, 翻后STRONG深码全下Bug修复, 56场景98%正确率0负EV"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

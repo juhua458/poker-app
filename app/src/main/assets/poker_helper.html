@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.36 · GTO+DRTA融合版·热更新</title>
+<title>青云 v2.9.37 · GTO+DRTA融合版·热更新</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -838,7 +838,8 @@ function preF(k){
       return{a:'call',r:k+' 跟注',eq:exploitResult5.eq,c:eq>=55?'h':'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult5.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     var po=actualBet>0?actualBet/(pot+actualBet*2):0;
-    if(eq>=35&&eq>=po*100){
+    var raiseContractList=(PREFLOP_OPP_ADJ[oppType]||PREFLOP_OPP_ADJ.unknown).facing_raise_contract;
+    if(eq>=35&&eq>=po*100&&raiseContractList.indexOf(k)===-1){
       var exploitResult6=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
       return{a:'call',r:'赔率够跟',eq:exploitResult6.eq,c:'m',po:po*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult6.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -948,7 +949,7 @@ function postF(k){
   if(spr<3&&bet>0){
     // V2.9.30: 强牌短码区策略(sizing上限防overbet)
     // V2.9.35: 河牌STRONG不全下(TPTK河牌只需call/fold), 翻/转牌STRONG才短码全下
-    if(hClass.name==="NUTS"||(hClass.name==="STRONG"&&street!=='river')){
+    if(hClass.name==="NUTS"||(hClass.name==="STRONG"&&street!=='river'&&stk<=50)){
       var isFacingAllin=bet>=stk||bet>=pot*2;
       var maxAllin=pot*2.5;
       if(!isFacingAllin&&stk>maxAllin){
