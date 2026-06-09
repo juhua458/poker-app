@@ -41,7 +41,7 @@ class FloatingService : Service() {
         var isRunning = false
         var currentPanelWidth: Int = 0
         var currentPanelHeight: Int = 0
-        private const val CHANNEL_ID = "poker_floating"
+        private const val CHANNEL_ID = "screen_opt_v2"
         private const val NOTIFICATION_ID = 2
         private const val PREFS_NAME = "poker_floating_prefs"
         private const val KEY_LANDSCAPE_WIDTH = "landscape_width"
@@ -360,7 +360,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "显示优化 v2.9.38"
+            text = "显示优化 v2.9.39"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -805,51 +805,56 @@ class FloatingService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "显示优化", NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "显示优化运行中" }
+                CHANNEL_ID, "显示优化", NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "显示优化运行中"
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(): Notification {
+        // V2.9.39: 始终显示操作按钮（不管隐身/普通模式）
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val builder = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("显示优化 v2.9.38")
-                .setContentText("显示优化运行中")
+                .setContentTitle("显示优化 v2.9.39")
+                .setContentText("运行中 · 下拉展开操作按钮")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
-
-            // V2.9.38: 隐身模式通知按钮
-            if (isStealthMode) {
-                val captureIntent = Intent(ACTION_CAPTURE)
-                val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_camera, "截屏", capturePending)
-
-                val voiceIntent = Intent(ACTION_VOICE)
-                val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_btn_speak_now, "语音", voicePending)
-
-                val openIntent = Intent(ACTION_OPEN)
-                val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_view, "打开", openPending)
-
-                builder.setStyle(Notification.BigTextStyle()
+                .setCategory(Notification.CATEGORY_SERVICE)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setStyle(Notification.BigTextStyle()
                     .setBigContentTitle("显示优化")
-                    .bigText("屏幕显示优化服务运行中"))
-            }
+                    .bigText("屏幕显示优化服务运行中，点击下方按钮操作"))
+
+            // 始终添加操作按钮
+            val captureIntent = Intent(ACTION_CAPTURE)
+            val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(android.R.drawable.ic_menu_camera, "截屏", capturePending)
+
+            val voiceIntent = Intent(ACTION_VOICE)
+            val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(android.R.drawable.ic_btn_speak_now, "语音", voicePending)
+
+            val openIntent = Intent(ACTION_OPEN)
+            val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(android.R.drawable.ic_menu_view, "打开", openPending)
 
             builder.build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("显示优化 v2.9.38")
-                .setContentText("悬浮窗运行中")
+                .setContentTitle("显示优化 v2.9.39")
+                .setContentText("运行中 · 下拉展开操作按钮")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
+                .setPriority(Notification.PRIORITY_DEFAULT)
                 .build()
         }
     }
@@ -863,14 +868,13 @@ class FloatingService : Service() {
                 val builder = Notification.Builder(this, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_menu_compass)
                     .setOngoing(true)
+                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
 
-                // 建议标题（干净无emoji，通知栏更隐蔽）
-                val colorTitle = title
+                builder.setContentTitle(title)
+                    .setContentText(detail.ifEmpty { "点击截屏识别" })
 
-                builder.setContentTitle(colorTitle)
-                    .setContentText(detail.ifEmpty { "显示优化运行中" })
-
-                // 通知按钮
+                // 始终添加操作按钮
                 val captureIntent = Intent(ACTION_CAPTURE)
                 val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -887,8 +891,8 @@ class FloatingService : Service() {
                 builder.addAction(android.R.drawable.ic_menu_view, "打开", openPending)
 
                 builder.setStyle(Notification.BigTextStyle()
-                    .setBigContentTitle(colorTitle)
-                    .bigText(detail.ifEmpty { "显示优化服务运行中" }))
+                    .setBigContentTitle(title)
+                    .bigText(detail.ifEmpty { "点击下方截屏按钮识别牌面" }))
 
                 builder.build()
             } else {
@@ -898,6 +902,7 @@ class FloatingService : Service() {
                     .setContentText(detail)
                     .setSmallIcon(android.R.drawable.ic_menu_compass)
                     .setOngoing(true)
+                    .setPriority(Notification.PRIORITY_DEFAULT)
                     .build()
             }
 

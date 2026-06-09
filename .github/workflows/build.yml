@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.38
-        name: "V2.9.38 青云·🥷隐身模式+反检测重命名"
-        body: "V2.9.38: 隐身模式(通知栏建议无悬浮窗), PokerAccessibilityService→ScreenOptService重命名去除Poker关键词, 反黑屏检测"
+        tag_name: v2.9.39
+        name: "V2.9.39 青云·🥷隐身模式+反检测重命名"
+        body: "V2.9.39: 通知栏可见性修复(DEFAULT优先级+VISIBILITY_PUBLIC), 始终显示截屏按钮, 换新频道ID绕过LOW限制"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

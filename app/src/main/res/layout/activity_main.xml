@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.38 · 🥷隐身模式·反检测"
+        android:text="V2.9.39 · 🥷隐身模式·反检测"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />
@@ -61,7 +61,7 @@
         android:layout_marginTop="12dp"
         android:visibility="gone" />
 
-    <!-- V2.9.38: 隐身模式开关 -->
+    <!-- V2.9.39: 隐身模式开关 -->
     <LinearLayout
         android:layout_width="240dp"
         android:layout_height="wrap_content"
@@ -176,7 +176,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 开启「🥷隐身模式」(反检测)\n4. 点「启动」→ 允许悬浮窗\n5. 打牌时通知栏点🎯截屏 → 看建议\n★ V2.9.38 隐身模式+重命名反检测 ★"
+        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 开启「🥷隐身模式」(反检测)\n4. 点「启动」→ 允许悬浮窗\n5. 打牌时通知栏点🎯截屏 → 看建议\n★ V2.9.39 隐身模式+重命名反检测 ★"
         android:textSize="12sp"
         android:textColor="#64748b"
         android:layout_marginTop="12dp"
