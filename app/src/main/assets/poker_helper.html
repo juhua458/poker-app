@@ -312,6 +312,7 @@ body.speed-mode .rec-label{font-size:10px}
 <button class="clr" onclick="clr()">🔄 下一手</button>
 <button class="clr" style="background:#1a3a5c;font-size:9px;padding:3px 6px" id="hotBtn" onclick="hotUpdate()">📡策略更新</button>
 <button class="clr" style="background:#3a1a1a;font-size:9px;padding:3px 6px;display:none" id="revertBtn" onclick="revertLocal()">↩恢复本地</button>
+<button class="clr" style="background:#1a3a2c;font-size:9px;padding:3px 6px" id="exportBtn" onclick="exportLog()">📤导出日志</button>
 <div class="cam-mini"><button class="cam-mini-btn" id="camMiniBtn" onclick="toggleCamModal()">📷</button></div>
 <div class="modal" id="modal">
   <div class="mt" id="mTitle">选牌</div>
@@ -450,6 +451,59 @@ var HandHistory={
   getAll:function(){return this.records;},
   clear:function(){this.records=[];try{localStorage.removeItem(this.STORAGE_KEY);}catch(e){}}
 };
+
+// V2.9.47: 运行日志缓冲——捕获console.log用于导出分析
+var LogBuffer={
+  records:[],
+  MAX:300,
+  origLog:null,
+  init:function(){
+    this.origLog=console.log;
+    var self=this;
+    console.log=function(){
+      if(self.origLog)self.origLog.apply(console,arguments);
+      var msg=Array.prototype.slice.call(arguments).join(' ');
+      self.records.push({ts:Date.now(),msg:msg});
+      if(self.records.length>self.MAX)self.records=self.records.slice(-self.MAX);
+    };
+  },
+  getAll:function(){return this.records;},
+  clear:function(){this.records=[];}
+};
+
+// V2.9.47: 导出日志——收集手牌历史+DRTA+运行日志，POST到Kotlin端分享
+function exportLog(){
+  var btn=document.getElementById('exportBtn');
+  if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
+  var data={
+    version:'2.9.47',
+    exportTime:new Date().toISOString(),
+    handHistory:HandHistory.getAll(),
+    drtaTracker:DRTA.tracker,
+    drtaType:DRTA.currentType,
+    logs:LogBuffer.getAll()
+  };
+  fetch('/api/export/history',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data)
+  }).then(function(r){return r.json();}).then(function(j){
+    if(btn){btn.textContent='📤导出日志';btn.disabled=false;}
+    if(j.ok){showToast('日志已分享');}else{showToast('导出失败: '+(j.error||'未知'));}
+  }).catch(function(e){
+    if(btn){btn.textContent='📤导出日志';btn.disabled=false;}
+    showToast('导出失败: '+e.message);
+  });
+}
+
+// V2.9.47: Toast提示（替代alert）
+function showToast(msg){
+  var t=document.createElement('div');
+  t.textContent=msg;
+  t.style.cssText='position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.85);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:99999;';
+  document.body.appendChild(t);
+  setTimeout(function(){document.body.removeChild(t);},2000);
+}
 
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
@@ -1997,6 +2051,7 @@ function revertLocal(){
 })();
 
 // 初始化
+LogBuffer.init(); // V2.9.47: 日志缓冲
 CacheManager.init(); // V2.9.46: 缓存管理
 HandHistory.init(); // V2.9.46: 手牌历史
 DRTA.init();

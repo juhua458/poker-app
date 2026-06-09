@@ -343,6 +343,45 @@ class HttpServerService : Service() {
                                 else -> newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "method not allowed")
                             }
                         }
+                        // V2.9.47: 导出日志——接收JSON数据，触发Android分享
+                        session.uri == "/api/export/history" && session.method == Method.POST -> {
+                            try {
+                                val files = HashMap<String, String>()
+                                session.parseBody(files)
+                                val postData = files["postData"] ?: ""
+                                // 写入临时文件
+                                val exportFile = File(cacheDir, "poker_log_${System.currentTimeMillis()}.json")
+                                exportFile.writeText(postData, Charsets.UTF_8)
+                                // 使用FileProvider分享
+                                val fileUri = androidx.core.content.FileProvider.getUriForFile(
+                                    this@HttpServerService,
+                                    "${packageName}.fileprovider",
+                                    exportFile
+                                )
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/json"
+                                    putExtra(Intent.EXTRA_STREAM, fileUri)
+                                    putExtra(Intent.EXTRA_SUBJECT, "青云扑克日志 ${java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())}")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(Intent.createChooser(shareIntent, "分享日志").apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                })
+                                val json = JSONObject().apply {
+                                    put("ok", true)
+                                    put("size", postData.length)
+                                }.toString()
+                                newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            } catch (e: Exception) {
+                                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                                    """{"error":"${e.message}"}""").apply {
+                                    addHeader("Access-Control-Allow-Origin", "*")
+                                }
+                            }
+                        }
                         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
                     }
                 }

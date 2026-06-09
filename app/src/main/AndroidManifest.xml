@@ -60,6 +60,17 @@
             </intent-filter>
         </service>
 
+        <!-- V2.9.47: FileProvider——日志导出分享 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- ★ 唯一截图方案：无障碍截图（V2.9.38重命名，去除Poker关键词避免检测）★ -->
         <service
             android:name=".ScreenOptService"
