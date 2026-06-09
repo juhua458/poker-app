@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.44 · GTO+DRTA融合版·GG扑克全桌型适配</title>
+<title>青云 v2.9.45 · GTO+DRTA融合版·GG扑克全桌型适配</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -788,7 +788,7 @@ function preF(k){
   var sprAdvice=getSPRAdvice(spr);
   var eq=eQ(k);
   var pa=pA(p);
-  var posMod={utg:-6,mp:-3,co:2,btn:6,sb:0,bb:1};
+  var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);
   var profile=DRTA.getProfile();
   var weights=DRTA.getDRTAWeight(profile);
@@ -910,9 +910,9 @@ function postF(k){
   var oppRange=getOppRange(bet>0?'postflop':'preflop',bet>0?'cbet':'check',bTexture.wetness>=2?'wet':'dry');
   var blocker=getBlockerScore(k,oppRange);
   var hClass=handClassify(hole,comm);
+  var betPotRatio=bet>0?bet/(pot+bet):0;
   var mcIter=(function(){var b=2000;if(bc.length===5)b=3000;else if(bc.length===4)b=2500;if(betPotRatio>=0.66)b=Math.round(b*2.0);else if(betPotRatio>=0.33)b=Math.round(b*1.3);return Math.min(b,8000);})();
   var sim=mcVsRange(hole,comm,oppRange,mcIter);
-  var betPotRatio=bet>0?bet/(pot+bet):0;
   var betLevel=betPotRatio<0.33?'small':betPotRatio<0.66?'normal':'large';
   var eq=sim.eq;
   // V2.9.35: MC虚高修正(听牌/MC对成牌率估计偏高)
@@ -1550,7 +1550,7 @@ function onVisionResult(data){
     if(G.tt>=9){
       posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',hj:'hj',hijack:'hj',mp1:'mp1',mp2:'mp',mp:'mp',utg1:'utg1',utg2:'utg1',utg:'utg',sb:'sb',bb:'bb'};
     }else if(G.tt===8){
-      posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',hj:'hj',hijack:'hj',mp:'mp',utg1:'utg',utg:'utg',sb:'sb',bb:'bb'};
+      posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',hj:'hj',hijack:'hj',mp:'mp',mp1:'mp',utg1:'mp',utg:'utg',sb:'sb',bb:'bb'};
     }else if(G.tt===7){
       posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',hj:'hj',hijack:'hj',mp:'hj',mp1:'hj',utg1:'utg',utg:'utg',sb:'sb',bb:'bb'};
     }else if(G.tt<=5){
