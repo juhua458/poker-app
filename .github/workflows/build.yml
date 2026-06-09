@@ -40,7 +40,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.45
+        tag_name: v2.9.46
         name: "V2.9.44 青云·全桌型适配"
         body: "V2.9.44: 全桌型适配——9人以下自动识别切换，修正O9 mp1/hj范围Bug(76→46/51手)，新增O7/O8插值范围表，posMap桌型感知，pA补全utg1，UI桌型按钮4-9人全覆盖，位置按钮加HJ"
         files: app/build/outputs/apk/debug/app-debug.apk
