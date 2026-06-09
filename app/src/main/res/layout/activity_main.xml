@@ -17,7 +17,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="视优"
+        android:text="青云"
         android:textSize="24sp"
         android:textColor="#f1f5f9"
         android:textStyle="bold"

@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.35
-        name: "V2.9.35 策略引擎Bug修复"
-        body: "V2.9.35: 修复6个策略Bug(calcOuts/MC虚高/折扣/Nit诈唬/Maniac大注/SPR短码/outs跟注),24/29测试通过"
+        tag_name: v2.9.36
+        name: "V2.9.36 青云·更名+多人桌+allin场景"
+        body: "V2.9.36: 改名青云, 翻前allin场景处理, 6/9人桌eq衰减修正, KJo/QJo面对raise弃牌, 66场景97%正确率"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
