@@ -41,6 +41,7 @@ object VisionApiClient {
         val buttons: List<String>,          // 操作按钮文字（如"弃牌""跟注10K""加注"）
         val blindSB: Int,                   // 小盲注（V2.9.41: 从桌面标题识别）
         val blindBB: Int,                   // 大盲注（V2.9.41: 从桌面标题识别）
+        val ante: Int,                      // V2.9.42: 前注（每人需投入的前注）
         val rawResponse: String             // 原始API返回
     )
 
@@ -153,6 +154,14 @@ object VisionApiClient {
 6. 桌上座位总人数（有头像的座位数）
 7. 当前手仍在场的活跃玩家数
 8. 盲注级别：从桌面标题识别，如"德州扑克, 200 / 500"表示SB=200 BB=500
+9. 前注(ante)：桌上每人需投入的前注，通常标注"Ante"
+
+★★★ GG扑克特有识别 ★★★：
+- 桌面标题格式多样："德州扑克, 200 / 500" / "Hold'em $0.50/$1" / "NL100 5-max"
+- 筹码可能带K/M后缀：10K=10000, 1.2K=1200, 1.5M=1500000
+- 按钮文字变体：让牌/过牌/让牌／弃牌/弃牌让牌/全押/全下/加注到XX/跟注XXK
+- 前注(ante)可能显示在桌面上，通常标注"Ante"或每人面前有小额筹码
+- 5人桌只有5个座位：UTG/CO/BTN/SB/BB（无MP）
 
 ★★★ 关键识别规则 ★★★
 - active_players：只有面前有扑克牌（明牌或红色/蓝色牌背）的玩家才算"活跃"，已弃牌的玩家面前没有牌！有白色高亮边框的玩家是当前行动者
@@ -160,10 +169,10 @@ object VisionApiClient {
 - 荷官/发牌员面前的筹码=底池(pot_size)，不是任何玩家的筹码，不要误算为玩家下注！
 - 手牌在屏幕最下面（你的头像前方），公共牌在桌子中间。不要把手牌误认为公共牌！
 - ★★★ 盲注识别（极重要）★★★：桌面标题区域通常显示"德州扑克, X / Y"格式，X=小盲SB，Y=大盲BB。必须识别并输出blind_sb和blind_bb！如果看不到盲注信息则填0。
-- ★★★ 不同平台的按钮文字 ★★★：GG扑克等平台用"让牌"而非"过牌"，用"让牌／弃牌"组合按钮，用"全押"而非"全下"。请原样输出按钮文字，不要替换！
+- ★★★ 前注(ante)识别 ★★★：某些级别桌面上会显示前注，通常在桌中央标注"Ante"或每人面前有相同的小额筹码（如每个座位前有100筹码表示ante=100）。需识别并输出ante字段。
 
 返回JSON：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500}
+{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0}
 
 规则：
 - rank: A K Q J T 9 8 7 6 5 4 3 2（T=10，不要用10）
@@ -174,6 +183,7 @@ object VisionApiClient {
 - street由公共牌数量决定：0=preflop 3=flop 4=turn 5=river
 - blind_sb: 小盲注数值（从桌面标题识别）
 - blind_bb: 大盲注数值（从桌面标题识别）
+- ante: 前注数值（每人需投入的前注，无前注则填0）
 - 只返回JSON，不要其他文字"""
 
         val json = JSONObject().apply {
@@ -254,6 +264,8 @@ object VisionApiClient {
         // V2.9.41: 解析盲注级别
         val blindSB = data.optInt("blind_sb", 0)
         val blindBB = data.optInt("blind_bb", 0)
+        // V2.9.42: 解析前注
+        val ante = data.optInt("ante", 0)
 
         return VisionResult(
             holeCards = parseCards(data.optJSONArray("hole_cards")),
@@ -269,6 +281,7 @@ object VisionApiClient {
             buttons = buttons,
             blindSB = blindSB,
             blindBB = blindBB,
+            ante = ante,
             rawResponse = content
         )
     }
@@ -527,6 +540,8 @@ object VisionApiClient {
             // V2.9.41: 输出盲注级别
             put("blind_sb", result.blindSB)
             put("blind_bb", result.blindBB)
+            // V2.9.42: 输出前注
+            put("ante", result.ante)
             // V2.0: 包含校验警告
             if (warnings.isNotEmpty()) {
                 put("_warnings", JSONArray(warnings))
