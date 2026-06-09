@@ -39,6 +39,8 @@ object VisionApiClient {
         val toCall: Int,                    // 需要跟注金额
         val minRaise: Int,                  // 最小加注
         val buttons: List<String>,          // 操作按钮文字（如"弃牌""跟注10K""加注"）
+        val blindSB: Int,                   // 小盲注（V2.9.41: 从桌面标题识别）
+        val blindBB: Int,                   // 大盲注（V2.9.41: 从桌面标题识别）
         val rawResponse: String             // 原始API返回
     )
 
@@ -141,32 +143,37 @@ object VisionApiClient {
     }
 
     private fun buildRequest(base64Image: String): String {
-        val prompt = """你是德州扑克识别专家。观察截图识别以下信息：
+        val prompt = """你是德州扑克截图识别专家。观察截图识别以下信息：
 
 1. 手牌：屏幕最下方中间，2张正面朝上的牌（你自己的牌）
 2. 公共牌：桌面中央区域的牌（0/3/4/5张，横向排列）
-3. 操作按钮：屏幕最底部的3个按钮，原样输出按钮文字，如"弃牌""跟注10K""加注""再加注""全下"
+3. 操作按钮：屏幕最底部的按钮，原样输出按钮文字，如"弃牌""跟注10K""加注""让牌""让牌／弃牌""全下""全押"
 4. 你的筹码数
 5. 底池总筹码（桌面上显示的底池金额）
 6. 桌上座位总人数（有头像的座位数）
 7. 当前手仍在场的活跃玩家数
+8. 盲注级别：从桌面标题识别，如"德州扑克, 200 / 500"表示SB=200 BB=500
 
 ★★★ 关键识别规则 ★★★
-- active_players：只有面前有扑克牌（明牌或红色/蓝色牌背）的玩家才算"活跃"，已弃牌的玩家面前没有牌！
+- active_players：只有面前有扑克牌（明牌或红色/蓝色牌背）的玩家才算"活跃"，已弃牌的玩家面前没有牌！有白色高亮边框的玩家是当前行动者
 - total_players：桌上有头像的座位总数（包括已弃牌但还坐着的玩家）
 - 荷官/发牌员面前的筹码=底池(pot_size)，不是任何玩家的筹码，不要误算为玩家下注！
 - 手牌在屏幕最下面（你的头像前方），公共牌在桌子中间。不要把手牌误认为公共牌！
+- ★★★ 盲注识别（极重要）★★★：桌面标题区域通常显示"德州扑克, X / Y"格式，X=小盲SB，Y=大盲BB。必须识别并输出blind_sb和blind_bb！如果看不到盲注信息则填0。
+- ★★★ 不同平台的按钮文字 ★★★：GG扑克等平台用"让牌"而非"过牌"，用"让牌／弃牌"组合按钮，用"全押"而非"全下"。请原样输出按钮文字，不要替换！
 
 返回JSON：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":3,"street":"preflop"}
+{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500}
 
 规则：
 - rank: A K Q J T 9 8 7 6 5 4 3 2（T=10，不要用10）
 - suit: s=黑桃♠ h=红心♥ d=方块♦ c=梅花♣
-- buttons: 底部按钮完整文字原样输出，不修改
+- buttons: 底部按钮完整文字原样输出，不修改（保留"让牌""让牌／弃牌""全押"等原文）
 - pot_size: 底池总筹码数值，带K/M后缀的要转换（10K=10000），荷官面前筹码=底池
 - active_players: 仅统计面前有扑克牌的玩家数（已弃牌面前无牌的不算）
 - street由公共牌数量决定：0=preflop 3=flop 4=turn 5=river
+- blind_sb: 小盲注数值（从桌面标题识别）
+- blind_bb: 大盲注数值（从桌面标题识别）
 - 只返回JSON，不要其他文字"""
 
         val json = JSONObject().apply {
@@ -244,6 +251,10 @@ object VisionApiClient {
         val callFromButtons = parseCallAmountFromButtons(buttons)
         val finalToCall = if (callFromButtons >= 0) callFromButtons else data.optInt("to_call", 0)
 
+        // V2.9.41: 解析盲注级别
+        val blindSB = data.optInt("blind_sb", 0)
+        val blindBB = data.optInt("blind_bb", 0)
+
         return VisionResult(
             holeCards = parseCards(data.optJSONArray("hole_cards")),
             communityCards = parseCards(data.optJSONArray("community_cards")),
@@ -256,6 +267,8 @@ object VisionApiClient {
             toCall = finalToCall,
             minRaise = data.optInt("min_raise", 0),
             buttons = buttons,
+            blindSB = blindSB,
+            blindBB = blindBB,
             rawResponse = content
         )
     }
@@ -340,7 +353,8 @@ object VisionApiClient {
      */
     private fun parseCallAmountFromButtons(buttons: List<String>): Int {
         for (btn in buttons) {
-            if (btn.contains("过牌")) return 0
+            // V2.9.41: GG扑克用"让牌"代替"过牌"
+            if (btn.contains("过牌") || btn.contains("让牌")) return 0
             if (btn.contains("跟注")) {
                 val numStr = btn.replace("跟注", "").trim()
                 if (numStr.isEmpty()) return 0
@@ -510,6 +524,9 @@ object VisionApiClient {
             put("min_raise", result.minRaise)
             // V2.9.10: 输出按钮文字给策略引擎
             put("buttons", JSONArray(result.buttons))
+            // V2.9.41: 输出盲注级别
+            put("blind_sb", result.blindSB)
+            put("blind_bb", result.blindBB)
             // V2.0: 包含校验警告
             if (warnings.isNotEmpty()) {
                 put("_warnings", JSONArray(warnings))

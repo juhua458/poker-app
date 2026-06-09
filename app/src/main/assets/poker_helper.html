@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.40 · GTO+DRTA融合版·悬浮球</title>
+<title>青云 v2.9.41 · GTO+DRTA融合版·GG扑克适配</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1396,17 +1396,19 @@ function onActionCapture(){
     .catch(function(){});
 }
 
-// V2.9.12: 从按钮文字自动推导场景（替代手动选择）
+// V2.9.41: 从按钮文字自动推导场景（支持GG扑克"让牌""全押"等）
 function detectSceneFromButtons(buttons, street, activePlayers) {
   if (!buttons || buttons.length === 0) {
     return street === 'preflop' ? 'open' : 'check';
   }
-  var hasAllin = buttons.some(function(b){return b.indexOf('全下')>=0;});
+  // V2.9.41: "全押"=GG扑克全下，与"全下"等价
+  var hasAllin = buttons.some(function(b){return b.indexOf('全下')>=0 || b.indexOf('全押')>=0;});
   if (hasAllin) return 'allin';
   var hasReraise = buttons.some(function(b){return b.indexOf('再加注')>=0;});
   if (hasReraise) return 'reraise';
+  // V2.9.41: GG扑克用"让牌"代替"过牌"，"让牌／弃牌"含让牌
   var hasCall = buttons.some(function(b){return b.indexOf('跟注')>=0;});
-  var hasCheck = buttons.some(function(b){return b.indexOf('过牌')>=0;});
+  var hasCheck = buttons.some(function(b){return b.indexOf('过牌')>=0 || b.indexOf('让牌')>=0;});
   var hasRaise = buttons.some(function(b){return b.indexOf('加注')>=0;});
   var hasBet = buttons.some(function(b){return b.indexOf('下注')>=0;});
   if (hasCall && street === 'preflop') {
@@ -1498,16 +1500,24 @@ function onVisionResult(data){
   }
   
   // 5. 更新筹码/底池/面对下注
-  // V2.9.12: 先算BB，再用BB转换pot和stk
-  var bbValue=1000; // 默认盲注
-  if(data.my_chips>0){
-    // 从筹码推算BB（假设100BB初始筹码）
-    bbValue=Math.max(100,Math.round(data.my_chips/100));
+  // V2.9.41: 优先使用API识别的盲注级别，不再用筹码/100猜
+  var bbValue=0;
+  if(data.blind_bb && parseInt(data.blind_bb)>0){
+    bbValue=parseInt(data.blind_bb);
+    console.log('[盲注识别] BB='+bbValue+' (来自API识别)');
+  } else if(data.blind_sb && parseInt(data.blind_sb)>0){
+    // 只有SB没有BB时，BB=2*SB
+    bbValue=parseInt(data.blind_sb)*2;
+    console.log('[盲注推断] BB='+bbValue+' (从SB推算)');
+  } else {
+    // 降级：从筹码推算（假设100BB初始）
+    bbValue=Math.max(100,Math.round((parseInt(data.my_chips)||10000)/100));
+    console.log('[盲注降级] BB='+bbValue+' (从筹码推算，不精确)');
   }
   if(data.pot_size>0) G.pot=Math.max(1,Math.round(parseInt(data.pot_size)/bbValue));
-  if(data.to_call!==undefined) G.bet=parseInt(data.to_call)||0;
+  if(data.to_call!==undefined) G.bet=Math.round(parseInt(data.to_call)/bbValue)||0;
   if(data.my_chips>0){
-    G.stk=Math.max(5,Math.round(data.my_chips/bbValue));
+    G.stk=Math.max(1,Math.round(parseInt(data.my_chips)/bbValue));
   }
   
   // V2.9.10: 保存按钮文字
