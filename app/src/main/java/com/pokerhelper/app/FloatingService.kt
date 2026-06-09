@@ -117,7 +117,12 @@ class FloatingService : Service() {
             addAction(ACTION_VOICE)
             addAction(ACTION_OPEN)
         }
-        registerReceiver(notificationReceiver, filter)
+        // V2.9.38: Android 14+必须指定RECEIVER_EXPORTED/RECEIVER_NOT_EXPORTED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            registerReceiver(notificationReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(notificationReceiver, filter)
+        }
 
         initSpeechRecognizer()
         showFloatingWindow()
@@ -355,7 +360,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "📱 青云 v2.9.38"
+            text = "显示优化 v2.9.38"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -556,20 +561,27 @@ class FloatingService : Service() {
 
         // V2.9.38: ★ 隐身模式 — 1x1像素不可见覆盖层 ★
         if (isStealthMode) {
+            // 1x1像素透明覆盖层，FLAG_NOT_TOUCHABLE不接收触摸事件
+            // 不用alpha=0和负坐标，某些Android版本会拒绝
             val stealthParams = WindowManager.LayoutParams(
                 1, 1,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             )
-            stealthParams.alpha = 0f
-            stealthParams.x = -10000
-            stealthParams.y = -10000
-            windowManager?.addView(floatingView, stealthParams)
+            stealthParams.gravity = Gravity.TOP or Gravity.START
+            stealthParams.x = 0
+            stealthParams.y = 0
+            try {
+                windowManager?.addView(floatingView, stealthParams)
+            } catch (e: Exception) {
+                // 添加失败也不崩溃，WebView仍在后台运行
+            }
             // 立即更新通知显示隐身模式已开启
-            updateAdviceNotification("🥷 隐身模式已开启", "点🎯截屏识别 | 无悬浮窗不被检测")
+            updateAdviceNotification("显示优化运行中", "点击截屏识别")
         } else {
             // 正常模式：标准悬浮窗
             val params = WindowManager.LayoutParams(
@@ -803,7 +815,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val builder = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("📱 青云 v2.9.38")
+                .setContentTitle("显示优化 v2.9.38")
                 .setContentText("显示优化运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -813,28 +825,28 @@ class FloatingService : Service() {
                 val captureIntent = Intent(ACTION_CAPTURE)
                 val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_camera, "🎯截屏", capturePending)
+                builder.addAction(android.R.drawable.ic_menu_camera, "截屏", capturePending)
 
                 val voiceIntent = Intent(ACTION_VOICE)
                 val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_btn_speak_now, "🎤语音", voicePending)
+                builder.addAction(android.R.drawable.ic_btn_speak_now, "语音", voicePending)
 
                 val openIntent = Intent(ACTION_OPEN)
                 val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_view, "📖打开", openPending)
+                builder.addAction(android.R.drawable.ic_menu_view, "打开", openPending)
 
                 builder.setStyle(Notification.BigTextStyle()
-                    .setBigContentTitle("🥷 隐身模式")
-                    .bigText("点🎯截屏识别 | 无悬浮窗不被检测"))
+                    .setBigContentTitle("显示优化")
+                    .bigText("屏幕显示优化服务运行中"))
             }
 
             builder.build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("📱 青云 v2.9.38")
+                .setContentTitle("显示优化 v2.9.38")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -852,40 +864,31 @@ class FloatingService : Service() {
                     .setSmallIcon(android.R.drawable.ic_menu_compass)
                     .setOngoing(true)
 
-                // 颜色编码标题
-                val colorTitle = when {
-                    title.contains("弃牌") -> "🔴 $title"
-                    title.contains("跟注") -> "🟠 $title"
-                    title.contains("加注") -> "🟢 $title"
-                    title.contains("全下") -> "🟣 $title"
-                    title.contains("过牌") -> "⚪ $title"
-                    title.contains("识别中") -> "🎯 $title"
-                    title.contains("✅") -> "✅ $title"
-                    else -> "📱 $title"
-                }
+                // 建议标题（干净无emoji，通知栏更隐蔽）
+                val colorTitle = title
 
                 builder.setContentTitle(colorTitle)
-                    .setContentText(detail.ifEmpty { "🥷 隐身模式运行中" })
+                    .setContentText(detail.ifEmpty { "显示优化运行中" })
 
                 // 通知按钮
                 val captureIntent = Intent(ACTION_CAPTURE)
                 val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_camera, "🎯截屏", capturePending)
+                builder.addAction(android.R.drawable.ic_menu_camera, "截屏", capturePending)
 
                 val voiceIntent = Intent(ACTION_VOICE)
                 val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_btn_speak_now, "🎤语音", voicePending)
+                builder.addAction(android.R.drawable.ic_btn_speak_now, "语音", voicePending)
 
                 val openIntent = Intent(ACTION_OPEN)
                 val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_view, "📖打开", openPending)
+                builder.addAction(android.R.drawable.ic_menu_view, "打开", openPending)
 
                 builder.setStyle(Notification.BigTextStyle()
                     .setBigContentTitle(colorTitle)
-                    .bigText(detail.ifEmpty { "点🎯截屏识别 | 无悬浮窗不被检测" }))
+                    .bigText(detail.ifEmpty { "显示优化服务运行中" }))
 
                 builder.build()
             } else {
