@@ -543,7 +543,7 @@ var PREFLOP_OPP_ADJ={
   calling_station:{open_expand:['44','33','22','K9s','Q9s','J9s','T8s','98s'],open_contract:['65s','64s','54s','53s','43s','76s','75s','74s'],facing_raise_expand:[],facing_raise_contract:[]},
   tag:{open_expand:[],open_contract:['A2s','A3s','54s','53s','43s'],facing_raise_expand:[],facing_raise_contract:['KJo','QJo','JTo']},
   tight:{open_expand:['44','33','22','A8s','A7s','K8s','Q8s','J8s','T8s','97s','86s','A8o'],open_contract:[],facing_raise_expand:[],facing_raise_contract:['KJo','QJo','JTo','A9s','K9s','Q9s','J9s']},
-  unknown:{open_expand:[],open_contract:[],facing_raise_expand:[],facing_raise_contract:[]}
+  unknown:{open_expand:[],open_contract:[],facing_raise_expand:[],facing_raise_contract:['KJo','QJo','JTo','A9o','K9o']}
 };
 function adjustPreflopRange(baseRange,oppType,scene){
   var adj=PREFLOP_OPP_ADJ[oppType]||PREFLOP_OPP_ADJ.unknown;
@@ -817,7 +817,8 @@ function preF(k){
       var exploitResult4=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
       return{a:'raise',v:rSz2,r:k+' 3bet反击',eq:exploitResult4.eq,c:'h',sizing:rSz2,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz2),exploit:exploitResult4.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    if(cS.indexOf(k)!==-1||eq>=45){
+    // V2.9.35: 面对raise跟注需eq>=48或范围支持, eq<45太松(KJo等不该跟)
+    if(cS.indexOf(k)!==-1||eq>=48){
       var exploitResult5=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
       return{a:'call',r:k+' 跟注',eq:exploitResult5.eq,c:eq>=55?'h':'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult5.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -878,8 +879,11 @@ function postF(k){
   }
   // V2.9.35: MEDIUM手牌MC也偏高(中对/底对MC给60%+实际35-45%), 加大折扣到0.70
   if(hClass.name==='MEDIUM')eq=eq*0.70;
-  // P2: 多人池equity非线性衰减(V2.9.30: 基于PokerStove实际数据)
-  var opponents=G.act;
+  // V2.9.35: 翻后eq衰减用实际对手数(非桌位人数)
+  // 翻前act=桌位人数, 翻后act可能=桌位但实际进池人数更少
+  // 策略: 5人及以下用act不变, 6人+用ceil(act*0.5)+1近似
+  // 6人→4, 9人→5 (保守估计进池人数)
+  var opponents=G.phase==='pre'||G.act<=5?G.act:Math.max(2,Math.min(G.act, Math.ceil(G.act*0.5)+1));
   eq=multiPlayerEquity(eq,opponents);
   if(ip)eq+=3;else eq-=2;
   // V2.9.30: 已用非线性衰减替代旧的线性扣减，不再额外减eq
