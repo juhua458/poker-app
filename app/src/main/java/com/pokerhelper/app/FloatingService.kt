@@ -58,6 +58,7 @@ class FloatingService : Service() {
     private var webView: WebView? = null
     private var tvStatus: TextView? = null
     private var tvRecResult: TextView? = null
+    private var tvRecDetail: TextView? = null  // V2.9.43: 识别详情（底池/跟注/盲注）
     private var tvAction: TextView? = null
     private var tvVoice: TextView? = null
     private var resizeHandleLeft: View? = null
@@ -323,7 +324,8 @@ class FloatingService : Service() {
         executeJs("if(typeof clr==='function'){clr()}")
         tvRecResult?.text = ""
         tvRecResult?.visibility = View.GONE
-        
+        tvRecDetail?.text = ""  // V2.9.43: 详情行也要清空
+        tvRecDetail?.visibility = View.GONE
         tvStatus?.text = "🎯 截屏中..."
         executeJs("document.body.classList.add('api-processing')")
         tvAction?.alpha = 0.5f
@@ -370,18 +372,29 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.42"
+            text = "青云 v2.9.43"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
         }
 
         // V2.0: 识别结果展示行 - v2.9.35: 紧凑半透明
+        // V2.9.43: 第一行显示手牌/桌型/阶段，第二行显示底池/跟注/盲注详情
         tvRecResult = TextView(this).apply {
             text = ""
             setTextColor(0xFFE0E0E0.toInt())
-            textSize = 9f
+            textSize = 11f  // V2.9.43: 9f→11f 更醒目
             setPadding(6, 2, 6, 2)
+            setBackgroundColor(0x990a1a0a.toInt())
+            visibility = View.GONE
+        }
+
+        // V2.9.43: 识别详情行（底池/跟注/盲注）
+        tvRecDetail = TextView(this).apply {
+            text = ""
+            setTextColor(0xFFB0BEC5.toInt())
+            textSize = 8f
+            setPadding(6, 0, 6, 2)
             setBackgroundColor(0x990a1a0a.toInt())
             visibility = View.GONE
         }
@@ -438,6 +451,7 @@ class FloatingService : Service() {
         topBar.addView(tvCollapse)
         container.addView(topBar)
         container.addView(tvRecResult!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        container.addView(tvRecDetail!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))  // V2.9.43: 详情行
 
         // Content row
         val contentRow = LinearLayout(this).apply {
@@ -922,10 +936,13 @@ class FloatingService : Service() {
                         val holeStr = result.holeCards.map { "${if(it.rank=="T") "10" else it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
                         val commStr = result.communityCards.map { "${if(it.rank=="T") "10" else it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
                         val streetStr = streetCN[result.street] ?: result.street
-                        var recText = "🔍 手牌: $holeStr"
-                        if (commStr.isNotEmpty()) recText += " | 公共: $commStr"
-                        recText += " | $streetStr | ${result.totalPlayers}人"
-                        if (result.toCall > 0) recText += " | 跟注${result.toCall}"
+                        // V2.9.43: 分两行显示——第一行手牌+桌型+阶段，第二行底池/跟注/盲注
+                        var recText = "🔍 $holeStr | $streetStr | ${result.totalPlayers}人桌"
+                        if (result.ante > 0) recText += " | Ante:${result.ante}"
+                        var detailText = "BB=${result.blindBB}"
+                        if (result.blindSB > 0) detailText += " SB=${result.blindSB}"
+                        if (result.potSize > 0) detailText += " | 底池${result.potSize}"
+                        if (result.toCall > 0) detailText += " | 跟注${result.toCall}"
                         val apiError = VisionApiClient.lastError
                         if (apiError.isNotEmpty()) {
                             recText += " ⚠️$apiError"
@@ -935,6 +952,8 @@ class FloatingService : Service() {
                         }
                         tvRecResult?.text = recText
                         tvRecResult?.visibility = View.VISIBLE
+                        tvRecDetail?.text = detailText  // V2.9.43: 详情行
+                        tvRecDetail?.visibility = View.VISIBLE
                         // V2.9.38: 隐身模式也更新通知
                         if (isStealthMode) {
                             updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", commStr)

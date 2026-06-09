@@ -41,7 +41,7 @@ object VisionApiClient {
         val buttons: List<String>,          // 操作按钮文字（如"弃牌""跟注10K""加注"）
         val blindSB: Int,                   // 小盲注（V2.9.41: 从桌面标题识别）
         val blindBB: Int,                   // 大盲注（V2.9.41: 从桌面标题识别）
-        val ante: Int,                      // V2.9.42: 前注（每人需投入的前注）
+        val ante: Int,                      // V2.9.43: 前注（每人需投入的前注）
         val rawResponse: String             // 原始API返回
     )
 
@@ -264,7 +264,7 @@ object VisionApiClient {
         // V2.9.41: 解析盲注级别
         val blindSB = data.optInt("blind_sb", 0)
         val blindBB = data.optInt("blind_bb", 0)
-        // V2.9.42: 解析前注
+        // V2.9.43: 解析前注
         val ante = data.optInt("ante", 0)
 
         return VisionResult(
@@ -540,7 +540,7 @@ object VisionApiClient {
             // V2.9.41: 输出盲注级别
             put("blind_sb", result.blindSB)
             put("blind_bb", result.blindBB)
-            // V2.9.42: 输出前注
+            // V2.9.43: 输出前注
             put("ante", result.ante)
             // V2.0: 包含校验警告
             if (warnings.isNotEmpty()) {

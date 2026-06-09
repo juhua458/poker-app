@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.42
-        name: "V2.9.42 青云·GG扑克完美适配"
-        body: "V2.9.42: GG扑克完美适配——新增5人桌专用范围表(O5/TB5/CB5)，支持GG非标准盲注比例(0.4:1)，增强按钮识别(让牌/全押变体)，Ante前注识别，5-max位置自动修正(MP→CO)"
+        tag_name: v2.9.43
+        name: "V2.9.43 青云·GG策略升级"
+        body: "V2.9.43: GG策略引擎升级——悬浮窗识别详情分两行显示(手牌/底池)，GG Rake折扣(边缘跟注-2%)，Ante底池修正，Straddle检测，5-max CO范围扩充(59→73手)，桌型API自动识别同步UI"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
