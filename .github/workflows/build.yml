@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.39
-        name: "V2.9.39 青云·一键截屏+快捷瓷砖"
-        body: "V2.9.39: 点击通知直接截屏, 快捷设置瓷砖(下拉通知栏顶部), 通知权限请求(Android 13+), IMPORTANCE_HIGH, 通知标题改为「截屏优化」"
+        tag_name: v2.9.40
+        name: "V2.9.40 青云·悬浮球一键截屏"
+        body: "V2.9.40: 屏幕悬浮球一键截屏识别, 长按展开面板, 拖动移动位置, 边框颜色随建议变化(绿=加注/橙=跟注/红=弃牌), 自动吸附屏幕边缘, 位置记忆"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

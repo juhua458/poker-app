@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.39 · 🥷隐身模式·反检测"
+        android:text="V2.9.40 · 🎯悬浮球·一键截屏"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />
@@ -176,7 +176,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 开启「🥷隐身模式」(反检测)\n4. 点「启动」→ 允许悬浮窗\n5. 打牌时下拉通知栏，点通知即可截屏\n★ 也可添加「截屏优化」瓷砖到通知栏顶部 ★\n★ V2.9.39 一键截屏+快捷瓷砖 ★"
+        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 开启「🥷隐身模式」(反检测)\n4. 点「启动」→ 允许悬浮窗\n5. 打牌时点屏幕上的🎯悬浮球即可截屏识别\n★ 拖动悬浮球可移到不挡牌的位置 ★\n★ 长按悬浮球可展开/收起详细面板 ★\n★ 悬浮球边框颜色=建议：绿=加注 橙=跟注 红=弃牌 ★"
         android:textSize="12sp"
         android:textColor="#64748b"
         android:layout_marginTop="12dp"

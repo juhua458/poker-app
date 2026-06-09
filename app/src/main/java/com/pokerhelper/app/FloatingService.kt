@@ -34,6 +34,7 @@ import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.os.Bundle
+import android.graphics.drawable.GradientDrawable
 
 class FloatingService : Service() {
 
@@ -67,6 +68,13 @@ class FloatingService : Service() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
     private var isStealthMode = false
+
+    // V2.9.40: 悬浮球 — 一键截屏
+    private var floatingBall: TextView? = null
+    private var ballParams: WindowManager.LayoutParams? = null
+    private val BALL_SIZE_DP = 48
+    private val KEY_BALL_X = "ball_x"
+    private val KEY_BALL_Y = "ball_y"
 
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
@@ -126,6 +134,7 @@ class FloatingService : Service() {
 
         initSpeechRecognizer()
         showFloatingWindow()
+        showFloatingBall()
     }
 
     override fun onDestroy() {
@@ -134,6 +143,7 @@ class FloatingService : Service() {
         currentPanelHeight = 0
         handler.removeCallbacksAndMessages(null)
         speechRecognizer?.destroy()
+        removeFloatingBall()
         try {
             unregisterReceiver(notificationReceiver)
         } catch (_: Exception) {}
@@ -360,7 +370,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "显示优化 v2.9.39"
+            text = "青云 v2.9.40"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -540,6 +550,8 @@ class FloatingService : Service() {
                             advice.contains("全下") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
                             advice.contains("过牌") -> tvRecResult?.setTextColor(0xFFBDBDBD.toInt())
                         }
+                        // V2.9.40: 悬浮球边框也跟着变
+                        updateBallAdvice(advice)
                     }
                 }
             }
@@ -627,6 +639,165 @@ class FloatingService : Service() {
 
             windowManager?.addView(floatingView, params)
         }
+    }
+
+    /**
+     * V2.9.40: 悬浮球 — 一键截屏识别
+     * 点击→截屏, 长按→展开/收起面板, 拖动→移动位置
+     * 自动吸附到最近的屏幕边缘, 位置记忆
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showFloatingBall() {
+        if (floatingBall != null) return
+
+        val density = resources.displayMetrics.density
+        val sizePx = (BALL_SIZE_DP * density).toInt()
+        val (screenWidth, screenHeight) = getScreenSize()
+
+        val ball = TextView(this).apply {
+            text = "🎯"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            val shape = GradientDrawable()
+            shape.shape = GradientDrawable.OVAL
+            shape.setColor(0xDD1a1a2e.toInt())
+            shape.setStroke((2 * density).toInt(), 0xFF4ade80.toInt())
+            background = shape
+            elevation = 8f
+        }
+        floatingBall = ball
+
+        val savedX = prefs?.getInt(KEY_BALL_X, -1) ?: -1
+        val savedY = prefs?.getInt(KEY_BALL_Y, -1) ?: -1
+
+        val params = WindowManager.LayoutParams(
+            sizePx, sizePx,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = if (savedX >= 0) savedX else screenWidth - sizePx - 8
+        params.y = if (savedY >= 0) savedY else screenHeight / 2 - sizePx / 2
+        ballParams = params
+
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var isDragging = false
+        var isLongPressed = false
+        var longPressRunnable: Runnable? = null
+
+        ball.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    isDragging = false
+                    isLongPressed = false
+                    longPressRunnable = Runnable {
+                        isLongPressed = true
+                        if (!isStealthMode) {
+                            toggleExpand()
+                        } else {
+                            val openIntent = packageManager.getLaunchIntentForPackage(packageName)
+                            openIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(openIntent)
+                        }
+                    }
+                    handler.postDelayed(longPressRunnable!!, 500)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - initialTouchX
+                    val dy = event.rawY - initialTouchY
+                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                        isDragging = true
+                        longPressRunnable?.let { handler.removeCallbacks(it) }
+                    }
+                    if (isDragging) {
+                        params.x = initialX + dx.toInt()
+                        params.y = initialY + dy.toInt()
+                        try {
+                            windowManager?.updateViewLayout(floatingBall, params)
+                        } catch (_: Exception) {}
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    longPressRunnable?.let { handler.removeCallbacks(it) }
+                    if (isDragging) {
+                        // 吸附到最近的屏幕边缘
+                        val (sw, sh) = getScreenSize()
+                        val centerX = params.x + sizePx / 2
+                        params.x = if (centerX < sw / 2) 0 else sw - sizePx
+                        params.y = params.y.coerceIn(0, sh - sizePx)
+                        try {
+                            windowManager?.updateViewLayout(floatingBall, params)
+                        } catch (_: Exception) {}
+                        prefs?.edit()?.putInt(KEY_BALL_X, params.x)?.putInt(KEY_BALL_Y, params.y)?.apply()
+                    } else if (!isLongPressed) {
+                        // 点击 → 截屏识别
+                        triggerCapture()
+                        // 视觉反馈：闪绿
+                        updateBallColor(0xDD4ade80.toInt())
+                        handler.postDelayed({ updateBallColor(0xDD1a1a2e.toInt()) }, 300)
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        try {
+            windowManager?.addView(ball, params)
+        } catch (e: Exception) {
+            // 添加失败不影响主功能
+        }
+    }
+
+    /**
+     * V2.9.40: 更新悬浮球背景色
+     */
+    private fun updateBallColor(bgColor: Int) {
+        try {
+            val ball = floatingBall ?: return
+            val shape = ball.background as? GradientDrawable ?: return
+            shape.setColor(bgColor)
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * V2.9.40: 根据建议更新悬浮球边框颜色
+     * 绿=加注/全下 橙=跟注 红=弃牌 灰=过牌
+     */
+    fun updateBallAdvice(advice: String) {
+        try {
+            val ball = floatingBall ?: return
+            val shape = ball.background as? GradientDrawable ?: return
+            val density = resources.displayMetrics.density
+            val stroke = (2 * density).toInt()
+            when {
+                advice.contains("全下") || advice.contains("加注") -> shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                advice.contains("跟注") -> shape.setStroke(stroke, 0xFFFFAB40.toInt())
+                advice.contains("弃牌") -> shape.setStroke(stroke, 0xFFFF5252.toInt())
+                advice.contains("过牌") -> shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                else -> shape.setStroke(stroke, 0xFF4ade80.toInt())
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun removeFloatingBall() {
+        try {
+            floatingBall?.let { windowManager?.removeView(it) }
+        } catch (_: Exception) {}
+        floatingBall = null
+        ballParams = null
     }
 
     private inner class ResizeWidthTouchListener : View.OnTouchListener {
