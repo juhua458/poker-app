@@ -348,11 +348,20 @@ class HttpServerService : Service() {
                             try {
                                 val files = HashMap<String, String>()
                                 session.parseBody(files)
-                                val postData = files["postData"] ?: ""
-                                // 写入临时文件
-                                val exportFile = File(cacheDir, "poker_log_${System.currentTimeMillis()}.json")
+                                val rawPostData = files["postData"] ?: ""
+                                // V2.9.47: 修复中文乱码——NanoHTTPD用ISO-8859-1解析，需转回UTF-8
+                                val postData = String(rawPostData.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8)
+                                // 保存到Download目录（用户容易找到，可在Coze上传）
+                                val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                                val fileName = "poker_log_${java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())}.json"
+                                val exportFile = File(downloadDir, fileName)
                                 exportFile.writeText(postData, Charsets.UTF_8)
-                                // 使用FileProvider分享
+                                // 同时复制到剪贴板（方便直接粘贴发送）
+                                try {
+                                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("poker_log", postData))
+                                } catch (_: Exception) {}
+                                // 弹出分享菜单
                                 val fileUri = androidx.core.content.FileProvider.getUriForFile(
                                     this@HttpServerService,
                                     "${packageName}.fileprovider",
@@ -361,16 +370,18 @@ class HttpServerService : Service() {
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "application/json"
                                     putExtra(Intent.EXTRA_STREAM, fileUri)
-                                    putExtra(Intent.EXTRA_SUBJECT, "青云扑克日志 ${java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())}")
+                                    putExtra(Intent.EXTRA_SUBJECT, "青云扑克日志")
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
-                                startActivity(Intent.createChooser(shareIntent, "分享日志").apply {
+                                startActivity(Intent.createChooser(shareIntent, "分享日志(已复制到剪贴板)").apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 })
                                 val json = JSONObject().apply {
                                     put("ok", true)
                                     put("size", postData.length)
+                                    put("file", exportFile.absolutePath)
+                                    put("clipboard", true)
                                 }.toString()
                                 newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
                                     addHeader("Access-Control-Allow-Origin", "*")
