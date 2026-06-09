@@ -509,7 +509,7 @@ var DRTA={
   
   getProfile:function(){
     var t=this.tracker;
-    var p={type:'unknown',confidence:0,hands:t.hands,vpip:0,pfr:0,af:0,fold_to_bet:50,recent_agg:0,bluff_success_rate:0.5,bluff_attempts:t.bluff_attempts};
+    var p={type:'unknown',confidence:0,vpip:0,pfr:0,af:0,fold_to_bet:50,recent_agg:0,bluff_success_rate:0.5,bluff_attempts:t.bluff_attempts};
     if(t.hands<3)return p;
     p.vpip=Math.round(t.vpip/t.hands*100);
     p.pfr=Math.round(t.pfr/t.hands*100);
@@ -721,7 +721,7 @@ function _fp(p){
   if(G.tt===2)return{utg:'btn',utg1:'btn',mp:'btn',mp1:'btn',hj:'btn',co:'btn',sb:'btn'}[p]||p;
   if(G.tt===3)return{utg:'btn',utg1:'btn',mp:'btn',mp1:'btn',hj:'btn',co:'btn'}[p]||p;
   if(G.tt===4)return{utg:'utg',utg1:'utg',mp:'btn',mp1:'btn',hj:'btn',co:'btn'}[p]||p;
-  if(G.tt===5)return{mp:'co',hj:'co',mp1:'co',utg1:'utg'}[p]||p;
+  if(G.tt<=5)return{mp:'co',hj:'co',mp1:'co',utg1:'utg'}[p]||p;
   if(G.tt===6)return{hj:'mp',mp1:'mp',utg1:'utg'}[p]||p;
   if(G.tt===7)return{mp:'hj',mp1:'hj',utg1:'utg'}[p]||p;
   return p;
@@ -745,7 +745,7 @@ var CBET_FREQ={static:{nit:75,fish:55,lag:70,maniac:65,calling_station:50,tag:70
 function blocker(hole,range){var h=hole.filter(function(c){return c;});if(h.length<2)return 1;var rank1=h[0].rank,rank2=h[1].rank;var blockerCount=0;range.forEach(function(key){if(key.indexOf(rank1)!==-1||key.indexOf(rank2)!==-1)blockerCount++;});return blockerCount/Math.max(range.length,1);}
 function getBlockerScore(k,oppRange){return blocker(G.hole.map(function(c){return{k:c.rank+SS[c.suit]};}).filter(function(x){return x.k;}).map(function(x){return{k:x.k[0]};}),oppRange);}
 function compareEVs(eq,pot,betToCall,raiseSz){var results={};if(betToCall>0){var callEV=eq*(pot+betToCall)/pot-(1-eq)*betToCall/pot;results.call=callEV;}if(raiseSz>0){var raiseEV=eq*(pot+raiseSz)/(pot+betToCall+raiseSz)*0.9;results.raise=raiseEV;}return results;}
-function getOppRange(phase,action,bTexture){if(phase==='preflop')return gO(G.pos);var wetness=bTexture?bTexture.wetness:0;if(action==='cbet')return gC(G.pos);return gO(G.pos);}
+function getOppRange(phase,action,bTexture){if(phase==='preflop')return gO(G.pos);var wetness=bTexture?bTexture.wetness:0;if(action==='cbet')return wetness>=2?CB6[G.pos]||CB6.co:CB6[G.pos]||CB6.co;return gO(G.pos);}
 function planStreets(hClass,eq,scene,opp,spr){var plans={'NUTS':{v:'河牌价值|对手check后下注'},'STRONG':{v:'翻/转价值|河牌保护'},'MEDIUM':{v:'翻牌控池|转牌决断'},'WEAK':{v:'过牌控池|弃弱保命'},'DRAW':{v:'半池追牌|控制投入'},'AIR':{v:'放弃追牌|找机会偷池'}};return plans[hClass.name]||plans['WEAK'];}
 function applyExploit(eq,action,oppType,ctx){ctx=ctx||{};var mod=1,exploit='',sizingMod=1;
   // V2.9.17: 7类对手多维度剥削
@@ -992,7 +992,8 @@ function preF(k){
     return{a:'fold',r:k+' 弃牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(scene==='raise'){
-    var opp3betRange=gT(G.pos);
+    var oppPos=G.pos==='btn'?'mp':G.pos==='co'?'mp':G.pos==='mp'?'utg':G.pos;
+    var opp3betRange=TB6[oppPos]||TB6.co;
     // V2.9.35: 3bet需eq>=50, 否则跟注更合理(AQo/JJ等边缘手牌)
     if(opp3betRange.indexOf(k)!==-1&&eq>=50){
       var rSz2=Math.round(actualBet*2.5);
@@ -1109,12 +1110,12 @@ function postF(k){
           // 大注: 75-100%底池
           var bigSizing=Math.round(pot*0.88);
           var exploitBigR=applyExploit(eq,'raise',G.opp,{pot:pot});
-          return{a:'raise',v:bigSizing,r:'河牌'+hClass.desc+'大注',eq:exploitBigR.eq,c:'h',sizing:bigSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+          return{a:'raise',v:bigSizing,r:'河牌'+hClass.desc+'大注',eq:exploitBigR.eq,c:'h',sizing:bigSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confence,weights:weights}};
         }else if(betChoice===1){
           // 中注: 40-60%底池
           var medSizing=Math.round(pot*0.50);
           var exploitMedR=applyExploit(eq,'raise',G.opp,{pot:pot});
-          return{a:'raise',v:medSizing,r:'河牌'+hClass.desc+'薄价值',eq:exploitMedR.eq,c:'m',sizing:medSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+          return{a:'raise',v:medSizing,r:'河牌'+hClass.desc+'薄价值',eq:exploitMedR.eq,c:'m',sizing:medSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confence,weights:weights}};
         }
         // betChoice===2 → 过牌(继续走原有逻辑)
       }
@@ -1128,16 +1129,16 @@ function postF(k){
       if(Math.random()*100<bluffFreq){
         var bluffSizing2=Math.round(pot*0.55);
         var exploitBluff2=applyExploit(eq,'raise',G.opp,{pot:pot});
-        return{a:'raise',v:bluffSizing2,r:'河牌bluff('+bluffFreq+'%)',eq:exploitBluff2.eq,c:'l',sizing:bluffSizing2,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+        return{a:'raise',v:bluffSizing2,r:'河牌bluff('+bluffFreq+'%)',eq:exploitBluff2.eq,c:'l',sizing:bluffSizing2,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confence,weights:weights}};
       }
     }
     // 河牌面对下注: STRONG/NUTS必跟, MEDIUM看赔率, DRAW/AIR必弃
     if(bet>0&&hClass.name==='MEDIUM'){
       if(eq>=nq+5){
         var exploitRM=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
-        return{a:'call',r:'河牌中对跟注',eq:exploitRM.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+        return{a:'call',r:'河牌中对跟注',eq:exploitRM.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confence,weights:weights}};
       }
-      return{a:'fold',r:'河牌中对不够赔率',eq:eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      return{a:'fold',r:'河牌中对不够赔率',eq:eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confence,weights:weights}};
     }
   }
   // V2.9.43: GG Rake折扣——GG抽水5%，边缘跟注需额外2%胜率才值
@@ -1230,12 +1231,12 @@ function postF(k){
         var cbetSizing2=Math.round(pot*0.40);
         if(cbetSizing2>=2){
           var exploitCB=applyExploit(eq,'raise',G.opp,{pot:pot});
-          return{a:'raise',v:cbetSizing2,r:'GTO C-bet('+hFreq[0]+'%)',eq:exploitCB.eq,c:'m',sizing:cbetSizing2,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+          return{a:'raise',v:cbetSizing2,r:'GTO C-bet('+hFreq[0]+'%)',eq:exploitCB.eq,c:'m',sizing:cbetSizing2,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confence,weights:weights}};
         }
       }else if(cbetChoice===1&&(hClass.name==='NUTS'||hClass.name==='STRONG')){
         // 强牌有时也过牌(trap)
         var exploitTrap=applyExploit(eq,'check',G.opp,{pot:pot});
-        return{a:'check',r:'GTO慢打('+hFreq[1]+'%)',eq:exploitTrap.eq,c:'h',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+        return{a:'check',r:'GTO慢打('+hFreq[1]+'%)',eq:exploitTrap.eq,c:'h',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confence,weights:weights}};
       }
     }
     // V2.9.21: C-bet频率根据牌面+对手类型调整raise阈值
@@ -1458,7 +1459,7 @@ function setScene(s){
 }
 function setOppType(t){G.opp=t;DRTA.setType(t);DRTA.updateUI();document.querySelectorAll('.ex-btn').forEach(function(b){b.classList.remove('on');});var ids={unknown:'exUnknown',fish:'exFish',tight:'exTP',lag:'exLAG',nit:'exTP',maniac:'exLAG',calling_station:'exFish',tag:'exTP'};var exEl=document.getElementById(ids[t]);if(exEl)exEl.classList.add('on');go();}
 function resetTracker(){DRTA.reset();}
-function sPos(p){p=_fp(p);G.pos=p;document.getElementById('posBtn').textContent=pL(p);document.querySelectorAll('.adv-row .adv-btn').forEach(function(b){b.classList.remove('on');});var posBtns=document.querySelectorAll('.adv-row .adv-btn');var posList=['btn','co','hj','mp','utg','sb','bb'];for(var i=0;i<posBtns.length;i++){if(posBtns[i].textContent===pL(p)){posBtns[i].classList.add('on');break;}}go();}
+function sPos(p){p=_fp(p);G.pos=p;document.getElementById('posBtn').textContent=pL(p);go();}
 // V2.9.47: 切换桌型时自动修正位置
 function sTT(t){G.tt=t;G.act=t;G.pos=_fp(G.pos);document.getElementById('posBtn').textContent=pL(G.pos);go();}
 function updateStk(){G.stk=parseInt(document.getElementById('stkInp').value)||100;go();}
@@ -1664,7 +1665,7 @@ function onActionCapture(){
         if(data.activePlayerCount) info+=' | 活跃'+data.activePlayerCount;
         if(data.totalBetAmount) info+=' | 底池'+data.totalBetAmount;
         var el=document.getElementById('chipInfo');
-        if(el)el.textContent=info;
+        if(el) el.textContent=info;
       }
     })
     .catch(function(){});
