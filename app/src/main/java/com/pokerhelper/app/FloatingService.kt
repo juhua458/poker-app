@@ -805,9 +805,9 @@ class FloatingService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "显示优化", NotificationManager.IMPORTANCE_DEFAULT
+                CHANNEL_ID, "截屏优化", NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "显示优化运行中"
+                description = "点击通知截屏识别"
                 setShowBadge(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -817,25 +817,27 @@ class FloatingService : Service() {
     }
 
     private fun createNotification(): Notification {
-        // V2.9.39: 始终显示操作按钮（不管隐身/普通模式）
+        // V2.9.39: 点击通知直接截屏 + 快捷按钮
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val builder = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("显示优化 v2.9.39")
-                .setContentText("运行中 · 下拉展开操作按钮")
+                .setContentTitle("点击截屏识别")
+                .setContentText("点一下即可截屏分析")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setStyle(Notification.BigTextStyle()
-                    .setBigContentTitle("显示优化")
-                    .bigText("屏幕显示优化服务运行中，点击下方按钮操作"))
+                    .setBigContentTitle("点击即可截屏")
+                    .bigText("点击通知直接截屏分析，也可用通知栏顶部「截屏优化」瓷砖"))
 
-            // 始终添加操作按钮
+            // ★ 点击通知本身 → 触发截屏（最直观的操作方式）
             val captureIntent = Intent(ACTION_CAPTURE)
-            val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
+            captureIntent.setPackage(packageName)
+            val capturePending = PendingIntent.getBroadcast(this, 0, captureIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(android.R.drawable.ic_menu_camera, "截屏", capturePending)
+            builder.setContentIntent(capturePending)
 
+            // 额外操作按钮
             val voiceIntent = Intent(ACTION_VOICE)
             val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -844,17 +846,17 @@ class FloatingService : Service() {
             val openIntent = Intent(ACTION_OPEN)
             val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(android.R.drawable.ic_menu_view, "打开", openPending)
+            builder.addAction(android.R.drawable.ic_menu_view, "打开App", openPending)
 
             builder.build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("显示优化 v2.9.39")
-                .setContentText("运行中 · 下拉展开操作按钮")
+                .setContentTitle("点击截屏识别")
+                .setContentText("点一下即可截屏分析")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
-                .setPriority(Notification.PRIORITY_DEFAULT)
+                .setPriority(Notification.PRIORITY_HIGH)
                 .build()
         }
     }
@@ -874,12 +876,14 @@ class FloatingService : Service() {
                 builder.setContentTitle(title)
                     .setContentText(detail.ifEmpty { "点击截屏识别" })
 
-                // 始终添加操作按钮
+                // ★ 点击通知 → 触发截屏
                 val captureIntent = Intent(ACTION_CAPTURE)
-                val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
+                captureIntent.setPackage(packageName)
+                val capturePending = PendingIntent.getBroadcast(this, 0, captureIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_camera, "截屏", capturePending)
+                builder.setContentIntent(capturePending)
 
+                // 额外操作按钮
                 val voiceIntent = Intent(ACTION_VOICE)
                 val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -888,11 +892,11 @@ class FloatingService : Service() {
                 val openIntent = Intent(ACTION_OPEN)
                 val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                builder.addAction(android.R.drawable.ic_menu_view, "打开", openPending)
+                builder.addAction(android.R.drawable.ic_menu_view, "打开App", openPending)
 
                 builder.setStyle(Notification.BigTextStyle()
                     .setBigContentTitle(title)
-                    .bigText(detail.ifEmpty { "点击下方截屏按钮识别牌面" }))
+                    .bigText(detail.ifEmpty { "点击截屏识别牌面" }))
 
                 builder.build()
             } else {
@@ -902,7 +906,7 @@ class FloatingService : Service() {
                     .setContentText(detail)
                     .setSmallIcon(android.R.drawable.ic_menu_compass)
                     .setOngoing(true)
-                    .setPriority(Notification.PRIORITY_DEFAULT)
+                    .setPriority(Notification.PRIORITY_HIGH)
                     .build()
             }
 

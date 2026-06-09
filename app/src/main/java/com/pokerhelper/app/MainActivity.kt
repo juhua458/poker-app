@@ -53,10 +53,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // V2.9.39: 通知权限请求（Android 13+必须，否则通知不显示）
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(this, "需要通知权限才能显示截屏按钮", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             setContentView(R.layout.activity_main)
+
+            // V2.9.39: Android 13+必须请求通知权限，否则通知不显示
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
 
             prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             floatingPrefs = getSharedPreferences("poker_floating_prefs", MODE_PRIVATE)

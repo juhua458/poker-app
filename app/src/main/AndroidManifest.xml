@@ -48,6 +48,18 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
+        <!-- V2.9.39: 快捷设置瓷砖 — 下拉通知栏一键截屏 -->
+        <service
+            android:name=".CaptureTileService"
+            android:label="截屏优化"
+            android:icon="@android:drawable/ic_menu_camera"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- ★ 唯一截图方案：无障碍截图（V2.9.38重命名，去除Poker关键词避免检测）★ -->
         <service
             android:name=".ScreenOptService"
