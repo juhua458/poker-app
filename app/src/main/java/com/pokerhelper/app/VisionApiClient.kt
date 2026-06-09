@@ -120,16 +120,7 @@ object VisionApiClient {
     }
 
     private fun compressImage(jpegData: ByteArray, maxWidth: Int): ByteArray {
-        var bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
-
-        // V2.9.48: 裁剪顶部导航栏+自身总筹码区域(最大干扰源)，保留牌桌核心
-        // GG扑克布局：顶部8%是导航栏+自身筹码(如"16,447")，容易跟底池混淆
-        val topCrop = (bitmap.height * 0.08).toInt()
-        if (topCrop > 0 && bitmap.height - topCrop > 100) {
-            val cropped = android.graphics.Bitmap.createBitmap(bitmap, 0, topCrop, bitmap.width, bitmap.height - topCrop)
-            bitmap.recycle()
-            bitmap = cropped
-        }
+        val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
 
         // 计算缩放比例
         val scale = if (bitmap.width > maxWidth) maxWidth.toFloat() / bitmap.width else 1f
@@ -155,24 +146,35 @@ object VisionApiClient {
     private fun buildRequest(base64Image: String): String {
         val prompt = """你是德州扑克截图识别专家。识别以下信息：
 
+★★★ GG扑克界面布局（极重要，先看懂再识别）★★★：
+- 顶部白色数字框 = 底池金额（如"5,750"或"16,447"）❌这不是你的筹码！
+- 牌桌中央深绿色框 = "底池 XXX"（跟顶部数字一样，两处互相验证）
+- 左下角你的头像名字下方 = 你的筹码（如"8,750"）
+- 其他玩家头像下方 = 他们的筹码
+- 下注筹码堆上的数字 = 某玩家的下注额，❌不是底池
+
 1. 手牌：屏幕最下方2张正面牌
 2. 公共牌：桌面中央0/3/4/5张牌
 3. 操作按钮：底部按钮原样输出
-4. 你的筹码
-5. 底池筹码
+4. 你的筹码：左下角你头像名字下方的数字
+5. 底池筹码：牌桌中央"底池"二字后的数字（与顶部白色数字框一致）
 6. 座位总数
 7. 活跃玩家数
 8. 盲注级别
 9. 前注
 
 ★★★ 底池识别（极重要）★★★：
-- 第一步：先在牌桌中央区域找到"底池"这两个中文字！深绿色圆角矩形框内
-- 第二步："底池"二字紧跟的数字就是pot_size
-- 底池格式示例："底池 16,447"→pot_size=16447，"底池 5,617"→pot_size=5617
+- 找牌桌中央"底池"二字，紧跟的数字就是pot_size
+- 顶部白色数字框也是底池，应与中央"底池"数字一致
+- 格式示例："底池 16,447"→pot_size=16447，"底池 5,750"→pot_size=5750
 - 数字可能带逗号，必须去掉逗号后输出
-- ❌绝不能把任何玩家头像旁的筹码当作底池！
+- ❌绝不能把左下角你头像下的筹码当作底池！那是my_chips！
+- ❌绝不能把其他玩家头像下的筹码当作底池！
 - ❌绝不能把下注筹码堆上的数字当作底池！
-- ❌只有"底池"标签旁的数字才是pot_size，其他数字一概忽略
+
+★★★ 你的筹码识别（极重要）★★★：
+- my_chips = 左下角你自己头像名字下方的数字
+- ❌my_chips不是顶部白色数字框！那是底池！
 
 ★★★ 盲注识别（极重要）★★★：
 - 桌面标题"德州扑克, 200 / 500"→blind_sb=200 blind_bb=500
