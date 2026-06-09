@@ -62,8 +62,8 @@ object VisionApiClient {
         }
 
         return try {
-            // V2.9.16: 压缩到1280宽度+quality70，detail=high保证识别精度
-            val compressedJpeg = compressImage(jpegData, maxWidth = 1280)
+            // V2.9.48: 压缩到960宽度+quality55，更快传输且识别精度足够
+            val compressedJpeg = compressImage(jpegData, maxWidth = 960)
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
             val dataUri = "data:image/jpeg;base64,$base64Image"
 
@@ -127,7 +127,7 @@ object VisionApiClient {
         if (scale >= 1f) {
             // 只压缩质量
             val stream = ByteArrayOutputStream()
-            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 55, stream)
             bitmap.recycle()
             return stream.toByteArray()
         }
@@ -138,53 +138,47 @@ object VisionApiClient {
         bitmap.recycle()
 
         val stream = ByteArrayOutputStream()
-        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
+        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 55, stream)
         scaled.recycle()
         return stream.toByteArray()
     }
 
     private fun buildRequest(base64Image: String): String {
-        val prompt = """你是德州扑克截图识别专家。观察截图识别以下信息：
+        val prompt = """你是德州扑克截图识别专家。识别以下信息：
 
-1. 手牌：屏幕最下方中间，2张正面朝上的牌（你自己的牌）
-2. 公共牌：桌面中央区域的牌（0/3/4/5张，横向排列）
-3. 操作按钮：屏幕最底部的按钮，原样输出按钮文字，如"弃牌""跟注10K""加注""让牌""让牌／弃牌""全下""全押"
-4. 你的筹码数
-5. 底池总筹码（桌面上显示的底池金额）
-6. 桌上座位总人数（有头像的座位数）
-7. 当前手仍在场的活跃玩家数
-8. 盲注级别：从桌面标题识别，如"德州扑克, 200 / 500"表示SB=200 BB=500
-9. 前注(ante)：桌上每人需投入的前注，通常标注"Ante"
+1. 手牌：屏幕最下方2张正面牌
+2. 公共牌：桌面中央0/3/4/5张牌
+3. 操作按钮：底部按钮原样输出
+4. 你的筹码
+5. 底池筹码
+6. 座位总数
+7. 活跃玩家数
+8. 盲注级别
+9. 前注
 
-★★★ GG扑克特有识别 ★★★：
-- 桌面标题格式多样："德州扑克, 200 / 500" / "Hold'em $0.50/$1" / "NL100 5-max"
-- 筹码可能带K/M后缀：10K=10000, 1.2K=1200, 1.5M=1500000
-- 按钮文字变体：让牌/过牌/让牌／弃牌/弃牌让牌/全押/全下/加注到XX/跟注XXK
-- 前注(ante)可能显示在桌面上，通常标注"Ante"或每人面前有小额筹码
-- 5人桌只有5个座位：UTG/CO/BTN/SB/BB（无MP）
+★★★ 底池识别（极重要）★★★：
+- 底池是桌面中央绿色框内标注的数字，通常在"底池"或"Pot"文字旁
+- 底池数字可能带逗号如5,617或11,797，必须去掉逗号后输出数字
+- ❌绝不能把任何玩家的筹码当作底池！玩家筹码在各自头像旁
+- ❌绝不能把筹码堆图片上的数字当作底池！只有"底池"标签旁的数字才是pot_size
+- 示例：桌中央显示"底池 5,617"→pot_size=5617
 
-★★★ 关键识别规则 ★★★
-- active_players：只有面前有扑克牌（明牌或红色/蓝色牌背）的玩家才算"活跃"，已弃牌的玩家面前没有牌！有白色高亮边框的玩家是当前行动者
-- total_players：桌上有头像的座位总数（包括已弃牌但还坐着的玩家）
-- 荷官/发牌员面前的筹码=底池(pot_size)，不是任何玩家的筹码，不要误算为玩家下注！
-- 手牌在屏幕最下面（你的头像前方），公共牌在桌子中间。不要把手牌误认为公共牌！
-- ★★★ 盲注识别（极重要）★★★：桌面标题区域通常显示"德州扑克, X / Y"格式，X=小盲SB，Y=大盲BB。必须识别并输出blind_sb和blind_bb！如果看不到盲注信息则填0。
-- ★★★ 前注(ante)识别 ★★★：某些级别桌面上会显示前注，通常在桌中央标注"Ante"或每人面前有相同的小额筹码（如每个座位前有100筹码表示ante=100）。需识别并输出ante字段。
+★★★ 盲注识别（极重要）★★★：
+- 桌面标题"德州扑克, 200 / 500"→blind_sb=200 blind_bb=500
+- 必须识别并输出
+
+★★★ 关键规则 ★★★：
+- rank: A K Q J T 9 8 7 6 5 4 3 2（T=10）
+- suit: s=黑桃 h=红心 d=方块 c=梅花
+- 筹码带K/M后缀要转换：10K=10000 1.5M=1500000
+- active_players：面前有牌的玩家数（已弃牌无牌的不算）
+- street：0张=preflop 3=flop 4=turn 5=river
+- 按钮：原样输出含"跟注10K""让牌／弃牌""全押"等
 
 返回JSON：
 {"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0}
 
-规则：
-- rank: A K Q J T 9 8 7 6 5 4 3 2（T=10，不要用10）
-- suit: s=黑桃♠ h=红心♥ d=方块♦ c=梅花♣
-- buttons: 底部按钮完整文字原样输出，不修改（保留"让牌""让牌／弃牌""全押"等原文）
-- pot_size: 底池总筹码数值，带K/M后缀的要转换（10K=10000），荷官面前筹码=底池
-- active_players: 仅统计面前有扑克牌的玩家数（已弃牌面前无牌的不算）
-- street由公共牌数量决定：0=preflop 3=flop 4=turn 5=river
-- blind_sb: 小盲注数值（从桌面标题识别）
-- blind_bb: 大盲注数值（从桌面标题识别）
-- ante: 前注数值（每人需投入的前注，无前注则填0）
-- 只返回JSON，不要其他文字"""
+只返回JSON"""
 
         val json = JSONObject().apply {
             put("model", modelName)
@@ -220,8 +214,9 @@ object VisionApiClient {
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Authorization", "Bearer $apiKey")
             doOutput = true
-            connectTimeout = 15000
-            readTimeout = 30000
+            // V2.9.48: 缩短超时，快速反馈
+            connectTimeout = 8000
+            readTimeout = 20000
         }
 
         conn.outputStream.use { os ->
@@ -262,16 +257,16 @@ object VisionApiClient {
         val finalToCall = if (callFromButtons >= 0) callFromButtons else data.optInt("to_call", 0)
 
         // V2.9.41: 解析盲注级别
-        val blindSB = data.optInt("blind_sb", 0)
-        val blindBB = data.optInt("blind_bb", 0)
+        val blindSB = parseChipValue(data, "blind_sb")
+        val blindBB = parseChipValue(data, "blind_bb")
         // V2.9.43: 解析前注
-        val ante = data.optInt("ante", 0)
+        val ante = parseChipValue(data, "ante")
 
         return VisionResult(
             holeCards = parseCards(data.optJSONArray("hole_cards")),
             communityCards = parseCards(data.optJSONArray("community_cards")),
-            potSize = data.optInt("pot_size", 0),
-            playerChips = data.optInt("my_chips", 0),
+            potSize = parsePotSize(data, "pot_size"),
+            playerChips = parseChipValue(data, "my_chips"),
             totalPlayers = data.optInt("total_players", 6),
             activePlayers = data.optInt("active_players", 2),
             myPosition = data.optString("my_position", ""),
@@ -385,6 +380,54 @@ object VisionApiClient {
         return -1 // 没有跟注/过牌按钮
     }
 
+    /**
+     * V2.9.48: 解析底池数值，处理逗号分隔、K/M后缀
+     * API可能返回"5617"、"5,617"、"5.6K"等格式
+     */
+    private fun parsePotSize(data: JSONObject, key: String): Int {
+        val raw = data.opt(key)
+        if (raw == null) return 0
+        return when (raw) {
+            is Int -> raw
+            is Long -> raw.toInt()
+            is Double -> raw.toInt()
+            is String -> parseChipString(raw.toString())
+            else -> data.optInt(key, 0)
+        }
+    }
+
+    /**
+     * V2.9.48: 解析筹码数值，同理解析逗号和K/M后缀
+     */
+    private fun parseChipValue(data: JSONObject, key: String): Int {
+        val raw = data.opt(key)
+        if (raw == null) return 0
+        return when (raw) {
+            is Int -> raw
+            is Long -> raw.toInt()
+            is Double -> raw.toInt()
+            is String -> parseChipString(raw.toString())
+            else -> data.optInt(key, 0)
+        }
+    }
+
+    /**
+     * V2.9.48: 解析筹码字符串，支持"5,617"→5617, "10K"→10000, "1.5M"→1500000
+     */
+    private fun parseChipString(s: String): Int {
+        val trimmed = s.trim().replace(",", "")
+        return try {
+            when {
+                trimmed.endsWith("K", ignoreCase = true) ->
+                    (trimmed.dropLast(1).toFloat() * 1000).toInt()
+                trimmed.endsWith("M", ignoreCase = true) ->
+                    (trimmed.dropLast(1).toFloat() * 1000000).toInt()
+                trimmed.contains(".") -> trimmed.toFloat().toInt()
+                else -> trimmed.toInt()
+            }
+        } catch (e: Exception) { 0 }
+    }
+
     private fun validateResult(result: VisionResult): List<String> {
         val warnings = mutableListOf<String>()
         val validRanks = setOf("A","K","Q","J","T","9","8","7","6","5","4","3","2")
@@ -478,6 +521,20 @@ object VisionApiClient {
         if (corrected.potSize < 0) {
             corrected = corrected.copy(potSize = 0)
             corrections.add("pot(${result.potSize})<0→0")
+        }
+
+        // === 规则6b: pot_size与盲注合理性校验 ===
+        // 底池不应超过任何单个玩家筹码的5倍（可能把玩家筹码当底池了）
+        if (corrected.potSize > 0 && corrected.playerChips > 0 && corrected.potSize > corrected.playerChips * 5) {
+            corrections.add("⚠️pot(${corrected.potSize})>>chips(${corrected.playerChips})，可能误读玩家筹码为底池")
+            // 不自动纠正，但标记警告
+        }
+        // 翻后底池至少应≥2*BB（SB+BB就1.5BB，加前注翻前至少1.5BB）
+        val bb = if (corrected.blindBB > 0) corrected.blindBB else if (corrected.blindSB > 0) corrected.blindSB * 2 else 0
+        if (bb > 0 && corrected.potSize > 0 && corrected.potSize < bb * 2 && corrected.communityCards.isNotEmpty()) {
+            // 翻后底池太小，可能识别错误
+            val minPot = bb * 2
+            corrections.add("⚠️翻后pot(${corrected.potSize})<2*BB(${minPot})，底池可能识别偏小")
         }
 
         // === 规则7: to_call 不能为负 ===

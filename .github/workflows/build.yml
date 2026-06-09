@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.47
-        name: "V2.9.44 青云·全桌型适配"
-        body: "V2.9.44: 全桌型适配——9人以下自动识别切换，修正O9 mp1/hj范围Bug(76→46/51手)，新增O7/O8插值范围表，posMap桌型感知，pA补全utg1，UI桌型按钮4-9人全覆盖，位置按钮加HJ"
+        tag_name: v2.9.48
+        name: "V2.9.48 青云·底池识别+速度优化"
+        body: "V2.9.48: 底池识别强化(Vision prompt重点标注+逗号数字解析+合理性校验)+速度优化(图片压缩960/55%+MC迭代减半+延时10ms+超时缩短)+筹码/盲注解析增强"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
