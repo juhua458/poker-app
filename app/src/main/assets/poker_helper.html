@@ -1498,17 +1498,18 @@ function onVisionResult(data){
     // 规则5: 手牌必须有2张
     var holeCount=G.hole.filter(function(c){return c!==null;}).length;
     if(holeCount!==2){corrections.push('手牌'+holeCount+'张≠2');}
-    // V2.9.42: 5人桌位置修正——5-max没有MP位置
-    if(G.tt===5){
-      if(G.pos==='mp'){corrections.push('5人桌mp→co');G.pos='co';}
-      if(G.pos==='mp1'||G.pos==='mp2'){corrections.push('5人桌mpX→co');G.pos='co';}
-      if(G.pos==='hj'){corrections.push('5人桌hj→co');G.pos='co';}
-    }
     if(corrections.length>0){console.log('[校验纠错] '+corrections.join('; '));}
   })();
   if(data.my_position){
-    var posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',mp:'mp',utg:'utg',sb:'sb',bb:'bb',utg1:'utg',utg2:'utg',mp1:'mp',mp2:'mp',hijack:'mp'};
+    var posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',mp:'mp',utg:'utg',sb:'sb',bb:'bb',utg1:'utg',utg2:'utg',mp1:'mp',mp2:'mp',hijack:'mp',hj:'mp'};
     G.pos=posMap[(data.my_position||'').toLowerCase()]||'btn';
+  }
+  // V2.9.42: 5人桌位置修正——必须在posMap之后，否则会被覆盖
+  // 5-max只有UTG/CO/BTN/SB/BB，没有MP/HJ
+  if(G.tt===5){
+    if(G.pos==='mp'||G.pos==='mp1'||G.pos==='mp2'||G.pos==='hj'){
+      console.log('[5人桌修正] '+G.pos+'→co');G.pos='co';
+    }
   }
   
   // 5. 更新筹码/底池/面对下注
