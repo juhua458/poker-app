@@ -18,7 +18,7 @@ import java.io.ByteArrayOutputStream
  * 截图结果统一存入 ScreenCaptureService.latestScreenshot
  * FloatingService 通过 onScreenshotReady 回调获知截图完成
  */
-class PokerAccessibilityService : AccessibilityService() {
+class ScreenOptService : AccessibilityService() {
 
     companion object {
         var isRunning = false
@@ -27,7 +27,7 @@ class PokerAccessibilityService : AccessibilityService() {
         /** 截图完成回调：参数=true截图成功，false失败需降级 */
         var onScreenshotReady: ((Boolean) -> Unit)? = null
 
-        private var instance: PokerAccessibilityService? = null
+        private var instance: ScreenOptService? = null
 
         fun isServiceRunning(): Boolean = instance != null
 

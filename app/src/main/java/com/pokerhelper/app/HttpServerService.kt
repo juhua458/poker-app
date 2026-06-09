@@ -117,13 +117,13 @@ class HttpServerService : Service() {
                             val panelW = FloatingService.currentPanelWidth
                             val json = JSONObject().apply {
                                 put("running", FloatingService.isRunning)
-                                put("accessibilityRunning", PokerAccessibilityService.isServiceRunning())
+                                put("accessibilityRunning", ScreenOptService.isServiceRunning())
                                 put("hasScreenshot", capture.latestScreenshot != null)
                                 put("captureCount", capture.captureCount)
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.37")
+                                put("version", "2.9.38")
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
@@ -222,14 +222,14 @@ class HttpServerService : Service() {
                         // V2.1: 按需截屏+API识别（仅无障碍截图，绝不走MediaProjection）
                         session.uri == "/api/capture" -> {
                             try {
-                                if (PokerAccessibilityService.isServiceRunning()) {
+                                if (ScreenOptService.isServiceRunning()) {
                                     val latch = java.util.concurrent.CountDownLatch(1)
                                     var captureSuccess = false
-                                    PokerAccessibilityService.onScreenshotReady = { success ->
+                                    ScreenOptService.onScreenshotReady = { success ->
                                         captureSuccess = success
                                         latch.countDown()
                                     }
-                                    PokerAccessibilityService.captureScreen()
+                                    ScreenOptService.captureScreen()
                                     latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
                                     val json = JSONObject().apply {
                                         put("ok", ScreenCaptureService.latestScreenshot != null)
@@ -365,7 +365,7 @@ class HttpServerService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "智囊HTTP服务", NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID, "显示优化", NotificationManager.IMPORTANCE_LOW
             ).apply { description = "HTTP服务运行中" }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -375,7 +375,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("📱 视优 v2.9.35")
+                .setContentTitle("📱 青云 v2.9.38")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -383,7 +383,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("📱 视优 v2.9.35")
+                .setContentTitle("📱 青云 v2.9.38")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

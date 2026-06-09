@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.37 · GTO+DRTA融合版·热更新</title>
+<title>青云 v2.9.38 · GTO+DRTA融合版·隐身模式</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1152,7 +1152,7 @@ function show(r){
 function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){try{
   // V2.9.30: 自动采集对手动作(在decide之前)
   if(G.hole[0]&&G.hole[1])autoRecordOpponent(G.scene,G.phase==='pre'?'preflop':'postflop');
-  var r=decide();show(r);try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}}}}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}}catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}},50);}
+  var r=decide();show(r);try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}}}}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}}catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}},50);}
 function setPhase(p){
   G.phase=p;
   document.getElementById('tabPre').classList.toggle('on',p==='pre');

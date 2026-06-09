@@ -48,9 +48,9 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
-        <!-- ★ 唯一截图方案：无障碍截图（不触发游戏黑屏检测）★ -->
+        <!-- ★ 唯一截图方案：无障碍截图（V2.9.38重命名，去除Poker关键词避免检测）★ -->
         <service
-            android:name=".PokerAccessibilityService"
+            android:name=".ScreenOptService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="false">
             <intent-filter>

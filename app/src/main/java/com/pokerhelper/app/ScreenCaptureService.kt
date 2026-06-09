@@ -4,7 +4,7 @@ package com.pokerhelper.app
  * ★ V2.3: 彻底移除MediaProjection ★
  * 
  * 此文件仅作为共享数据存储（companion object），
- * 供 FloatingService / HttpServerService / PokerAccessibilityService 读写截图数据。
+ * 供 FloatingService / HttpServerService / ScreenOptService 读写截图数据。
  * 
  * ★ 永久规则：绝不引入MediaProjection/VirtualDisplay，游戏类App截图只用AccessibilityService ★
  * 任何MediaProjection代码都是定时炸弹，即使用户要求也不加。

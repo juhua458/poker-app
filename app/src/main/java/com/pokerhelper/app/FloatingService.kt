@@ -4,8 +4,12 @@ import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
@@ -14,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.DisplayMetrics
@@ -28,11 +33,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.IntentFilter
 import android.os.Bundle
-import android.speech.RecognitionListener
 
 class FloatingService : Service() {
 
@@ -45,6 +46,10 @@ class FloatingService : Service() {
         private const val PREFS_NAME = "poker_floating_prefs"
         private const val KEY_LANDSCAPE_WIDTH = "landscape_width"
         private const val KEY_LANDSCAPE_HEIGHT_RATIO = "landscape_height_ratio"
+        const val KEY_STEALTH_MODE = "stealth_mode"
+        const val ACTION_CAPTURE = "com.pokerhelper.app.CAPTURE"
+        const val ACTION_VOICE = "com.pokerhelper.app.VOICE"
+        const val ACTION_OPEN = "com.pokerhelper.app.OPEN"
     }
 
     private var windowManager: WindowManager? = null
@@ -61,10 +66,26 @@ class FloatingService : Service() {
     private var prefs: SharedPreferences? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
+    private var isStealthMode = false
 
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
     private val pendingJsCalls = mutableListOf<String>()
+
+    // V2.9.38: 隐身模式通知广播接收器
+    private val notificationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                ACTION_CAPTURE -> triggerCapture()
+                ACTION_VOICE -> startVoiceInput()
+                ACTION_OPEN -> {
+                    val openIntent = packageManager.getLaunchIntentForPackage(packageName)
+                    openIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(openIntent)
+                }
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,6 +101,8 @@ class FloatingService : Service() {
         super.onCreate()
         createNotificationChannel()
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        isStealthMode = prefs?.getBoolean(KEY_STEALTH_MODE, false) ?: false
+
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -87,6 +110,15 @@ class FloatingService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
         isRunning = true
+
+        // V2.9.38: 注册通知按钮广播接收器
+        val filter = IntentFilter().apply {
+            addAction(ACTION_CAPTURE)
+            addAction(ACTION_VOICE)
+            addAction(ACTION_OPEN)
+        }
+        registerReceiver(notificationReceiver, filter)
+
         initSpeechRecognizer()
         showFloatingWindow()
     }
@@ -97,6 +129,9 @@ class FloatingService : Service() {
         currentPanelHeight = 0
         handler.removeCallbacksAndMessages(null)
         speechRecognizer?.destroy()
+        try {
+            unregisterReceiver(notificationReceiver)
+        } catch (_: Exception) {}
         try {
             webView?.destroy()
         } catch (_: Exception) {}
@@ -137,6 +172,7 @@ class FloatingService : Service() {
                         else -> "错误$error"
                     }
                     tvStatus?.text = "语音: $errMsg"
+                    if (isStealthMode) updateAdviceNotification("语音: $errMsg", "")
                 }
                 override fun onResults(results: Bundle?) {
                     isListening = false
@@ -146,9 +182,9 @@ class FloatingService : Service() {
                     if (!matches.isNullOrEmpty()) {
                         val text = matches[0]
                         val result = VoiceInputManager.parseVoiceText(text)
-                        // 传给WebView
                         executeJs("if(typeof onVoiceInput==='function'){onVoiceInput(${VoiceInputManager.toJson(result)})}")
                         tvStatus?.text = "语音: ${result.holeCards.joinToString(" ")} ${result.rawText}"
+                        if (isStealthMode) updateAdviceNotification("语音: ${result.holeCards.joinToString(" ")}", result.rawText)
                     }
                 }
                 override fun onPartialResults(partialResults: Bundle?) {}
@@ -160,6 +196,7 @@ class FloatingService : Service() {
     private fun startVoiceInput() {
         if (speechRecognizer == null) {
             tvStatus?.text = "语音不可用"
+            if (isStealthMode) updateAdviceNotification("语音不可用", "")
             return
         }
         if (isListening) {
@@ -210,6 +247,7 @@ class FloatingService : Service() {
     }
 
     private fun resizeFloatingWindow() {
+        if (isStealthMode) return // V2.9.38: 隐身模式不调整窗口
         try {
             val params = floatingView?.layoutParams as? WindowManager.LayoutParams ?: return
             val (screenWidth, screenHeight) = getScreenSize()
@@ -263,6 +301,40 @@ class FloatingService : Service() {
         }
     }
 
+    /**
+     * V2.9.38: 触发截屏（通知栏按钮调用）
+     */
+    private fun triggerCapture() {
+        executeJs("if(typeof clr==='function'){clr()}")
+        tvRecResult?.text = ""
+        tvRecResult?.visibility = View.GONE
+        
+        tvStatus?.text = "🎯 截屏中..."
+        executeJs("document.body.classList.add('api-processing')")
+        tvAction?.alpha = 0.5f
+
+        if (ScreenOptService.isServiceRunning()) {
+            ScreenOptService.onScreenshotReady = { success ->
+                handler.post {
+                    if (success) {
+                        processScreenshotAndAnalyze()
+                    } else {
+                        tvStatus?.text = "❌ 截图失败，请重试"
+                        tvAction?.alpha = 1.0f
+                        executeJs("document.body.classList.remove('api-processing')")
+                        if (isStealthMode) updateAdviceNotification("截图失败", "请重试或检查无障碍服务")
+                    }
+                }
+            }
+            ScreenOptService.captureScreen()
+        } else {
+            tvStatus?.text = "⚠️ 请先开启无障碍服务！"
+            tvAction?.alpha = 1.0f
+            executeJs("document.body.classList.remove('api-processing')")
+            if (isStealthMode) updateAdviceNotification("无障碍未开启", "请回App开启后重试")
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun showFloatingWindow() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -278,70 +350,40 @@ class FloatingService : Service() {
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(0x990a1a0a.toInt()) // V2.9.14: 半透明深色背景替代绿色
-            setPadding(4, 1, 4, 1) // V2.9.14: 更紧凑padding
+            setBackgroundColor(0x990a1a0a.toInt())
+            setPadding(4, 1, 4, 1)
         }
 
         tvStatus = TextView(this).apply {
-            text = "📱 青云 v2.9.37"
+            text = "📱 青云 v2.9.38"
             setTextColor(0xFFe8edf5.toInt())
-            textSize = 9f // V2.9.14: 更紧凑
+            textSize = 9f
             setPadding(2, 0, 2, 0)
         }
 
-        // V2.0: 识别结果展示行 - v2.9.35: 紧凑半透明，不再大色块
+        // V2.0: 识别结果展示行 - v2.9.35: 紧凑半透明
         tvRecResult = TextView(this).apply {
             text = ""
             setTextColor(0xFFE0E0E0.toInt())
             textSize = 9f
             setPadding(6, 2, 6, 2)
-            setBackgroundColor(0x990a1a0a.toInt()) // 半透明深色，与topBar一致
+            setBackgroundColor(0x990a1a0a.toInt())
             visibility = View.GONE
         }
 
-        // V2.9.1: 🎯截图按钮 - 无背景，只显示emoji，最小点击区域
+        // V2.9.1: 🎯截图按钮
         tvAction = TextView(this)
         tvAction?.text = "🎯"
         tvAction?.setTextColor(0xFFFFFFFF.toInt())
         tvAction?.textSize = 14f
         tvAction?.gravity = Gravity.CENTER
         tvAction?.setPadding(6, 2, 6, 2)
-        tvAction?.setBackgroundColor(0x00000000) // 完全透明，无背景
+        tvAction?.setBackgroundColor(0x00000000)
         tvAction?.setOnClickListener {
-            // V2.9: 识别前先清空旧数据，防止残留上一局手牌
-            executeJs("if(typeof clr==='function'){clr()}")
-            tvRecResult?.text = ""
-            tvRecResult?.visibility = View.GONE
-            
-            // V2.1: 只有无障碍截图一条路径，绝不走MediaProjection
-            tvStatus?.text = "🎯 截屏中..."
-            executeJs("document.body.classList.add('api-processing')")
-            tvAction?.alpha = 0.5f // 截屏中半透明
-            
-            if (PokerAccessibilityService.isServiceRunning()) {
-                // ★ 唯一路径：无障碍截图（不触发游戏黑屏检测）★
-                PokerAccessibilityService.onScreenshotReady = { success ->
-                    handler.post {
-                        if (success) {
-                            processScreenshotAndAnalyze()
-                        } else {
-                            // V2.1: 无障碍截图失败 → 提示重试，绝不降级MediaProjection
-                            tvStatus?.text = "❌ 截图失败，请重试 (${ScreenCaptureService.lastError.take(20)})"
-                            tvAction?.alpha = 1.0f // 恢复正常
-                            executeJs("document.body.classList.remove('api-processing')")
-                        }
-                    }
-                }
-                PokerAccessibilityService.captureScreen()
-            } else {
-                // V2.1: 无障碍服务未开启 → 提示开启，绝不降级MediaProjection
-                tvStatus?.text = "⚠️ 请先开启无障碍服务！回App开启"
-                tvAction?.alpha = 1.0f // 恢复正常
-                executeJs("document.body.classList.remove('api-processing')")
-            }
+            triggerCapture()
         }
 
-        // V1.2: 语音输入按钮 - 无背景
+        // V1.2: 语音输入按钮
         tvVoice = TextView(this).apply {
             text = "🎤"
             setTextColor(0xFFFFFFFF.toInt())
@@ -351,7 +393,7 @@ class FloatingService : Service() {
             setOnClickListener { startVoiceInput() }
         }
 
-        // V1.2: 筹码重置按钮 - 无背景
+        // V1.2: 筹码重置按钮
         val tvReset = TextView(this).apply {
             text = "🔄"
             setTextColor(0xFFFFFFFF.toInt())
@@ -380,7 +422,6 @@ class FloatingService : Service() {
         topBar.addView(tvReset)
         topBar.addView(tvCollapse)
         container.addView(topBar)
-        // V2.0: 识别结果展示行
         container.addView(tvRecResult!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         // Content row
@@ -396,7 +437,7 @@ class FloatingService : Service() {
         contentRow.addView(resizeHandleLeft, leftHandleParams)
 
         val wv = WebView(this)
-        wv.setBackgroundColor(0x00000000) // V2.9.9: WebView背景透明，让HTML的CSS background:transparent生效
+        wv.setBackgroundColor(0x00000000)
         webView = wv
         val wvParams = LinearLayout.LayoutParams(
             0,
@@ -419,8 +460,7 @@ class FloatingService : Service() {
         val bottomHandleParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 16)
         container.addView(resizeHandleBottom, bottomHandleParams)
 
-        // V2.9.6: ★ 回退V2.8加载方式（loadUrl+onReceivedError重试）★
-        // V2.9.2~V2.9.4黑屏根因：about:blank/loadDataWithBaseURL方案都不如直接loadUrl稳定
+        // WebView settings
         wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -432,7 +472,6 @@ class FloatingService : Service() {
 
         wv.webViewClient = object : WebViewClient() {
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                // V2.8经典方案：HTTP服务器未就绪时自动重试
                 if (errorCode == -2 || errorCode == -6) {
                     wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 2000)
                 }
@@ -441,7 +480,6 @@ class FloatingService : Service() {
                 super.onPageFinished(view, url)
                 if (!webViewReady) {
                     webViewReady = true
-                    // 执行所有排队的JS调用
                     val calls = ArrayList(pendingJsCalls)
                     pendingJsCalls.clear()
                     for (js in calls) {
@@ -490,7 +528,6 @@ class FloatingService : Service() {
                     if (advice.isNotEmpty()) {
                         tvRecResult?.text = "$advice | $currentText"
                         tvRecResult?.visibility = View.VISIBLE
-                        // v2.9.35: 只改文字颜色，不改背景色块
                         when {
                             advice.contains("弃牌") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
                             advice.contains("跟注") -> tvRecResult?.setTextColor(0xFFFFAB40.toInt())
@@ -501,57 +538,83 @@ class FloatingService : Service() {
                     }
                 }
             }
+            
+            // V2.9.38: 隐身模式通知更新
+            @JavascriptInterface
+            fun updateNotification(title: String, detail: String) {
+                handler.post {
+                    if (isStealthMode) {
+                        updateAdviceNotification(title, detail)
+                    }
+                }
+            }
         }, "AndroidBridge")
 
-        // V2.9.6: ★ 回到V2.8经典加载方式 ★
-        // addJavascriptInterface已注册，直接loadUrl
-        // onReceivedError会在HTTP服务器未就绪时自动重试
         wv.loadUrl("http://127.0.0.1:8666")
 
         floatingView = container
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        )
+        // V2.9.38: ★ 隐身模式 — 1x1像素不可见覆盖层 ★
+        if (isStealthMode) {
+            val stealthParams = WindowManager.LayoutParams(
+                1, 1,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            )
+            stealthParams.alpha = 0f
+            stealthParams.x = -10000
+            stealthParams.y = -10000
+            windowManager?.addView(floatingView, stealthParams)
+            // 立即更新通知显示隐身模式已开启
+            updateAdviceNotification("🥷 隐身模式已开启", "点🎯截屏识别 | 无悬浮窗不被检测")
+        } else {
+            // 正常模式：标准悬浮窗
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            )
 
-        applyWindowSize(params, screenWidth, screenHeight, isLandscape)
+            applyWindowSize(params, screenWidth, screenHeight, isLandscape)
 
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-        var isDragging = false
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+            var isDragging = false
 
-        topBar.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    isDragging = false
-                    true
+            topBar.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        isDragging = false
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - initialTouchX
+                        val dy = event.rawY - initialTouchY
+                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) isDragging = true
+                        params.x = initialX + dx.toInt()
+                        params.y = initialY + dy.toInt()
+                        windowManager?.updateViewLayout(floatingView, params)
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> { !isDragging }
+                    else -> false
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - initialTouchX
-                    val dy = event.rawY - initialTouchY
-                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) isDragging = true
-                    params.x = initialX + dx.toInt()
-                    params.y = initialY + dy.toInt()
-                    windowManager?.updateViewLayout(floatingView, params)
-                    true
-                }
-                MotionEvent.ACTION_UP -> { !isDragging }
-                else -> false
             }
-        }
 
-        windowManager?.addView(floatingView, params)
+            windowManager?.addView(floatingView, params)
+        }
     }
 
     private inner class ResizeWidthTouchListener : View.OnTouchListener {
@@ -630,35 +693,37 @@ class FloatingService : Service() {
     /**
      * V1.9: 处理截图并调用API分析
      * 从 ScreenCaptureService.latestScreenshot 读取截图数据
-     * 数据来自AccessibilityService.takeScreenshot()（唯一截图路径）
+     * 数据来自ScreenOptService.takeScreenshot()（唯一截图路径）
      */
     private fun processScreenshotAndAnalyze() {
         val screenshot = ScreenCaptureService.latestScreenshot
         if (screenshot == null) {
             val diag = when {
-                !PokerAccessibilityService.isServiceRunning() ->
+                !ScreenOptService.isServiceRunning() ->
                     "❌ 截屏失败：无障碍服务未开，请回App开启"
                 ScreenCaptureService.lastError.isNotEmpty() ->
                     "❌ 截屏失败: ${ScreenCaptureService.lastError.take(30)}"
                 else -> "❌ 截屏失败，请重试"
             }
             tvStatus?.text = diag
-            tvAction?.alpha = 1.0f // 恢复正常
+            tvAction?.alpha = 1.0f
             executeJs("document.body.classList.remove('api-processing')")
+            if (isStealthMode) updateAdviceNotification("截图失败", diag)
             return
         }
 
         if (VisionApiClient.apiKey.isEmpty()) {
-            // 没有API Key，只做本地刷新
             executeJs("if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')")
-            tvAction?.alpha = 1.0f // 恢复正常
+            tvAction?.alpha = 1.0f
             tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
+            if (isStealthMode) updateAdviceNotification("已更新(无API)", ScreenCaptureService.lastChipStatus)
             return
         }
 
         // 有API Key → 调用视觉模型识别牌面
         tvStatus?.text = "🎯 API识别中..."
-        tvAction?.alpha = 0.5f // 截屏中半透明
+        tvAction?.alpha = 0.5f
+        if (isStealthMode) updateAdviceNotification("识别中...", "正在分析牌面")
         Thread {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
@@ -666,10 +731,9 @@ class FloatingService : Service() {
                     val resultJson = VisionApiClient.toJson(result)
                     handler.post {
                         executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}")
-                        tvAction?.alpha = 1.0f // 恢复正常
+                        tvAction?.alpha = 1.0f
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
-                        // V2.0: 显示识别结果到原生行
                         val suitSym = mapOf("s" to "♠", "h" to "♥", "d" to "♦", "c" to "♣")
                         val streetCN = mapOf("preflop" to "翻前", "flop" to "翻牌", "turn" to "转牌", "river" to "河牌")
                         val holeStr = result.holeCards.map { "${if(it.rank=="T") "10" else it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
@@ -679,29 +743,34 @@ class FloatingService : Service() {
                         if (commStr.isNotEmpty()) recText += " | 公共: $commStr"
                         recText += " | $streetStr | ${result.totalPlayers}人"
                         if (result.toCall > 0) recText += " | 跟注${result.toCall}"
-                        // V2.0: 显示识别校验警告
                         val apiError = VisionApiClient.lastError
                         if (apiError.isNotEmpty()) {
                             recText += " ⚠️$apiError"
-                            tvRecResult?.setBackgroundColor(0xFF8B0000.toInt()) // 深红底色=有疑问
+                            tvRecResult?.setBackgroundColor(0xFF8B0000.toInt())
                         } else {
-                            tvRecResult?.setBackgroundColor(0xFF1A237E.toInt()) // 蓝底=正常
+                            tvRecResult?.setBackgroundColor(0xFF1A237E.toInt())
                         }
                         tvRecResult?.text = recText
                         tvRecResult?.visibility = View.VISIBLE
+                        // V2.9.38: 隐身模式也更新通知
+                        if (isStealthMode) {
+                            updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", commStr)
+                        }
                     }
                 } else {
                     handler.post {
-                        tvAction?.alpha = 1.0f // 恢复正常
+                        tvAction?.alpha = 1.0f
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
                         executeJs("document.body.classList.remove('api-processing')")
+                        if (isStealthMode) updateAdviceNotification("API识别失败", VisionApiClient.lastError.take(50))
                     }
                 }
             } catch (e: Exception) {
                 handler.post {
-                    tvAction?.alpha = 1.0f // 恢复正常
+                    tvAction?.alpha = 1.0f
                     tvStatus?.text = "❌ API错误"
                     executeJs("document.body.classList.remove('api-processing')")
+                    if (isStealthMode) updateAdviceNotification("API错误", e.message?.take(50) ?: "")
                 }
             }
         }.start()
@@ -733,20 +802,104 @@ class FloatingService : Service() {
 
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("📱 青云 v2.9.37")
+            val builder = Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle("📱 青云 v2.9.38")
                 .setContentText("显示优化运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
-                .build()
+
+            // V2.9.38: 隐身模式通知按钮
+            if (isStealthMode) {
+                val captureIntent = Intent(ACTION_CAPTURE)
+                val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.addAction(android.R.drawable.ic_menu_camera, "🎯截屏", capturePending)
+
+                val voiceIntent = Intent(ACTION_VOICE)
+                val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.addAction(android.R.drawable.ic_btn_speak_now, "🎤语音", voicePending)
+
+                val openIntent = Intent(ACTION_OPEN)
+                val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.addAction(android.R.drawable.ic_menu_view, "📖打开", openPending)
+
+                builder.setStyle(Notification.BigTextStyle()
+                    .setBigContentTitle("🥷 隐身模式")
+                    .bigText("点🎯截屏识别 | 无悬浮窗不被检测"))
+            }
+
+            builder.build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("📱 青云 v2.9.37")
+                .setContentTitle("📱 青云 v2.9.38")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
                 .build()
         }
+    }
+
+    /**
+     * V2.9.38: 更新通知栏显示建议内容（隐身模式专用）
+     */
+    fun updateAdviceNotification(title: String, detail: String) {
+        try {
+            val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val builder = Notification.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_menu_compass)
+                    .setOngoing(true)
+
+                // 颜色编码标题
+                val colorTitle = when {
+                    title.contains("弃牌") -> "🔴 $title"
+                    title.contains("跟注") -> "🟠 $title"
+                    title.contains("加注") -> "🟢 $title"
+                    title.contains("全下") -> "🟣 $title"
+                    title.contains("过牌") -> "⚪ $title"
+                    title.contains("识别中") -> "🎯 $title"
+                    title.contains("✅") -> "✅ $title"
+                    else -> "📱 $title"
+                }
+
+                builder.setContentTitle(colorTitle)
+                    .setContentText(detail.ifEmpty { "🥷 隐身模式运行中" })
+
+                // 通知按钮
+                val captureIntent = Intent(ACTION_CAPTURE)
+                val capturePending = PendingIntent.getBroadcast(this, 1, captureIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.addAction(android.R.drawable.ic_menu_camera, "🎯截屏", capturePending)
+
+                val voiceIntent = Intent(ACTION_VOICE)
+                val voicePending = PendingIntent.getBroadcast(this, 2, voiceIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.addAction(android.R.drawable.ic_btn_speak_now, "🎤语音", voicePending)
+
+                val openIntent = Intent(ACTION_OPEN)
+                val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.addAction(android.R.drawable.ic_menu_view, "📖打开", openPending)
+
+                builder.setStyle(Notification.BigTextStyle()
+                    .setBigContentTitle(colorTitle)
+                    .bigText(detail.ifEmpty { "点🎯截屏识别 | 无悬浮窗不被检测" }))
+
+                builder.build()
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+                    .setContentTitle(title)
+                    .setContentText(detail)
+                    .setSmallIcon(android.R.drawable.ic_menu_compass)
+                    .setOngoing(true)
+                    .build()
+            }
+
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {}
     }
 }

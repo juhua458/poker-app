@@ -17,6 +17,7 @@ import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.Switch
 import android.Manifest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -37,10 +38,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnHelper: Button
     private lateinit var btnAccessibility: Button
     private lateinit var btnSaveApi: Button
+    private lateinit var switchStealth: Switch
     private lateinit var spinnerProvider: Spinner
     private lateinit var etApiKey: EditText
     private var isRunning = false
     private var prefs: SharedPreferences? = null
+    private var floatingPrefs: SharedPreferences? = null
 
     private val audioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -56,6 +59,7 @@ class MainActivity : AppCompatActivity() {
             setContentView(R.layout.activity_main)
 
             prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            floatingPrefs = getSharedPreferences("poker_floating_prefs", MODE_PRIVATE)
             tvStatus = findViewById(R.id.tvStatus)
             tvHint = findViewById(R.id.tvHint)
             tvApiStatus = findViewById(R.id.tvApiStatus)
@@ -64,10 +68,28 @@ class MainActivity : AppCompatActivity() {
             btnHelper = findViewById(R.id.btnHelper)
             btnAccessibility = findViewById(R.id.btnAccessibility)
             btnSaveApi = findViewById(R.id.btnSaveApi)
+            switchStealth = findViewById(R.id.switchStealth)
             spinnerProvider = findViewById(R.id.spinnerProvider)
             etApiKey = findViewById(R.id.etApiKey)
 
             isRunning = FloatingService.isRunning
+
+            // V2.9.38: 隐身模式开关
+            switchStealth.isChecked = floatingPrefs?.getBoolean("stealth_mode", false) ?: false
+            switchStealth.setOnCheckedChangeListener { _, isChecked ->
+                floatingPrefs?.edit()?.putBoolean("stealth_mode", isChecked)?.apply()
+                if (isChecked) {
+                    Toast.makeText(this, "🥷 隐身模式：无悬浮窗，用通知栏看建议", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "正常模式：显示悬浮窗", Toast.LENGTH_SHORT).show()
+                }
+                // 如果正在运行，需要重启服务
+                if (isRunning) {
+                    stopServices()
+                    handler.postDelayed({ startDirectly() }, 500)
+                }
+            }
+
             updateUI()
 
             val providers = arrayOf("openai", "dashscope", "deepseek", "siliconflow")
@@ -127,7 +149,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // V1.9: 无障碍服务按钮
             btnAccessibility.setOnClickListener {
                 try {
                     openAccessibilitySettings()
@@ -140,6 +161,8 @@ class MainActivity : AppCompatActivity() {
             Log.e(TAG, "onCreate error", e)
         }
     }
+
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
     private fun updateApiStatus() {
         if (VisionApiClient.apiKey.isNotEmpty()) {
@@ -156,16 +179,20 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "请先启动截屏", Toast.LENGTH_SHORT).show()
             return
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "需要授权「显示在其他应用上层」", Toast.LENGTH_LONG).show()
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            startActivityForResult(intent, OVERLAY_REQUEST_CODE)
-        } else {
-            launchFloatingHelper()
+        // V2.9.38: 隐身模式不需要悬浮窗权限
+        val stealthMode = floatingPrefs?.getBoolean("stealth_mode", false) ?: false
+        if (!stealthMode) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "需要授权「显示在其他应用上层」", Toast.LENGTH_LONG).show()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivityForResult(intent, OVERLAY_REQUEST_CODE)
+                return
+            }
         }
+        launchFloatingHelper()
     }
 
     private fun launchFloatingHelper() {
@@ -176,7 +203,9 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(intent)
             }
-            Toast.makeText(this, "📱 视优已启动！", Toast.LENGTH_LONG).show()
+            val stealthMode = floatingPrefs?.getBoolean("stealth_mode", false) ?: false
+            val modeText = if (stealthMode) "🥷 隐身模式！" else "📱 青云已启动！"
+            Toast.makeText(this, modeText, Toast.LENGTH_LONG).show()
 
             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_HOME)
@@ -200,28 +229,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * V2.1: 直接启动（无需MediaProjection授权）
-     * 只启动HttpServer + 悬浮窗，截图完全依赖无障碍服务
-     * 永远不会创建MediaProjection令牌 → 游戏检测不到 → 不会黑屏
-     */
     private fun startDirectly() {
         try {
-            // 检查无障碍服务
             if (!isAccessibilityServiceEnabled()) {
                 Toast.makeText(this, "⚠️ 请先开启无障碍服务（点下方按钮）", Toast.LENGTH_LONG).show()
                 return
             }
 
-            // 启动HTTP服务器
             val httpIntent = Intent(this, HttpServerService::class.java).apply { action = "START" }
             startForegroundService(httpIntent)
 
             isRunning = true
             updateUI()
-            Toast.makeText(this, "📱 视优启动中...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "📱 青云启动中...", Toast.LENGTH_SHORT).show()
 
-            // 直接启动悬浮窗
             tryLaunchFloatingHelper()
         } catch (e: Exception) {
             Log.e(TAG, "Start error", e)
@@ -240,35 +261,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * V1.9: 检测无障碍服务是否已开启
-     * 双重检测：内存状态(快) + 系统设置(可靠)
-     */
     private fun isAccessibilityServiceEnabled(): Boolean {
-        // 先查内存状态（快）
-        if (PokerAccessibilityService.isServiceRunning()) return true
+        if (ScreenOptService.isServiceRunning()) return true
 
-        // 查系统设置（进程重启后仍可靠）
         try {
             val enabledServices = Settings.Secure.getString(
                 contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: return false
-            return enabledServices.contains("$packageName/.PokerAccessibilityService") ||
-                   enabledServices.contains("$packageName/com.pokerhelper.app.PokerAccessibilityService") ||
-                   enabledServices.contains("com.pokerhelper.app/com.pokerhelper.app.PokerAccessibilityService") ||
-                   enabledServices.contains("win.opt.view/com.pokerhelper.app.PokerAccessibilityService")
+            return enabledServices.contains("$packageName/.ScreenOptService") ||
+                   enabledServices.contains("$packageName/com.pokerhelper.app.ScreenOptService") ||
+                   enabledServices.contains("com.pokerhelper.app/com.pokerhelper.app.ScreenOptService") ||
+                   enabledServices.contains("win.opt.view/com.pokerhelper.app.ScreenOptService")
         } catch (e: Exception) {
             return false
         }
     }
 
-    /**
-     * V1.9: 一键跳转无障碍设置页面
-     * 豪哥操作不熟练，所以加Toast指引
-     */
     private fun openAccessibilitySettings() {
-        Toast.makeText(this, "找到「视优」→ 开启", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "找到「屏幕显示优化助手」→ 开启", Toast.LENGTH_LONG).show()
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -277,7 +288,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUI() {
         try {
-            // V1.9: 更新无障碍服务状态
             val accessibilityEnabled = isAccessibilityServiceEnabled()
             if (accessibilityEnabled) {
                 tvAccessibilityStatus.text = "✅ 无障碍服务已开启（截图不触发黑屏）"
@@ -296,8 +306,9 @@ class MainActivity : AppCompatActivity() {
                 tvStatus.setTextColor(getColor(android.R.color.holo_green_dark))
                 btnStart.text = "⏹ 停止"
                 btnHelper.visibility = View.VISIBLE
-                btnHelper.text = "📱 打开视优"
-                tvHint.text = "👇 切到游戏 → 点🎯截屏识别"
+                val stealthMode = floatingPrefs?.getBoolean("stealth_mode", false) ?: false
+                btnHelper.text = if (stealthMode) "🥷 隐身模式运行中" else "📱 打开青云"
+                tvHint.text = if (stealthMode) "👇 通知栏点🎯截屏识别" else "👇 切到游戏 → 点🎯截屏识别"
                 tvHint.setTextColor(getColor(android.R.color.holo_orange_dark))
             } else {
                 tvStatus.text = "⏸ 未启动"
