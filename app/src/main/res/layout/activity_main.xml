@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.33 · 热更新系统（改策略免重装APK）"
+        android:text="V2.9.34 · 策略引擎Bug修复"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />
@@ -157,7 +157,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 点「启动」→ 允许悬浮窗\n4. 打牌时点🎯按钮 → 自动识别牌面+出建议\n★ V2.9.33 热更新系统：策略更新免重装APK，点🔄策略按钮即可 ★"
+        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 点「启动」→ 允许悬浮窗\n4. 打牌时点🎯按钮 → 自动识别牌面+出建议\n★ V2.9.34 策略引擎Bug修复(6Bug)+热更新：点📡策略按钮更新 ★"
         android:textSize="12sp"
         android:textColor="#64748b"
         android:layout_marginTop="12dp"
