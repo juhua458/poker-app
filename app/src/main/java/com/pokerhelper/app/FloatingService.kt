@@ -283,13 +283,13 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "📱 v2.9.34"
+            text = "📱 v2.9.35"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f // V2.9.14: 更紧凑
             setPadding(2, 0, 2, 0)
         }
 
-        // V2.0: 识别结果展示行 - v2.9.34: 紧凑半透明，不再大色块
+        // V2.0: 识别结果展示行 - v2.9.35: 紧凑半透明，不再大色块
         tvRecResult = TextView(this).apply {
             text = ""
             setTextColor(0xFFE0E0E0.toInt())
@@ -490,7 +490,7 @@ class FloatingService : Service() {
                     if (advice.isNotEmpty()) {
                         tvRecResult?.text = "$advice | $currentText"
                         tvRecResult?.visibility = View.VISIBLE
-                        // v2.9.34: 只改文字颜色，不改背景色块
+                        // v2.9.35: 只改文字颜色，不改背景色块
                         when {
                             advice.contains("弃牌") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
                             advice.contains("跟注") -> tvRecResult?.setTextColor(0xFFFFAB40.toInt())
@@ -734,7 +734,7 @@ class FloatingService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("📱 视优 v2.9.34")
+                .setContentTitle("📱 视优 v2.9.35")
                 .setContentText("显示优化运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
@@ -742,7 +742,7 @@ class FloatingService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("📱 视优 v2.9.34")
+                .setContentTitle("📱 视优 v2.9.35")
                 .setContentText("悬浮窗运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)

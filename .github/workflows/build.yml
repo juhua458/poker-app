@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.34
-        name: "V2.9.34 策略引擎Bug修复"
-        body: "V2.9.34: 修复6个策略Bug(calcOuts/MC虚高/折扣/Nit诈唬/Maniac大注/SPR短码/outs跟注),24/29测试通过"
+        tag_name: v2.9.35
+        name: "V2.9.35 策略引擎Bug修复"
+        body: "V2.9.35: 修复6个策略Bug(calcOuts/MC虚高/折扣/Nit诈唬/Maniac大注/SPR短码/outs跟注),24/29测试通过"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

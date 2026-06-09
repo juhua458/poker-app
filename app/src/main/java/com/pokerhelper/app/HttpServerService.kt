@@ -21,7 +21,7 @@ class HttpServerService : Service() {
     companion object {
         private const val CHANNEL_ID = "poker_http"
         private const val NOTIFICATION_ID = 3
-        // v2.9.34: 热更新远程JS地址（ghfast代理GitHub raw）
+        // v2.9.35: 热更新远程JS地址（ghfast代理GitHub raw）
         private const val HOTLOAD_URL = "https://ghfast.top/https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
         private const val HOTLOAD_FILE = "poker_helper_hot.html"
         private const val HOTLOAD_TIMEOUT = 15000 // 15秒超时
@@ -36,7 +36,7 @@ class HttpServerService : Service() {
 
     private fun loadPokerHelperHtml(): String {
         if (pokerHelperHtml == null) {
-            // v2.9.34: 优先加载热更新文件（持久化的远程版本）
+            // v2.9.35: 优先加载热更新文件（持久化的远程版本）
             try {
                 val hotFile = File(filesDir, HOTLOAD_FILE)
                 if (hotFile.exists()) {
@@ -123,7 +123,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.34")
+                                put("version", "2.9.35")
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
@@ -166,7 +166,7 @@ class HttpServerService : Service() {
                                 addHeader("Access-Control-Allow-Origin", "*")
                             }
                         }
-                        // v2.9.34: 热更新——从GitHub下载最新poker_helper.html
+                        // v2.9.35: 热更新——从GitHub下载最新poker_helper.html
                         session.uri == "/api/hotload" -> {
                             try {
                                 val conn = URL(HOTLOAD_URL).openConnection()
@@ -206,7 +206,7 @@ class HttpServerService : Service() {
                                 }
                             }
                         }
-                        // v2.9.34: 恢复本地版本
+                        // v2.9.35: 恢复本地版本
                         session.uri == "/api/hotload/revert" -> {
                             pokerHelperHtml = null // 清空缓存，下次请求重新从assets加载
                             hotloadSource = "local"
@@ -375,7 +375,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("📱 视优 v2.9.34")
+                .setContentTitle("📱 视优 v2.9.35")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -383,7 +383,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("📱 视优 v2.9.34")
+                .setContentTitle("📱 视优 v2.9.35")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
