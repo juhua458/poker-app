@@ -120,7 +120,16 @@ object VisionApiClient {
     }
 
     private fun compressImage(jpegData: ByteArray, maxWidth: Int): ByteArray {
-        val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
+        var bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
+
+        // V2.9.48: 裁剪顶部导航栏+自身总筹码区域(最大干扰源)，保留牌桌核心
+        // GG扑克布局：顶部8%是导航栏+自身筹码(如"16,447")，容易跟底池混淆
+        val topCrop = (bitmap.height * 0.08).toInt()
+        if (topCrop > 0 && bitmap.height - topCrop > 100) {
+            val cropped = android.graphics.Bitmap.createBitmap(bitmap, 0, topCrop, bitmap.width, bitmap.height - topCrop)
+            bitmap.recycle()
+            bitmap = cropped
+        }
 
         // 计算缩放比例
         val scale = if (bitmap.width > maxWidth) maxWidth.toFloat() / bitmap.width else 1f
