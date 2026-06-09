@@ -782,6 +782,21 @@ function preF(k){
     }
     return{a:'fold',r:'SPR<'+spr.toFixed(1)+'短码弃牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
+  // V2.9.35: 翻前面对allin - 只需判断call或fold
+  if(scene==='allin'){
+    var allinBet=bet||pot;
+    var allinEq=eq;
+    allinEq+=(posMod[p]!==undefined?posMod[p]:0);
+    if(G.act>=6)allinEq-=15;else if(G.act===5)allinEq-=10;else if(G.act===4)allinEq-=8;else if(G.act===3)allinEq-=4;
+    var callThresh=allinBet>0?Math.round(allinBet/(pot+allinBet*2)*100):50;
+    callThresh=Math.max(callThresh,45);
+    if(allinEq>=callThresh){
+      var exploitAllin=applyExploit(allinEq,'call',G.opp,{bet:allinBet,pot:pot});
+      return{a:'call',r:'胜率'+Math.round(allinEq)+'%够跟全下',eq:exploitAllin.eq,c:allinEq>=65?'h':'m',scene:'面对allin',spr:spr,exploit:exploitAllin.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
+    return{a:'fold',r:'胜率'+Math.round(allinEq)+'%不够',eq:allinEq,c:'l',scene:'面对allin',spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+  }
+  // 翻前面对3bet
   if(scene==='reraise'){
     var f4b=FOUR_BET[k];
     // V2.9.18: 对手类型4bet频率调整
