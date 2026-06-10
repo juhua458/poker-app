@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.55 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化</title>
+<title>青云 v2.9.54 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池识别增强</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -86,28 +86,17 @@ body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
 .card-label{font-size:7px;color:#444;text-align:center;margin-top:1px}
 .card-group{display:flex;flex-direction:column;align-items:center}
 .card-sep{width:1px;height:36px;background:rgba(255,255,255,.05);margin:0 2px}
-.mx-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:2px}
+.mx-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:4px}
 .mx-wrap.collapsed{display:none}
-.mx-info{display:flex;justify-content:center;gap:6px;font-size:8px;color:#888;margin-bottom:2px;flex-wrap:wrap}
-.mx-info span{background:rgba(255,255,255,.05);padding:1px 5px;border-radius:6px}
 .mx{border-collapse:collapse;margin:0 auto}
-.mx th,.mx td{width:26px;height:26px;text-align:center;font-size:7px;font-weight:700;border:1px solid rgba(255,255,255,.04)}
-.mx th{color:#555;font-size:7px;background:rgba(0,0,0,.2)}
-.mx td{cursor:pointer;transition:all .06s;border-radius:2px;position:relative}
+.mx th,.mx td{width:24px;height:24px;text-align:center;font-size:8px;font-weight:700;border:1px solid rgba(255,255,255,.03)}
+.mx th{color:#444;font-size:7px;background:rgba(0,0,0,.15)}
+.mx td{cursor:pointer;transition:all .06s;border-radius:2px}
 .mx td:active{transform:scale(.85)}
-.mx td.sel{outline:2px solid #ffd700;outline-offset:-1px;z-index:2}
-.mx td .cell-label{font-size:6px;line-height:1;display:block}
-.mx td .cell-action{font-size:5.5px;opacity:.7;line-height:1;display:block;margin-top:1px}
-.c-r{background:rgba(46,213,115,.5);color:#fff}.c-c{background:rgba(255,165,2,.4);color:#fff}
-.c-b{background:rgba(93,173,226,.4);color:#fff}.c-f{background:rgba(255,255,255,.02);color:#333}
+.mx td.sel{outline:2px solid #ffd700;outline-offset:-1px}
+.c-r{background:rgba(46,213,115,.45);color:#fff}.c-c{background:rgba(255,165,2,.35);color:#fff}
+.c-b{background:rgba(93,173,226,.35);color:#fff}.c-f{background:rgba(255,255,255,.02);color:#333}
 .c-p{font-weight:900}
-/* V2.9.55: 场景感知范围颜色——强度分3档 */
-.c-r3{background:rgba(46,213,115,.7);color:#fff}.c-r2{background:rgba(46,213,115,.5);color:#fff}.c-r1{background:rgba(46,213,115,.3);color:#ccc}
-.c-b3{background:rgba(93,173,226,.7);color:#fff}.c-b2{background:rgba(93,173,226,.5);color:#fff}.c-b1{background:rgba(93,173,226,.3);color:#ccc}
-.c-c3{background:rgba(255,165,2,.6);color:#fff}.c-c2{background:rgba(255,165,2,.4);color:#fff}.c-c1{background:rgba(255,165,2,.25);color:#ccc}
-.c-v3{background:rgba(168,85,247,.6);color:#fff}.c-v2{background:rgba(168,85,247,.4);color:#fff}.c-v1{background:rgba(168,85,247,.25);color:#ccc}
-.c-s3{background:rgba(255,107,107,.6);color:#fff}.c-s2{background:rgba(255,107,107,.4);color:#fff}.c-s1{background:rgba(255,107,107,.25);color:#ccc}
-.c-hand{outline:2px solid #ffd700;outline-offset:-1px;z-index:2}
 .mx-legend{display:flex;gap:5px;justify-content:center;font-size:8px;color:#444;margin:1px 0 3px}
 .ml{width:6px;height:6px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:1px}
 .hint{font-size:9px;color:#555;text-align:center;padding:3px;background:rgba(255,255,255,.02);border-radius:4px;margin-bottom:3px}
@@ -285,9 +274,8 @@ body.speed-mode .rec-label{font-size:10px}
   <div class="card-group"><div class="card-slot" id="c4" onclick="pick('c4')"><span>河牌</span></div><div class="card-label">&nbsp;</div></div>
 </div>
 <div class="hint" id="hint">👆 点击格子选牌，或点右上角📷开摄像头</div>
-<div class="mx-info" id="mxInfo"></div>
 <div class="mx-wrap" id="mxWrap"><table class="mx" id="mx"></table></div>
-<div class="mx-legend" id="mxLegend">
+<div class="mx-legend">
   <span><span class="ml" style="background:#2ed573"></span>加注</span>
   <span><span class="ml" style="background:#5dade2"></span>3bet</span>
   <span><span class="ml" style="background:#ffa502"></span>跟注</span>
@@ -890,7 +878,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.55',
+    version:'2.9.54',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -922,7 +910,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.55',
+  CURRENT_VERSION:'2.9.54',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2116,7 +2104,6 @@ function show(r){
   document.getElementById('res').innerHTML=h;
   if(mxVisible&&G.hole[0]&&G.hole[1]){
     document.getElementById('hint').textContent='✅ 牌已选 - 点场景按钮看建议';
-    mkMx(); // V2.9.55: 结果出来后刷新矩阵高亮当前手牌
   }
 }
 
@@ -2196,14 +2183,13 @@ function setScene(s){
   else if(s==='allin'){G.bet=G.stk;}
   document.getElementById('potInp').value=G.pot;
   document.getElementById('betInp').value=G.bet;
-  mkMx(); // V2.9.55: 切换场景时刷新范围矩阵
   go();
 }
 function setOppType(t){G.opp=t;DRTA.setType(t);DRTA.updateUI();document.querySelectorAll('.ex-btn').forEach(function(b){b.classList.remove('on');});var ids={unknown:'exUnknown',fish:'exFish',tight:'exTP',lag:'exLAG',nit:'exTP',maniac:'exLAG',calling_station:'exFish',tag:'exTP'};var exEl=document.getElementById(ids[t]);if(exEl)exEl.classList.add('on');go();}
 function resetTracker(){DRTA.reset();}
-function sPos(p){p=_fp(p);G.pos=p;document.getElementById('posBtn').textContent=pL(p);document.querySelectorAll('.adv-row .adv-btn').forEach(function(b){b.classList.remove('on');});var posBtns=document.querySelectorAll('.adv-row .adv-btn');var posList=['btn','co','hj','mp','utg','sb','bb'];for(var i=0;i<posBtns.length;i++){if(posBtns[i].textContent===pL(p)){posBtns[i].classList.add('on');break;}}mkMx();go();}
+function sPos(p){p=_fp(p);G.pos=p;document.getElementById('posBtn').textContent=pL(p);document.querySelectorAll('.adv-row .adv-btn').forEach(function(b){b.classList.remove('on');});var posBtns=document.querySelectorAll('.adv-row .adv-btn');var posList=['btn','co','hj','mp','utg','sb','bb'];for(var i=0;i<posBtns.length;i++){if(posBtns[i].textContent===pL(p)){posBtns[i].classList.add('on');break;}}go();}
 // V2.9.47: 切换桌型时自动修正位置
-function sTT(t){G.tt=t;G.act=t;G.pos=_fp(G.pos);document.getElementById('posBtn').textContent=pL(G.pos);mkMx();go();}
+function sTT(t){G.tt=t;G.act=t;G.pos=_fp(G.pos);document.getElementById('posBtn').textContent=pL(G.pos);go();}
 function updateStk(){G.stk=parseInt(document.getElementById('stkInp').value)||100;go();}
 function updatePot(){G.pot=parseInt(document.getElementById('potInp').value)||10;go();}
 function updateBet(){G.bet=parseInt(document.getElementById('betInp').value)||0;go();}
@@ -2244,7 +2230,7 @@ function rM(){
     g.appendChild(b);
   });
 }
-function afterPick(){if(G.hole[0]&&G.hole[1]){mkMx();}go();}
+function afterPick(){if(G.hole[0]&&G.hole[1]){mxVisible=false;document.getElementById('mxWrap').classList.add('collapsed');}go();}
 function gU(){var c=[];G.hole.forEach(function(x){if(x)c.push(x);});G.comm.forEach(function(x){if(x)c.push(x);});return c;}
 function setCard(id,rank,suit){if(id.startsWith('h'))G.hole[parseInt(id[1])]={rank:rank,suit:suit};else G.comm[parseInt(id[1])]={rank:rank,suit:suit};uCards();}
 function uCards(){
@@ -2266,128 +2252,31 @@ function uCards(){
     }else{e.className='card-slot';e.innerHTML='<span>'+l[i]+'</span>';}
   });
 }
-// V2.9.55: 场景感知翻前范围可视化
-function getHandStrengthTier(key){
-  // 3档: 3=强(AA-KK,AKs), 2=中, 1=弱
-  var top=['AA','KK','QQ','JJ','AKs','AKo'];
-  var mid=['TT','99','88','AQs','AQo','KQs','AJs','KJs','ATs','AJo'];
-  if(top.indexOf(key)!==-1)return 3;
-  if(mid.indexOf(key)!==-1)return 2;
-  return 1;
-}
-function getSceneRangeInfo(){
-  // 根据当前场景返回{主动作, 范围数据, 图例, 标签}
-  var scene=G.scene;
-  var pos=G.pos;
-  var oS=gO(pos),tS=gT(pos),cS=gC(pos);
-  if(scene==='open'){
-    return{primary:'raise',ranges:[{keys:oS,action:'raise',label:'开池'}],
-      legend:[{cls:'c-r',color:'#2ed573',label:'开池'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'开池范围: '+oS.length+'手'};
-  }
-  if(scene==='raise'){
-    return{primary:'3bet/call',ranges:[{keys:tS,action:'3bet',label:'3bet'},{keys:cS,action:'call',label:'跟注'}],
-      legend:[{cls:'c-b',color:'#5dade2',label:'3bet'},{cls:'c-c',color:'#ffa502',label:'跟注'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'面对加注: 3bet '+tS.length+'手, 跟注 '+cS.length+'手'};
-  }
-  if(scene==='reraise'){
-    // 面对3bet: 4bet(tS中的强牌)+call(cS)+fold
-    var fourB=tS.filter(function(k){return getHandStrengthTier(k)>=2;});
-    return{primary:'4bet/call',ranges:[{keys:fourB,action:'4bet',label:'4bet'},{keys:cS,action:'call',label:'跟注'}],
-      legend:[{cls:'c-v',color:'#a855f7',label:'4bet'},{cls:'c-c',color:'#ffa502',label:'跟注'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'面对3bet: 4bet '+fourB.length+'手, 跟注 '+cS.length+'手'};
-  }
-  if(scene==='call'){
-    // 多人跟注: squeeze(3bet)+overcall(跟注)+fold
-    var sqKeys=Object.keys(Squeeze).filter(function(k){return Squeeze[k].val>=25;});
-    return{primary:'squeeze/call',ranges:[{keys:sqKeys,action:'squeeze',label:'挤压'},{keys:cS,action:'call',label:'跟注'}],
-      legend:[{cls:'c-s',color:'#ff6b6b',label:'挤压'},{cls:'c-c',color:'#ffa502',label:'跟注'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'多人池: 挤压 '+sqKeys.length+'手, 跟注 '+cS.length+'手'};
-  }
-  // 默认: open
-  return{primary:'raise',ranges:[{keys:oS,action:'raise',label:'开池'}],
-    legend:[{cls:'c-r',color:'#2ed573',label:'开池'},{cls:'c-f',color:'#333',label:'弃牌'}],
-    info:pL(pos)+'开池范围: '+oS.length+'手'};
-}
 function mkMx(){
   var t=document.getElementById('mx');t.innerHTML='';
-  var sceneInfo=getSceneRangeInfo();
-  // 构建动作映射: key→{action, tier}
-  var actionMap={};
-  // 按优先级: 后面的ranges覆盖前面(低→高优先级)
-  sceneInfo.ranges.forEach(function(range){
-    range.keys.forEach(function(k){
-      actionMap[k]={action:range.action,label:range.label,tier:getHandStrengthTier(k)};
-    });
-  });
-  // 当前手牌key
-  var myKey='';
-  if(G.hole[0]&&G.hole[1]){
-    var r1=G.hole[0].rank,r2=G.hole[1].rank;
-    var i1=R.indexOf(r1),i2=R.indexOf(r2);
-    if(i1>=0&&i2>=0){
-      if(i1===i2)myKey=r1+r2;
-      else if(i1<i2)myKey=r1+r2+'s';
-      else myKey=r2+r1+'o';
-    }
-  }
-  // 颜色class映射: action+tier→css class
-  var clsMap={
-    raise:{3:'c-r3',2:'c-r2',1:'c-r1'},
-    '3bet':{3:'c-b3',2:'c-b2',1:'c-b1'},
-    call:{3:'c-c3',2:'c-c2',1:'c-c1'},
-    '4bet':{3:'c-v3',2:'c-v2',1:'c-v1'},
-    squeeze:{3:'c-s3',2:'c-s2',1:'c-s1'}
-  };
+  var oS=gO(G.pos),tS=gT(G.pos),cS=gC(G.pos);
   var th=document.createElement('tr');th.innerHTML='<th></th>';
   R.forEach(function(r){var d=document.createElement('th');d.textContent=r==='T'?'10':r;th.appendChild(d);});
   t.appendChild(th);
-  // 统计combo数
-  var totalCombos=0,playCombos=0;
   R.forEach(function(r1,i){
     var tr=document.createElement('tr');
     var d=document.createElement('th');d.textContent=r1==='T'?'10':r1;tr.appendChild(d);
     R.forEach(function(r2,j){
       var td=document.createElement('td');
-      var k,isPair=false;
-      if(i===j){k=r1+r2;isPair=true;}
-      else if(i<j)k=r1+r2+'s';
-      else k=r2+r1+'o';
-      // 计算combo数
-      var combos=isPair?6:(i<j?4:12);
-      totalCombos+=combos;
-      var info=actionMap[k];
-      var cc=isPair?'c-p':'';
-      var actionLabel='';
-      if(info){
-        var cm=clsMap[info.action]||clsMap['raise'];
-        cc+=' '+(cm[info.tier]||cm[1]);
-        playCombos+=combos;
-        actionLabel=info.label;
-      }else{
-        cc+=' c-f';
-      }
-      // 高亮当前手牌
-      if(k===myKey)cc+=' c-hand';
-      td.className=cc;
-      // 两行显示: 手牌名 + 动作标签
-      var label=i===j?r1+r2:(i<j?r1+r2+'s':r2+r1+'o');
-      td.innerHTML='<span class="cell-label">'+label+'</span>'+(actionLabel?'<span class="cell-action">'+actionLabel+'</span>':'');
-      td.onclick=(function(kk,ii,jj){return function(){selHFromMx(kk,ii,jj);};})(k,i,j);
+      var k,cc='c-p';
+      if(i===j)k=r1+r2;
+      else if(i<j){k=r1+r2+'s';cc='';}
+      else{k=r2+r1+'o';cc='';}
+      if(tS.indexOf(k)!==-1&&oS.indexOf(k)===-1)cc+=' c-b';
+      else if(oS.indexOf(k)!==-1)cc+=' c-r';
+      else if(cS.indexOf(k)!==-1)cc+=' c-c';
+      else cc+=' c-f';
+      td.className=cc;td.textContent=i===j?r1+r2:(i<j?r1+r2+'s':r2+r1+'o');
+      td.onclick=function(){selHFromMx(k,i,j);};
       tr.appendChild(td);
     });
     t.appendChild(tr);
   });
-  // 更新范围信息条
-  var pct=totalCombos>0?(playCombos/totalCombos*100).toFixed(1):'0';
-  document.getElementById('mxInfo').innerHTML='<span>📋'+sceneInfo.info+'</span><span>📊'+pct+'% ('+playCombos+'/'+totalCombos+'组合)</span>';
-  // 更新图例
-  var legHtml='';
-  sceneInfo.legend.forEach(function(l){
-    legHtml+='<span><span class="ml" style="background:'+l.color+'"></span>'+l.label+'</span>';
-  });
-  legHtml+='<span><span class="ml" style="background:#ffd700"></span>当前手牌</span>';
-  document.getElementById('mxLegend').innerHTML=legHtml;
 }
 function selHFromMx(k,i,j){
   if(!G.hole[0]){
