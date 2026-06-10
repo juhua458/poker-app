@@ -3493,10 +3493,11 @@ function show(r){
     var strategy=drta.strategy?' | '+drta.strategy:'';
     h+='<div class="r-drta">DRTA: '+typeName+' | 置信'+confPct+'%'+strategy+'</div>';
     // V2.9.60: Tilt状态显示
-    var _tiltDisp=TiltDetector.getTiltDisplay(TiltDetector.detectTilt(profile));
+    var _showProfile=DRTA.getProfile();
+    var _tiltDisp=TiltDetector.getTiltDisplay(TiltDetector.detectTilt(_showProfile));
     if(_tiltDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(255,69,0,.15);color:#ff4500">'+_tiltDisp+'</div>';
     // V2.9.61: 反剥削状态显示
-    var _ceDisp=CounterExploit.getDisplay(CounterExploit.detect(profile));
+    var _ceDisp=CounterExploit.getDisplay(CounterExploit.detect(_showProfile));
     if(_ceDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(0,191,255,.12);color:#00bfff">'+_ceDisp+'</div>';
   }
   if(r.hClass&&r.hClass.name!=='PRE'){
