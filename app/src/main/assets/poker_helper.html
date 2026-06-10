@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.55 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化</title>
+<title>青云 v2.9.56 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -90,6 +90,12 @@ body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
 .mx-wrap.collapsed{display:none}
 .mx-info{display:flex;justify-content:center;gap:6px;font-size:8px;color:#888;margin-bottom:2px;flex-wrap:wrap}
 .mx-info span{background:rgba(255,255,255,.05);padding:1px 5px;border-radius:6px}
+.mx-badge{font-size:7px;padding:1px 4px;border-radius:4px;font-weight:700;margin-right:2px}
+.mx-badge.short{background:#ff4757;color:#fff}
+.mx-badge.standard{background:#2ed573;color:#000}
+.mx-badge.deep{background:#5dade2;color:#fff}
+.mx-badge.opp{background:#a855f7;color:#fff}
+.mx-badge.limp{background:#ffa502;color:#000}
 .mx{border-collapse:collapse;margin:0 auto}
 .mx th,.mx td{width:26px;height:26px;text-align:center;font-size:7px;font-weight:700;border:1px solid rgba(255,255,255,.04)}
 .mx th{color:#555;font-size:7px;background:rgba(0,0,0,.2)}
@@ -318,6 +324,7 @@ body.speed-mode .rec-label{font-size:10px}
     <button class="adv-btn" onclick="sTT(9)">9人</button>
   </div>
   <div class="adv-row"><span class="adv-l">筹码</span><input type="number" class="adv-inp" id="stkInp" value="100" min="5" max="500" onchange="updateStk()"><span style="color:#444;font-size:9px">BB</span></div>
+  <div class="adv-row"><span class="adv-l">平跟者</span><button class="adv-btn on" id="limpBtn0" onclick="setLimpers(0)">0</button><button class="adv-btn" id="limpBtn1" onclick="setLimpers(1)">1</button><button class="adv-btn" id="limpBtn2" onclick="setLimpers(2)">2+</button></div>
   <div class="adv-row"><span class="adv-l">底池</span><input type="number" class="adv-inp" id="potInp" value="10" min="1" max="500" onchange="updatePot()"><span style="color:#444;font-size:9px">BB</span></div>
   <div class="adv-row"><span class="adv-l">面对</span><input type="number" class="adv-inp" id="betInp" value="0" min="0" max="500" onchange="updateBet()"><span style="color:#444;font-size:9px">BB</span></div>
 </div>
@@ -352,10 +359,10 @@ var SU=['h','d','s','c'];
 var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[]};
+var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0};
 var _pi=null,_ms='h';
 var _decisionCache={};var _cacheMax=200;
-function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('');}
+function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('')+'L'+G.limpers;}
 var camStream=null,scanTimer=null,scanning=false;
 var mxVisible=true;
 
@@ -890,7 +897,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.55',
+    version:'2.9.56',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -922,7 +929,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.55',
+  CURRENT_VERSION:'2.9.56',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1182,6 +1189,106 @@ function adjustPreflopRange(baseRange,oppType,scene){
     adj.facing_raise_contract.forEach(function(k){var idx=result.indexOf(k);if(idx!==-1)result.splice(idx,1);});
   }
   return result;
+}
+// V2.9.56: 翻前参数化范围——筹码深度×前面行动×对手类型
+// 1) 筹码深度自动检测
+function getStackBucket(){
+  var bb=G.stk;
+  if(bb<40)return 'short';
+  if(bb>80)return 'deep';
+  return 'standard';
+}
+// 2) 筹码深度调整规则
+var STACK_ADJ={
+  short:{ // <40BB: 紧缩投机牌，价值导向
+    open_remove:['76s','75s','65s','64s','54s','53s','43s','74s','63s','73s','85s','84s','95s','94s','96s','86s','A2s','A3s','A4s','K7s','K6s','K5s','K4s','K3s','K2s','Q6s','Q5s','Q4s','Q3s','Q2s','J6s','J5s','J4s','T5s','T4s','A7o','A8o','K8o','Q9o','J9o'],
+    open_add:[],
+    threebet_remove:['A5s','A4s','A3s','A2s','76s','65s','54s','43s','53s'],
+    threebet_add:['AJo','ATs','KJs','KQo'],
+    call_remove:['22','33','44','55','66','76s','65s','54s','53s','43s','74s','64s','85s','84s','95s','86s'],
+    call_add:['AQs','AJs']
+  },
+  deep:{ // >80BB: 扩展投机牌，利用隐含赔率
+    open_add:['84s','94s','95s','85s','A3s','A2s','K4s','K3s','Q4s','Q3s','J4s','T4s','74s','64s','63s','53s','43s','32s'],
+    open_remove:[],
+    threebet_add:['76s','65s','A4s','A3s','A2s','K8s','Q8s','J8s','T8s'],
+    threebet_remove:[],
+    call_add:['76s','65s','54s','53s','43s','85s','95s','T8s','J8s','Q8s','K8s','A4s','A3s','A2s'],
+    call_remove:[]
+  },
+  standard:{open_add:[],open_remove:[],threebet_add:[],threebet_remove:[],call_add:[],call_remove:[]}
+};
+// 3) 前面平跟者调整规则
+var LIMP_ADJ={
+  iso:{ // 1人平跟: 隔离加注
+    open_add:['K9o','Q9o','J9o','T9o','A8o','A9o','K8s','Q8s','J8s','T8s'],
+    open_remove:['74s','64s','63s','53s','43s','32s'],
+    call_add:[],
+    call_remove:['K9o','Q9o','J9o','A8o']
+  },
+  multi_limp:{ // 2+人平跟: 挤压或过度跟注投机
+    open_add:[],
+    open_remove:['K9s','Q9s','J8s','T8s','A8o','K9o','Q9o','J9o'],
+    call_add:['76s','65s','54s','53s','43s','85s','75s','64s'],
+    call_remove:['A8o','K9o','Q9o']
+  }
+};
+// 4) 筹码深度调整函数
+function adjustRangeForStack(baseRange,bucket,scene){
+  var adj=STACK_ADJ[bucket]||STACK_ADJ.standard;
+  var result=baseRange.slice();
+  if(scene==='open'){
+    (adj.open_remove||[]).forEach(function(k){var i=result.indexOf(k);if(i!==-1)result.splice(i,1);});
+    (adj.open_add||[]).forEach(function(k){if(result.indexOf(k)===-1)result.push(k);});
+  }else if(scene==='raise'||scene==='reraise'){
+    (adj.threebet_remove||[]).forEach(function(k){var i=result.indexOf(k);if(i!==-1)result.splice(i,1);});
+    (adj.threebet_add||[]).forEach(function(k){if(result.indexOf(k)===-1)result.push(k);});
+  }else if(scene==='call'){
+    (adj.call_remove||[]).forEach(function(k){var i=result.indexOf(k);if(i!==-1)result.splice(i,1);});
+    (adj.call_add||[]).forEach(function(k){if(result.indexOf(k)===-1)result.push(k);});
+  }
+  return result;
+}
+// 5) 平跟者调整函数
+function adjustRangeForLimp(baseRange,limperCount,scene){
+  if(limperCount<=0)return baseRange;
+  var adj=limperCount===1?LIMP_ADJ.iso:LIMP_ADJ.multi_limp;
+  var result=baseRange.slice();
+  if(scene==='open'){
+    (adj.open_remove||[]).forEach(function(k){var i=result.indexOf(k);if(i!==-1)result.splice(i,1);});
+    (adj.open_add||[]).forEach(function(k){if(result.indexOf(k)===-1)result.push(k);});
+  }else if(scene==='call'){
+    (adj.call_remove||[]).forEach(function(k){var i=result.indexOf(k);if(i!==-1)result.splice(i,1);});
+    (adj.call_add||[]).forEach(function(k){if(result.indexOf(k)===-1)result.push(k);});
+  }
+  return result;
+}
+// 6) 三维联动: base→stack→opp→limp
+function getAdjustedRange(scene,pos){
+  var base;
+  if(scene==='open')base=gO(pos).slice();
+  else if(scene==='raise')base=gT(pos).slice();
+  else if(scene==='reraise')base=gT(pos).slice();
+  else if(scene==='call')base=gC(pos).slice();
+  else base=gO(pos).slice();
+  // 筹码深度调整
+  base=adjustRangeForStack(base,getStackBucket(),scene);
+  // 对手类型调整
+  base=adjustPreflopRange(base,G.opp||'unknown',scene);
+  // 平跟者调整(仅开池和跟注场景)
+  if(G.limpers>0&&(scene==='open'||scene==='call')){
+    base=adjustRangeForLimp(base,G.limpers,scene);
+  }
+  return base;
+}
+// 7) 平跟者UI切换
+function setLimpers(n){
+  G.limpers=n;
+  document.querySelectorAll('[id^=limpBtn]').forEach(function(b){b.classList.remove('on');});
+  var el=document.getElementById('limpBtn'+n);
+  if(el)el.classList.add('on');
+  mkMx();
+  go();
 }
 function pL(p){var m={utg:'UTG',utg1:'UTG+1',mp:'MP',mp1:'MP+1',hj:'HJ',co:'CO',btn:'BTN',sb:'SB',bb:'BB'};return m[p]||p.toUpperCase();}
 // V2.9.47: 桌型位置回退——不存在的位置映射到最近等价位(支持2-9人桌)
@@ -2204,7 +2311,7 @@ function resetTracker(){DRTA.reset();}
 function sPos(p){p=_fp(p);G.pos=p;document.getElementById('posBtn').textContent=pL(p);document.querySelectorAll('.adv-row .adv-btn').forEach(function(b){b.classList.remove('on');});var posBtns=document.querySelectorAll('.adv-row .adv-btn');var posList=['btn','co','hj','mp','utg','sb','bb'];for(var i=0;i<posBtns.length;i++){if(posBtns[i].textContent===pL(p)){posBtns[i].classList.add('on');break;}}mkMx();go();}
 // V2.9.47: 切换桌型时自动修正位置
 function sTT(t){G.tt=t;G.act=t;G.pos=_fp(G.pos);document.getElementById('posBtn').textContent=pL(G.pos);mkMx();go();}
-function updateStk(){G.stk=parseInt(document.getElementById('stkInp').value)||100;go();}
+function updateStk(){G.stk=parseInt(document.getElementById('stkInp').value)||100;mkMx();go();}
 function updatePot(){G.pot=parseInt(document.getElementById('potInp').value)||10;go();}
 function updateBet(){G.bet=parseInt(document.getElementById('betInp').value)||0;go();}
 function togAdv(){document.getElementById('adv').classList.toggle('show');}
@@ -2212,10 +2319,13 @@ function clr(){
   document.body.classList.remove('speed-mode');
   G.hole=[null,null];G.comm=[null,null,null,null,null];
   G.scene=G.phase==='pre'?'open':'check';
-  G.bet=0;G.pot=10;mxVisible=true;
+  G.bet=0;G.pot=10;G.limpers=0;mxVisible=true;
   document.getElementById('mxWrap').classList.remove('collapsed');
   uCards();setScene(G.scene);
   document.querySelectorAll('.mx td').forEach(function(td){td.classList.remove('sel');});
+  // 重置平跟者按钮
+  document.querySelectorAll('[id^=limpBtn]').forEach(function(b){b.classList.remove('on');});
+  var lb0=document.getElementById('limpBtn0');if(lb0)lb0.classList.add('on');
   show(null);document.getElementById('camResult').innerHTML='';
 }
 function pick(id){_pi=id;_ms='h';rM();document.getElementById('modal').classList.add('on');}
@@ -2266,7 +2376,7 @@ function uCards(){
     }else{e.className='card-slot';e.innerHTML='<span>'+l[i]+'</span>';}
   });
 }
-// V2.9.55: 场景感知翻前范围可视化
+// V2.9.56: 场景感知翻前范围可视化（参数化范围版）
 function getHandStrengthTier(key){
   // 3档: 3=强(AA-KK,AKs), 2=中, 1=弱
   var top=['AA','KK','QQ','JJ','AKs','AKo'];
@@ -2276,38 +2386,52 @@ function getHandStrengthTier(key){
   return 1;
 }
 function getSceneRangeInfo(){
-  // 根据当前场景返回{主动作, 范围数据, 图例, 标签}
+  // V2.9.56: 使用参数化范围(筹码深度×对手类型×平跟者)
   var scene=G.scene;
   var pos=G.pos;
-  var oS=gO(pos),tS=gT(pos),cS=gC(pos);
+  var bucket=getStackBucket();
+  var bucketCN={short:'短码',standard:'标准',deep:'深码'};
+  var limperCN=G.limpers===0?'':G.limpers===1?' 隔离':' 多人池';
+  var oppCN={unknown:'',fish:' vs鱼',tight:' vs紧',lag:' vs松凶',nit:' vsnit',maniac:' vs疯',calling_station:' vs跟站',tag:' vs紧凶'};
+  var adjLabel=bucketCN[bucket]+limperCN+(oppCN[G.opp]||'');
   if(scene==='open'){
+    var oS=getAdjustedRange('open',pos);
     return{primary:'raise',ranges:[{keys:oS,action:'raise',label:'开池'}],
       legend:[{cls:'c-r',color:'#2ed573',label:'开池'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'开池范围: '+oS.length+'手'};
+      info:pL(pos)+'开池'+adjLabel+': '+oS.length+'手',bucket:bucket,limpers:G.limpers};
   }
   if(scene==='raise'){
+    var tS=getAdjustedRange('raise',pos);
+    var cS=getAdjustedRange('call',pos);
     return{primary:'3bet/call',ranges:[{keys:tS,action:'3bet',label:'3bet'},{keys:cS,action:'call',label:'跟注'}],
       legend:[{cls:'c-b',color:'#5dade2',label:'3bet'},{cls:'c-c',color:'#ffa502',label:'跟注'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'面对加注: 3bet '+tS.length+'手, 跟注 '+cS.length+'手'};
+      info:pL(pos)+'面对加注'+adjLabel+': 3bet '+tS.length+'手, 跟注 '+cS.length+'手',bucket:bucket,limpers:G.limpers};
   }
   if(scene==='reraise'){
+    var tSr=getAdjustedRange('reraise',pos);
+    var cSr=getAdjustedRange('call',pos);
     // 面对3bet: 4bet(tS中的强牌)+call(cS)+fold
-    var fourB=tS.filter(function(k){return getHandStrengthTier(k)>=2;});
-    return{primary:'4bet/call',ranges:[{keys:fourB,action:'4bet',label:'4bet'},{keys:cS,action:'call',label:'跟注'}],
+    var fourB=tSr.filter(function(k){return getHandStrengthTier(k)>=2;});
+    return{primary:'4bet/call',ranges:[{keys:fourB,action:'4bet',label:'4bet'},{keys:cSr,action:'call',label:'跟注'}],
       legend:[{cls:'c-v',color:'#a855f7',label:'4bet'},{cls:'c-c',color:'#ffa502',label:'跟注'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'面对3bet: 4bet '+fourB.length+'手, 跟注 '+cS.length+'手'};
+      info:pL(pos)+'面对3bet'+adjLabel+': 4bet '+fourB.length+'手, 跟注 '+cSr.length+'手',bucket:bucket,limpers:G.limpers};
   }
   if(scene==='call'){
-    // 多人跟注: squeeze(3bet)+overcall(跟注)+fold
+    var cSc=getAdjustedRange('call',pos);
+    // 多人跟注: squeeze+overcall
     var sqKeys=Object.keys(Squeeze).filter(function(k){return Squeeze[k].val>=25;});
-    return{primary:'squeeze/call',ranges:[{keys:sqKeys,action:'squeeze',label:'挤压'},{keys:cS,action:'call',label:'跟注'}],
+    // V2.9.56: 短码挤压更紧，深码更宽
+    if(bucket==='short'){sqKeys=sqKeys.filter(function(k){return getHandStrengthTier(k)>=2;});}
+    else if(bucket==='deep'){sqKeys=sqKeys.concat(['KQo','AJo','ATs','KJs'].filter(function(k){return sqKeys.indexOf(k)===-1;}));}
+    return{primary:'squeeze/call',ranges:[{keys:sqKeys,action:'squeeze',label:'挤压'},{keys:cSc,action:'call',label:'跟注'}],
       legend:[{cls:'c-s',color:'#ff6b6b',label:'挤压'},{cls:'c-c',color:'#ffa502',label:'跟注'},{cls:'c-f',color:'#333',label:'弃牌'}],
-      info:pL(pos)+'多人池: 挤压 '+sqKeys.length+'手, 跟注 '+cS.length+'手'};
+      info:pL(pos)+'多人池'+adjLabel+': 挤压 '+sqKeys.length+'手, 跟注 '+cSc.length+'手',bucket:bucket,limpers:G.limpers};
   }
   // 默认: open
-  return{primary:'raise',ranges:[{keys:oS,action:'raise',label:'开池'}],
+  var oSd=getAdjustedRange('open',pos);
+  return{primary:'raise',ranges:[{keys:oSd,action:'raise',label:'开池'}],
     legend:[{cls:'c-r',color:'#2ed573',label:'开池'},{cls:'c-f',color:'#333',label:'弃牌'}],
-    info:pL(pos)+'开池范围: '+oS.length+'手'};
+    info:pL(pos)+'开池'+adjLabel+': '+oSd.length+'手',bucket:bucket,limpers:G.limpers};
 }
 function mkMx(){
   var t=document.getElementById('mx');t.innerHTML='';
@@ -2378,9 +2502,14 @@ function mkMx(){
     });
     t.appendChild(tr);
   });
-  // 更新范围信息条
+  // 更新范围信息条 (V2.9.56: 含筹码深度徽章)
   var pct=totalCombos>0?(playCombos/totalCombos*100).toFixed(1):'0';
-  document.getElementById('mxInfo').innerHTML='<span>📋'+sceneInfo.info+'</span><span>📊'+pct+'% ('+playCombos+'/'+totalCombos+'组合)</span>';
+  var bucketInfo=sceneInfo.bucket||'standard';
+  var limpInfo=sceneInfo.limpers||0;
+  var badgeHtml='<span class="mx-badge '+bucketInfo+'">'+({short:'短码<40',standard:'标准40-80',deep:'深码>80'}[bucketInfo]||'标准')+'BB</span>';
+  if(limpInfo>0)badgeHtml+='<span class="mx-badge limp">'+(limpInfo===1?'1人平跟':'多人平跟')+'</span>';
+  if(G.opp&&G.opp!=='unknown')badgeHtml+='<span class="mx-badge opp">'+({fish:'鱼',tight:'紧被动',lag:'松凶',nit:'nit',maniac:'疯鱼',calling_station:'跟站',tag:'紧凶'}[G.opp]||G.opp)+'</span>';
+  document.getElementById('mxInfo').innerHTML=badgeHtml+'<span>📋'+sceneInfo.info+'</span><span>📊'+pct+'% ('+playCombos+'/'+totalCombos+'组合)</span>';
   // 更新图例
   var legHtml='';
   sceneInfo.legend.forEach(function(l){
