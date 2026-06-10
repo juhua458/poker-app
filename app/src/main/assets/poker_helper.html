@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.69 · 保活+电池优化白名单</title>
+<title>青云 v2.9.70 · 保活+电池优化白名单</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1089,7 +1089,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.69',
+    version:'2.9.70',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1206,7 +1206,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.69',
+  CURRENT_VERSION:'2.9.70',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -3966,7 +3966,15 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
 
 // V1.3: API视觉识别结果回调 - 自动填入牌面+策略分析
 function onVisionResult(data){
-  if(!data) return;
+  // V2.9.70: data为空或无手牌→悬浮球变红，表示"App在工作但没看到牌桌"
+  if(!data || !data.hole_cards || data.hole_cards.length<2){
+    try{
+      if(typeof AndroidBridge!=='undefined' && AndroidBridge.showAdvice){
+        AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:NO_TABLE|EQ:0|REASON:未检测到牌桌');
+      }
+    }catch(e){}
+    return;
+  }
   
   // V2.9: 先重置所有牌面，防止残留上一局数据
   G.hole=[null,null];G.comm=[null,null,null,null,null];
