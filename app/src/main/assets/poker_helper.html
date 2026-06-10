@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.75 · 中文导出修复+位置锁定</title>
+<title>青云 v2.9.76 · Vision数据保险层</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1107,7 +1107,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.75',
+    version:'2.9.76',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1225,7 +1225,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.75',
+  CURRENT_VERSION:'2.9.76',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4233,6 +4233,10 @@ function onVisionResult(data){
   if(data.my_position){
     // V2.9.47: 桌型感知posMap——2-9人桌全覆盖
     var rawPos=(data.my_position||'').toLowerCase();
+    // V2.9.76: unknown不更新位置，保持旧值
+    if(rawPos==='unknown'){
+      console.log('[位置保险] Vision报unknown，保持旧值'+G.pos);
+    }else{
     var posMap;
     if(G.tt===2){
       posMap={btn:'btn',button:'btn',sb:'btn',bb:'bb',co:'btn',cutoff:'btn',hj:'btn',hijack:'btn',mp:'btn',utg:'btn',utg1:'btn',mp1:'btn'};
@@ -4264,6 +4268,7 @@ function onVisionResult(data){
     // 记录当前手牌和位置供下次比对
     G._lastHandKey=(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'');
     G._lastPos=G.pos;
+    } // end else (rawPos!=='unknown')
   }
   // V2.9.47: 全桌型位置修正安全网（2-9人桌）
   // 2人桌(HU): 只有BTN/SB(=BTN)和BB
@@ -4335,11 +4340,97 @@ function onVisionResult(data){
     try{G._warnings=JSON.parse(JSON.stringify(data._warnings));}catch(e){G._warnings=[];}
   }
   
-  if(data.pot_size>0) G.pot=Math.max(1,Math.round(parseInt(data.pot_size)/bbValue));
-  if(data.to_call!==undefined) G.bet=Math.round(parseInt(data.to_call)/bbValue)||0;
-  if(data.my_chips>0){
-    G.stk=Math.max(1,Math.round(parseInt(data.my_chips)/bbValue));
-  }
+  // V2.9.76: ★ Vision数据保险层 ★
+  // 原则：手牌/公共牌以外的数据，识别不准就不更新，保持旧值，不让策略引擎乱
+  (function visionInsurance(){
+    var insLog=[];
+    // === 1. 盲注锁定：同一桌盲注不变 ===
+    if(!G._lockedBB && bbValue>0){
+      G._lockedBB=bbValue;
+      insLog.push('盲注锁定BB='+bbValue);
+    }else if(G._lockedBB && bbValue>0 && bbValue!==G._lockedBB){
+      // 盲注突变→用锁定值
+      insLog.push('盲注突变'+bbValue+'→锁定'+G._lockedBB);
+      bbValue=G._lockedBB;
+    }
+
+    // === 2. 从按钮文字提取可靠数据（按钮文字比Vision OCR更可靠） ===
+    var btnToCall=0, btnPot=0;
+    if(data.buttons && data.buttons.length>0){
+      for(var bi=0;bi<data.buttons.length;bi++){
+        var bText=data.buttons[bi]||'';
+        // 提取"跟注XXX"中的金额
+        var callMatch=bText.match(/跟注\s*([\d,]+K?)/);
+        if(callMatch){
+          var cv=callMatch[1].replace(/,/g,'');
+          if(cv.indexOf('K')!==-1){btnToCall=parseFloat(cv)*1000;}
+          else{btnToCall=parseInt(cv)||0;}
+        }
+        // 提取"全押"或"全下XXX"
+        if(bText.indexOf('全押')>=0||bText.indexOf('全下')>=0){
+          btnToCall=parseInt(data.my_chips)||G.stk*bbValue||0;
+        }
+      }
+    }
+
+    // === 3. to_call保险：按钮文字优先于Vision OCR ===
+    var visionToCall=parseInt(data.to_call)||0;
+    if(btnToCall>0 && visionToCall>0){
+      // 两者都有，差异>50%→信任按钮
+      if(Math.abs(btnToCall-visionToCall)/Math.max(btnToCall,visionToCall)>0.5){
+        insLog.push('to_call: Vision='+visionToCall+' 按钮='+btnToCall+' → 用按钮');
+        visionToCall=btnToCall;
+      }
+    }else if(btnToCall>0 && visionToCall===0){
+      // Vision没识别出to_call，按钮有→用按钮
+      insLog.push('to_call: Vision=0 按钮='+btnToCall+' → 用按钮');
+      visionToCall=btnToCall;
+    }else if(btnToCall>0 && (visionToCall===0 || visionToCall!==btnToCall)){
+      // 按钮有值，Vision不一致→用按钮（按钮是硬编码文字，更可靠）
+      if(btnToCall!==visionToCall){
+        insLog.push('to_call: Vision='+visionToCall+'→按钮='+btnToCall);
+        visionToCall=btnToCall;
+      }
+    }
+    G.bet=visionToCall>0?Math.max(0,Math.round(visionToCall/bbValue)):0;
+
+    // === 4. 底池保险：连续性+合理性校验 ===
+    var visionPot=parseInt(data.pot_size)||0;
+    var newPotBB=visionPot>0?Math.max(1,Math.round(visionPot/bbValue)):0;
+    if(newPotBB>0){
+      // 底池不能小于上一街（翻牌>翻前，转牌>翻牌，河牌>转牌）
+      if(G._lastPotBB>0 && newPotBB<G._lastPotBB*0.5){
+        insLog.push('底池回退: Vision='+newPotBB+'BB<上街'+G._lastPotBB+'BB → 保持上街');
+        newPotBB=G._lastPotBB;
+      }
+      G.pot=newPotBB;
+      G._lastPotBB=newPotBB;
+    }else if(visionPot<=0 && G._lastPotBB>0){
+      // Vision没识别出底池→保持上一街（不要归零）
+      insLog.push('底池缺失: 保持上街'+G._lastPotBB+'BB');
+      G.pot=G._lastPotBB;
+    }
+
+    // === 5. 筹码保险：突变检测 ===
+    var visionChips=parseInt(data.my_chips)||0;
+    var newStkBB=visionChips>0?Math.max(1,Math.round(visionChips/bbValue)):0;
+    if(newStkBB>0 && G.stk>0){
+      var chipChange=Math.abs(newStkBB-G.stk)/G.stk;
+      // 筹码变化>80%且不是新一手牌（新一手牌筹码可能大变）→ 可能识别错
+      if(chipChange>0.8 && G.phase!=='pre'){
+        insLog.push('筹码突变: Vision='+newStkBB+'BB vs 旧='+G.stk+'BB (变化'+Math.round(chipChange*100)+'%) → 保持旧值');
+        // 不更新，保持旧值
+      }else{
+        G.stk=newStkBB;
+      }
+    }else if(newStkBB>0){
+      G.stk=newStkBB;
+    }
+
+    if(insLog.length>0) console.log('[Vision保险] '+insLog.join('; '));
+  })();
+  // 新一手牌时重置底池连续性追踪
+  if(G.phase==='pre'){G._lastPotBB=0;}
   
   // V2.9.51: ★ 从按钮文字自动推断scene ★
   // 翻后默认check，但按钮文字能告诉我们实际面对什么情况
