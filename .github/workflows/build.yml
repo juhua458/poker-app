@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.48
-        name: "V2.9.48 青云·底池识别+速度优化"
-        body: "V2.9.48: 底池识别强化(Vision prompt重点标注+逗号数字解析+合理性校验)+速度优化(图片压缩960/55%+MC迭代减半+延时10ms+超时缩短)+筹码/盲注解析增强"
+        tag_name: v2.9.49
+        name: "V2.9.49 青云·底池识别+速度优化"
+        body: "V2.9.49: 底池识别强化(Vision prompt重点标注+逗号数字解析+合理性校验)+速度优化(图片压缩960/55%+MC迭代减半+延时10ms+超时缩短)+筹码/盲注解析增强"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
