@@ -1448,6 +1448,12 @@ function postF(k){
     return{a:'allin',v:stk,r:'短筹码全下',eq:exploitResult4.eq,c:eq>=nq?'h':'m',po:nq,sizing:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult4.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(hClass.name==='AIR'&&bet>0){
+    // V2.9.51: 底对额外防御——底对只有2outs(set)，面对>1/3池下注一律弃牌
+    var isBottomPair=hClass.desc&&hClass.desc.indexOf('底对')>=0;
+    if(isBottomPair&&bet/pot>=0.33){
+      var exploitBp=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+      return{a:'fold',r:'底对不追大注',eq:exploitBp.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
     var exploitAir=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
     return{a:'fold',r:'空气牌不追',eq:exploitAir.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
@@ -1464,6 +1470,11 @@ function postF(k){
     if(hFreq&&street!=='river'){
       // hFreq=[bet%, check%], 用GTO频率决定是否C-bet
       var cbetChoice=gtoRandom(hFreq); // 0=bet, 1=check
+      if(cbetChoice===0&&(hClass.name==='AIR'||hClass.name==='DRAW'||hClass.name==='MEDIUM')){
+        // V2.9.51: 底对不做C-bet(2outs不够格)
+        var isBp3=hClass.desc&&hClass.desc.indexOf('底对')>=0;
+        if(isBp3){cbetChoice=1;} // 底对降级为check
+      }
       if(cbetChoice===0&&(hClass.name==='AIR'||hClass.name==='DRAW'||hClass.name==='MEDIUM')){
         var cbetSizing2=Math.round(pot*0.40);
         if(cbetSizing2>=2){
@@ -1486,7 +1497,9 @@ function postF(k){
     var cbetThresh=55-(cbetFreq-50)*0.3; // V2.9.28: 降5点让TPTK够bet
     // V2.9.30: AIR vs nit/tight C-bet诈唬(利用高弃牌率)
     // V2.9.35: 扩展诈唬覆盖AIR+低outs DRAW(4outs卡顺不算真正听牌), 放宽湿面到<=2
-    if((hClass.name==='AIR'||(hClass.name==='DRAW'&&hClass.outs<=4))&&ip&&G.act<=3&&(G.opp==='nit'||G.opp==='tight')&&bTexture.wetness<=2){
+    // V2.9.51: 底对不诈唬(只有2outs，被跟注必亏)
+    var isBottomPair2=hClass.desc&&hClass.desc.indexOf('底对')>=0;
+    if(!isBottomPair2&&(hClass.name==='AIR'||(hClass.name==='DRAW'&&hClass.outs<=4))&&ip&&G.act<=3&&(G.opp==='nit'||G.opp==='tight')&&bTexture.wetness<=2){
       var bluffSizing=Math.round(pot*0.5);
       if(bluffSizing>=2){
         var exploitNitBluff=applyExploit(eq,'raise',G.opp,{bet:0,pot:pot});
