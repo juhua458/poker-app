@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.56 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围</title>
+<title>青云 v2.9.57 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -156,6 +156,23 @@ body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
 .m-c.dis{opacity:.12;pointer-events:none}
 .m-c .mr{font-size:11px;line-height:1}.m-c .ms{font-size:8px;line-height:1}
 .m-cl{display:block;margin:8px auto;padding:6px 20px;border:none;border-radius:10px;background:rgba(255,255,255,.06);color:#fff;font-size:11px;cursor:pointer}
+/* V2.9.57: Session统计弹窗 */
+.stats-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.95);z-index:150;padding:8px;overflow-y:auto}
+.stats-modal.on{display:block}
+.stats-title{text-align:center;font-size:13px;color:#ffd700;margin-bottom:6px;font-weight:bold}
+.stats-card{background:rgba(255,255,255,.05);border-radius:8px;padding:8px;margin-bottom:6px}
+.stats-card h3{font-size:10px;color:#888;margin-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:2px}
+.stats-row{display:flex;justify-content:space-between;font-size:9px;padding:2px 0;color:#ccc}
+.stats-row .val{font-weight:bold;color:#fff}
+.stats-row .val.pos{color:#2ed573}
+.stats-row .val.neg{color:#ff4757}
+.stats-row .val.neu{color:#ffa502}
+.stats-bar{height:14px;background:rgba(255,255,255,.04);border-radius:3px;margin:2px 0;position:relative;overflow:hidden}
+.stats-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.stats-bar-label{position:absolute;right:4px;top:0;font-size:7px;line-height:14px;color:#fff;font-weight:bold}
+.stats-chart{height:60px;display:flex;align-items:flex-end;gap:1px;margin:4px 0;padding:0 2px}
+.stats-chart-bar{flex:1;min-width:2px;border-radius:1px 1px 0 0;transition:height .2s}
+.stats-pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
 .cam-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.95);z-index:200;padding:8px}
 .cam-modal.on{display:block}
 .cam-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
@@ -332,12 +349,18 @@ body.speed-mode .rec-label{font-size:10px}
 <button class="clr" style="background:#1a3a5c;font-size:9px;padding:3px 6px" id="hotBtn" onclick="hotUpdate()">📡策略更新</button>
 <button class="clr" style="background:#3a1a1a;font-size:9px;padding:3px 6px;display:none" id="revertBtn" onclick="revertLocal()">↩恢复本地</button>
 <button class="clr" style="background:#1a3a2c;font-size:9px;padding:3px 6px" id="exportBtn" onclick="exportLog()">📤导出日志</button>
+<button class="clr" style="background:#1a2a3a;font-size:9px;padding:3px 6px" id="statsBtn" onclick="showStats()">📊统计</button>
 <div class="cam-mini"><button class="cam-mini-btn" id="camMiniBtn" onclick="toggleCamModal()">📷</button></div>
 <div class="modal" id="modal">
   <div class="mt" id="mTitle">选牌</div>
   <div class="ms-row" id="mSuit"></div>
   <div class="m-grid" id="mGrid"></div>
   <button class="m-cl" onclick="closeM()">关闭</button>
+</div>
+<div class="stats-modal" id="statsModal">
+  <div class="stats-title">📊 Session统计</div>
+  <div id="statsContent"></div>
+  <button class="m-cl" onclick="closeStats()">关闭</button>
 </div>
 <div class="cam-modal" id="camModal">
   <div class="cam-header"><span class="cam-title">📷 实时扫描</span><button class="cam-close" onclick="closeCamModal()">关闭</button></div>
@@ -863,11 +886,14 @@ var HandHistory={
       opp:G.opp,
       rawPot:window._lastVisionPot||0,
       rawChips:window._lastVisionChips||0,
-      rawBB:window._lastVisionBB||0
+      rawBB:window._lastVisionBB||0,
+      bbResult:result.bbResult||0
     };
     this.records.unshift(rec);
     if(this.records.length>this.MAX_RECORDS)this.records=this.records.slice(0,this.MAX_RECORDS);
     try{localStorage.setItem(this.STORAGE_KEY,JSON.stringify(this.records));}catch(e){}
+    // V2.9.57: 自动推送结果到SessionStats
+    SessionStats.recordHand(rec);
   },
   getAll:function(){return this.records;},
   clear:function(){this.records=[];try{localStorage.removeItem(this.STORAGE_KEY);}catch(e){}}
@@ -892,12 +918,155 @@ var LogBuffer={
   clear:function(){this.records=[];}
 };
 
+// V2.9.57: Session统计——Bankroll曲线+BB/100+按位置分解
+var SessionStats={
+  STORAGE_KEY:'poker_v2957_stats',
+  data:null,
+  init:function(){
+    this.data={
+      sessionStart:Date.now(),
+      totalHands:0,
+      totalBB:0,
+      hands:[], // {ts,pos,action,bbResult,eq,scene,phase}
+      posStats:{} // pos→{hands,wins,bb,vpip,pfr}
+    };
+    try{
+      var d=localStorage.getItem(this.STORAGE_KEY);
+      if(d){
+        var saved=JSON.parse(d);
+        if(saved&&saved.totalHands)this.data=saved;
+      }
+    }catch(e){}
+  },
+  save:function(){
+    try{localStorage.setItem(this.STORAGE_KEY,JSON.stringify(this.data));}catch(e){}
+  },
+  reset:function(){
+    this.data={
+      sessionStart:Date.now(),
+      totalHands:0,
+      totalBB:0,
+      hands:[],
+      posStats:{}
+    };
+    this.save();
+  },
+  recordHand:function(rec){
+    var d=this.data;
+    d.totalHands++;
+    // 估算BB结果: 用action+场景推断
+    var bb=rec.bbResult||0;
+    // 如果没有明确结果，用action推断近似BB
+    if(bb===0){
+      if(rec.action==='fold')bb=-0.5; // 弃牌损失约0.5BB(盲注)
+      else if(rec.action==='call')bb=-1; // 跟注大约1BB
+      else if(rec.action==='raise'||rec.action==='reraise')bb=-1.5; // 加注投入
+      else if(rec.action==='check')bb=0; // 过牌无投入
+      // 如果有rawChips可以更精确，但这里用近似
+    }
+    d.totalBB+=bb;
+    // 记录手牌到列表(最多200手用于曲线)
+    d.hands.push({ts:rec.ts,pos:rec.pos,action:rec.action,bb:bb,eq:rec.eq||0,scene:rec.scene,phase:rec.phase});
+    if(d.hands.length>200)d.hands=d.hands.slice(-200);
+    // 按位置统计
+    var pos=rec.pos||'unknown';
+    if(!d.posStats[pos])d.posStats[pos]={hands:0,wins:0,bb:0,vpip:0,pfr:0};
+    var ps=d.posStats[pos];
+    ps.hands++;
+    ps.bb+=bb;
+    if(bb>0)ps.wins++;
+    if(rec.action==='call'||rec.action==='raise'||rec.action==='reraise')ps.vpip++;
+    if(rec.phase==='pre'&&(rec.action==='raise'||rec.action==='reraise'))ps.pfr++;
+    this.save();
+  },
+  // 标记一手牌的实际结果(手动输入赢了多少BB)
+  setResult:function(bbResult){
+    if(this.data.hands.length>0){
+      var last=this.data.hands[this.data.hands.length-1];
+      var oldBB=last.bb;
+      last.bb=bbResult;
+      this.data.totalBB+=(bbResult-oldBB);
+      // 更新posStats
+      var pos=last.pos||'unknown';
+      if(this.data.posStats[pos]){
+        this.data.posStats[pos].bb+=(bbResult-oldBB);
+        if(bbResult>0&&oldBB<=0)this.data.posStats[pos].wins++;
+        else if(bbResult<=0&&oldBB>0)this.data.posStats[pos].wins=Math.max(0,this.data.posStats[pos].wins-1);
+      }
+      this.save();
+    }
+  },
+  getStats:function(){
+    var d=this.data;
+    var total=d.totalHands||1;
+    var bb100=total>0?(d.totalBB/total*100).toFixed(1):'0.0';
+    var winRate=d.totalHands>0?((d.hands.filter(function(h){return h.bb>0;}).length/total*100).toFixed(0)):'0';
+    // 最近20手趋势
+    var recent=d.hands.slice(-20);
+    var recentBB=recent.reduce(function(s,h){return s+h.bb;},0);
+    var recentBB100=recent.length>0?(recentBB/recent.length*100).toFixed(1):'0.0';
+    // Bankroll曲线数据(每手累计BB)
+    var cumBB=0;
+    var chartData=d.hands.slice(-50).map(function(h){cumBB+=h.bb;return cumBB;});
+    // 位置统计
+    var posOrder=['utg','utg1','mp','mp1','hj','co','btn','sb','bb'];
+    var posData=[];
+    posOrder.forEach(function(p){
+      var ps=d.posStats[p];
+      if(ps&&ps.hands>0){
+        posData.push({
+          pos:p,
+          hands:ps.hands,
+          wins:ps.wins,
+          winRate:(ps.wins/ps.hands*100).toFixed(0),
+          bb:ps.bb.toFixed(1),
+          bb100:(ps.bb/ps.hands*100).toFixed(1),
+          vpip:ps.hands>0?(ps.vpip/ps.hands*100).toFixed(0):'0',
+          pfr:ps.hands>0?(ps.pfr/ps.hands*100).toFixed(0):'0'
+        });
+      }
+    });
+    // 按场景统计
+    var sceneStats={open:{hands:0,bb:0},raise:{hands:0,bb:0},reraise:{hands:0,bb:0},call:{hands:0,bb:0},check:{hands:0,bb:0},bet:{hands:0,bb:0}};
+    d.hands.forEach(function(h){
+      var sc=h.scene||'check';
+      if(sceneStats[sc]){sceneStats[sc].hands++;sceneStats[sc].bb+=h.bb;}
+    });
+    // 最长连败/连胜
+    var maxStreak=0,currentStreak=0,streakType=null;
+    d.hands.forEach(function(h){
+      if(h.bb>0){
+        if(streakType==='win')currentStreak++;
+        else{streakType='win';currentStreak=1;}
+      }else if(h.bb<0){
+        if(streakType==='lose')currentStreak++;
+        else{streakType='lose';currentStreak=1;}
+      }
+      if(currentStreak>maxStreak)maxStreak=currentStreak;
+    });
+    return{
+      totalHands:d.totalHands,
+      totalBB:d.totalBB.toFixed(1),
+      bb100:bb100,
+      winRate:winRate,
+      recentBB:recentBB.toFixed(1),
+      recentBB100:recentBB100,
+      chartData:chartData,
+      posData:posData,
+      sceneStats:sceneStats,
+      maxStreak:maxStreak,
+      streakType:streakType,
+      sessionMins:d.sessionStart?Math.round((Date.now()-d.sessionStart)/60000):0
+    };
+  }
+};
+
 // V2.9.47: 导出日志——收集手牌历史+DRTA+运行日志，POST到Kotlin端分享
 function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.56',
+    version:'2.9.57',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -917,6 +1086,91 @@ function exportLog(){
   });
 }
 
+// V2.9.57: Session统计弹窗
+function showStats(){
+  var s=SessionStats.getStats();
+  var h='';
+  // 总览卡片
+  h+='<div class="stats-card"><h3>📈 总览</h3>';
+  var bbClass=parseFloat(s.totalBB)>=0?'pos':'neg';
+  var bb100Class=parseFloat(s.bb100)>=0?'pos':'neg';
+  h+='<div class="stats-row"><span>总手数</span><span class="val">'+s.totalHands+'手</span></div>';
+  h+='<div class="stats-row"><span>总盈亏</span><span class="val '+bbClass+'">'+(parseFloat(s.totalBB)>=0?'+':'')+s.totalBB+' BB</span></div>';
+  h+='<div class="stats-row"><span>BB/100</span><span class="val '+bb100Class+'">'+(parseFloat(s.bb100)>=0?'+':'')+s.bb100+' BB</span></div>';
+  h+='<div class="stats-row"><span>胜率</span><span class="val">'+s.winRate+'%</span></div>';
+  var rbbClass=parseFloat(s.recentBB)>=0?'pos':'neg';
+  h+='<div class="stats-row"><span>近20手</span><span class="val '+rbbClass+'">'+(parseFloat(s.recentBB)>=0?'+':'')+s.recentBB+' BB ('+s.recentBB100+' BB/100)</span></div>';
+  if(s.sessionMins>0)h+='<div class="stats-row"><span>Session时长</span><span class="val">'+s.sessionMins+'分钟</span></div>';
+  if(s.maxStreak>0){
+    var streakLabel=s.streakType==='win'?'连胜':'连败';
+    var streakColor=s.streakType==='win'?'pos':'neg';
+    h+='<div class="stats-row"><span>最长'+streakLabel+'</span><span class="val '+streakColor+'">'+s.maxStreak+'手</span></div>';
+  }
+  h+='</div>';
+  // Bankroll曲线
+  if(s.chartData.length>1){
+    h+='<div class="stats-card"><h3>📉 Bankroll曲线 (近'+s.chartData.length+'手)</h3>';
+    h+='<div class="stats-chart">';
+    var maxBB=Math.max.apply(null,s.chartData.map(Math.abs));
+    maxBB=Math.max(maxBB,1);
+    s.chartData.forEach(function(v,i){
+      var pct=Math.abs(v)/maxBB*100;
+      var color=v>=0?'#2ed573':'#ff4757';
+      h+='<div class="stats-chart-bar" style="height:'+Math.max(pct,3)+'%;background:'+color+';opacity:'+(0.4+0.6*i/s.chartData.length).toFixed(2)+'"></div>';
+    });
+    h+='</div>';
+    h+='<div class="stats-row" style="font-size:7px;color:#555"><span>←旧</span><span>新→</span></div>';
+    h+='</div>';
+  }
+  // 按位置分解
+  if(s.posData.length>0){
+    h+='<div class="stats-card"><h3>🎯 按位置统计</h3>';
+    h+='<div class="stats-pos-grid">';
+    var posNames={utg:'UTG',utg1:'UTG+1',mp:'MP',mp1:'MP+1',hj:'HJ',co:'CO',btn:'BTN',sb:'SB',bb:'BB'};
+    s.posData.forEach(function(p){
+      var pbbClass=parseFloat(p.bb)>=0?'pos':'neg';
+      h+='<div style="background:rgba(255,255,255,.03);border-radius:4px;padding:4px">';
+      h+='<div style="font-size:9px;color:#aaa;font-weight:bold">'+(posNames[p.pos]||p.pos)+'</div>';
+      h+='<div class="stats-row"><span>手数</span><span class="val">'+p.hands+'</span></div>';
+      h+='<div class="stats-row"><span>盈亏</span><span class="val '+pbbClass+'">'+(parseFloat(p.bb)>=0?'+':'')+p.bb+'</span></div>';
+      h+='<div class="stats-row"><span>BB/100</span><span class="val '+pbbClass+'">'+(parseFloat(p.bb100)>=0?'+':'')+p.bb100+'</span></div>';
+      h+='<div class="stats-row"><span>VPIP</span><span class="val">'+p.vpip+'%</span></div>';
+      h+='<div class="stats-row"><span>PFR</span><span class="val">'+p.pfr+'%</span></div>';
+      h+='</div>';
+    });
+    h+='</div></div>';
+  }
+  // 按场景统计
+  var sceneNames={open:'开池',raise:'面对加注',reraise:'面对3bet',call:'多人池',check:'过牌',bet:'下注'};
+  var sceneHasData=false;
+  var sceneKeys=['open','raise','reraise','call','check','bet'];
+  sceneKeys.forEach(function(k){if(s.sceneStats[k]&&s.sceneStats[k].hands>0)sceneHasData=true;});
+  if(sceneHasData){
+    h+='<div class="stats-card"><h3>🃏 按场景统计</h3>';
+    sceneKeys.forEach(function(k){
+      var sc=s.sceneStats[k];
+      if(!sc||sc.hands===0)return;
+      var scbbClass=sc.bb>=0?'pos':'neg';
+      h+='<div class="stats-row"><span>'+(sceneNames[k]||k)+'</span><span class="val">'+sc.hands+'手 | <span class="'+scbbClass+'">'+(sc.bb>=0?'+':'')+sc.bb.toFixed(1)+' BB</span></span></div>';
+    });
+    h+='</div>';
+  }
+  // 手动输入结果 + 重置
+  h+='<div class="stats-card"><h3>✏️ 标记结果(上一手)</h3>';
+  h+='<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">';
+  [-5,-3,-2,-1,0,1,2,3,5,10,20].forEach(function(v){
+    var label=v===0?'0':v>0?'+'+v:''+v;
+    var color=v>0?'#2ed573':v<0?'#ff4757':'#888';
+    h+='<button style="padding:3px 8px;border:none;border-radius:4px;background:rgba(255,255,255,.08);color:'+color+';font-size:9px;font-weight:bold;cursor:pointer" onclick="SessionStats.setResult('+v+');showStats();">'+label+'BB</button>';
+  });
+  h+='</div></div>';
+  // 重置按钮
+  h+='<div style="text-align:center;margin-top:8px"><button style="padding:6px 16px;border:1px solid #ff4757;border-radius:8px;background:transparent;color:#ff4757;font-size:10px;cursor:pointer" onclick="if(confirm(\'确定清空所有Session统计？\')){SessionStats.reset();showStats();}">🗑️ 重置统计</button></div>';
+  document.getElementById('statsContent').innerHTML=h;
+  document.getElementById('statsModal').classList.add('on');
+}
+function closeStats(){document.getElementById('statsModal').classList.remove('on');}
+
 // V2.9.47: Toast提示（替代alert）
 function showToast(msg){
   var t=document.createElement('div');
@@ -929,7 +1183,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.56',
+  CURRENT_VERSION:'2.9.57',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -3085,6 +3339,7 @@ function revertLocal(){
 LogBuffer.init(); // V2.9.47: 日志缓冲
 CacheManager.init(); // V2.9.46: 缓存管理
 HandHistory.init(); // V2.9.46: 手牌历史
+SessionStats.init(); // V2.9.57: Session统计
 DRTA.init();
 _initMCWorker(); // V2.9.46: 预创建Worker
 mkMx();
