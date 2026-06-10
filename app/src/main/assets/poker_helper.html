@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.68 · 保活+电池优化白名单</title>
+<title>青云 v2.9.69 · 保活+电池优化白名单</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -431,8 +431,12 @@ function _initMCWorker(){
       if(_mcResolve){_mcResolve(e.data);_mcResolve=null;}
     };
     _mcWorker.onerror=function(e){
-      console.log('[Worker] MC Worker错误,降级同步');
-      if(_mcResolve){_mcResolve=null;}
+      console.log('[Worker] MC Worker错误,降级同步: '+e.message);
+      if(_mcResolve){
+        var resolve=_mcResolve;
+        _mcResolve=null;
+        try{resolve(mcVsRange([],[],[],500));}catch(e2){resolve({eq:50,win:25,tie:0});}
+      }
       _mcWorker=null;
     };
   }catch(e){
@@ -450,7 +454,7 @@ function mcVsRangeAsync(hole,comm,oppRange,iterations){
       setTimeout(function(){
         if(_mcResolve===resolve){
           _mcResolve=null;
-          resolve(mcVsRange(hole,comm,oppRange,iterations));
+          try{resolve(mcVsRange(hole,comm,oppRange,iterations));}catch(e){resolve({eq:50,win:25,tie:0});}
         }
       },5000);
     });
@@ -1085,7 +1089,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.68',
+    version:'2.9.69',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1202,7 +1206,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.68',
+  CURRENT_VERSION:'2.9.69',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){

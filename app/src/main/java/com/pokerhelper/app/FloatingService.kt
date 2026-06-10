@@ -341,22 +341,25 @@ class FloatingService : Service() {
         executeJs("if(typeof clr==='function'){clr()}")
         tvRecResult?.text = ""
         tvRecResult?.visibility = View.GONE
-        tvRecDetail?.text = ""  // V2.9.43: 详情行也要清空
+        tvRecDetail?.text = ""
         tvRecDetail?.visibility = View.GONE
         tvStatus?.text = "🎯 截屏中..."
         executeJs("document.body.classList.add('api-processing')")
         tvAction?.alpha = 0.5f
+        // V2.9.69: 诊断通知
+        if (isStealthMode) updateAdviceNotification("1/4 截屏中", "点击悬浮球触发")
 
         if (ScreenOptService.isServiceRunning()) {
             ScreenOptService.onScreenshotReady = { success ->
                 handler.post {
                     if (success) {
+                        if (isStealthMode) updateAdviceNotification("2/4 截屏成功", "正在调用API识别...")
                         processScreenshotAndAnalyze()
                     } else {
                         tvStatus?.text = "❌ 截图失败，请重试"
                         tvAction?.alpha = 1.0f
                         executeJs("document.body.classList.remove('api-processing')")
-                        if (isStealthMode) updateAdviceNotification("截图失败", "请重试或检查无障碍服务")
+                        if (isStealthMode) updateAdviceNotification("❌ 截图失败", "请重试或检查无障碍服务")
                     }
                 }
             }
@@ -365,7 +368,7 @@ class FloatingService : Service() {
             tvStatus?.text = "⚠️ 请先开启无障碍服务！"
             tvAction?.alpha = 1.0f
             executeJs("document.body.classList.remove('api-processing')")
-            if (isStealthMode) updateAdviceNotification("无障碍未开启", "请回App开启后重试")
+            if (isStealthMode) updateAdviceNotification("❌ 无障碍未开启", "请回App开启后重试")
         }
     }
 
@@ -569,6 +572,7 @@ class FloatingService : Service() {
             
             @JavascriptInterface
             fun showAdvice(advice: String) {
+                Log.d("V269", "showAdvice调用: advice=" + advice)
                 handler.post {
                     val currentText = tvRecResult?.text?.toString() ?: ""
                     if (advice.isNotEmpty()) {
@@ -817,6 +821,7 @@ class FloatingService : Service() {
      * 🔥慢闪=Tilt对手 ⚔️快闪=反剥削 ⚠️双闪=底池不确定
      */
     fun updateBallAdvice(advice: String) {
+        Log.d("V269", "updateBallAdvice: advice=$advice, ball=${if(floatingBall!=null)"存在" else "null"}")
         try {
             val ball = floatingBall ?: return
             val shape = ball.background as? GradientDrawable ?: return
@@ -1032,9 +1037,12 @@ class FloatingService : Service() {
             tvStatus?.text = diag
             tvAction?.alpha = 1.0f
             executeJs("document.body.classList.remove('api-processing')")
-            if (isStealthMode) updateAdviceNotification("截图失败", diag)
+            if (isStealthMode) updateAdviceNotification("❌ 2/4 截图为空", diag)
             return
         }
+        // V2.9.69: 诊断——截图成功
+        Log.d(TAG, "截图成功: ${screenshot.size / 1024}KB, apiKey=${if(VisionApiClient.apiKey.isNotEmpty()) "已配置" else "空"}")
+        if (isStealthMode) updateAdviceNotification("2/4 截图OK", "${screenshot.size / 1024}KB, API识别中...")
 
         if (VisionApiClient.apiKey.isEmpty()) {
             executeJs("if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')")
@@ -1051,11 +1059,14 @@ class FloatingService : Service() {
         Thread {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
+                Log.d(TAG, "V2.9.69诊断: VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
                 if (result != null) {
                     val resultJson = VisionApiClient.toJson(result)
                     handler.post {
-                        executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}")
+                        executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}else{console.log('[V269]onVisionResult未定义!')}")
                         tvAction?.alpha = 1.0f
+                        Log.d(TAG, "V2.9.69诊断: onVisionResult已调用")
+                        if (isStealthMode) updateAdviceNotification("3/4 API识别OK", "策略计算中...")
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
                         val suitSym = mapOf("s" to "♠", "h" to "♥", "d" to "♦", "c" to "♣")
@@ -1091,7 +1102,8 @@ class FloatingService : Service() {
                         tvAction?.alpha = 1.0f
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
                         executeJs("document.body.classList.remove('api-processing')")
-                        if (isStealthMode) updateAdviceNotification("API识别失败", VisionApiClient.lastError.take(50))
+                        Log.e(TAG, "V2.9.69诊断: API失败, error=${VisionApiClient.lastError}")
+                        if (isStealthMode) updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
                     }
                 }
             } catch (e: Exception) {
