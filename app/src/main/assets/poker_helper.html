@@ -2624,7 +2624,7 @@ function applyExploit(eq,action,oppType,ctx){ctx=ctx||{};var mod=1,exploit='',si
 
 // ===== P1: StrategicBluff - 战略性诈唬 =====
 var StrategicBluff={
-  check:function(eq,hClass,street,scene,profile,bTexture,opponents,pot,bet,sizing){
+  check:function(eq,hClass,street,scene,profile,bTexture,opponents,pot,bet,sizing,_tiltInfo,_ceResult){
     var type=profile.type,conf=profile.confidence,ftb=profile.fold_to_bet||50,bsr=profile.bluff_success_rate||0.5;
     var blu={action:null,strategy:null,sizing:null};
     var isDryBoard=!bTexture||!bTexture.wetness||bTexture.wetness<2;
@@ -2635,9 +2635,9 @@ var StrategicBluff={
         // V2.9.59: SPR感知诈唬频率——短码不bluff，深码多bluff
         bf=SPRZone.bluffFreq(G.spr||calcSPR(),bf,type,hClass.name);
         // V2.9.60: Tilt对手减少bluff（tilt玩家不弃牌，bluff无效）
-        if(typeof tiltInfo!=="undefined"&&tiltInfo.tilt)bf*=(1-(tiltInfo.adjustments.bluffReduce||0));
+        if(_tiltInfo&&_tiltInfo.tilt)bf*=(1-(_tiltInfo.adjustments.bluffReduce||0));
         // V2.9.61: 反剥削——对手过度弃牌说明知道我们bluff多→减少bluff
-        if(typeof ceResult!=="undefined"&&ceResult.detected&&ceResult.adjustments.bluffReduce)bf*=(1-ceResult.adjustments.bluffReduce);
+        if(_ceResult&&_ceResult.detected&&_ceResult.adjustments.bluffReduce)bf*=(1-_ceResult.adjustments.bluffReduce);
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
         if(Math.random()<bf){
@@ -3254,7 +3254,7 @@ function postF(k){
     return{a:lagTrap.action,r:lagTrap.strategy,eq:exploitT.eq,c:hClass.name==='NUTS'?'h':'m',sizing:lagTrap.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,strategy:lagTrap.strategy,weights:weights}};
   }
   // === DRTA层: 诈唬检查 ===
-  var bluff=StrategicBluff.check(eq,hClass,street,scene,profile,bTexture,opponents,pot,bet,sizing);
+  var bluff=StrategicBluff.check(eq,hClass,street,scene,profile,bTexture,opponents,pot,bet,sizing,tiltInfo,ceResult);
   if(bluff.action){
     var exploitB=applyExploit(eq,bluff.action,G.opp,{bet:bet,pot:pot});
     return{a:bluff.action,r:bluff.strategy,eq:exploitB.eq,c:'m',sizing:bluff.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,strategy:bluff.strategy,weights:weights}};
