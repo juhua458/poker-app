@@ -1040,7 +1040,7 @@ class FloatingService : Service() {
             executeJs("document.body.classList.remove('api-processing')")
             if (isStealthMode) updateAdviceNotification("❌ 2/4 截图为空", diag)
             // V2.9.70: 截图失败→悬浮球变红，表示"App在工作但截屏失败"
-            updateBallAdvice("FOLD", "截屏失败")
+            updateBallAdvice("FOLD")
             return
         }
         // V2.9.70: 诊断——截图成功
@@ -1106,7 +1106,7 @@ class FloatingService : Service() {
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
                         executeJs("document.body.classList.remove('api-processing')")
                         // V2.9.70: API失败→悬浮球变红，表示"App在工作但识别失败"
-                        updateBallAdvice("FOLD", "API失败")
+                        updateBallAdvice("FOLD")
                         Log.e(TAG, "V2.9.70诊断: API失败, error=${VisionApiClient.lastError}")
                         if (isStealthMode) updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
                     }
@@ -1117,7 +1117,7 @@ class FloatingService : Service() {
                     tvStatus?.text = "❌ API错误"
                     executeJs("document.body.classList.remove('api-processing')")
                     // V2.9.70: API异常→悬浮球变红
-                    updateBallAdvice("FOLD", "API异常")
+                    updateBallAdvice("FOLD")
                     if (isStealthMode) updateAdviceNotification("API错误", e.message?.take(50) ?: "")
                 }
             }
