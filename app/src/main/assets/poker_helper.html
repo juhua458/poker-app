@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.52 · GTO+DRTA融合版·2-9人桌全桌型·Worker异步MC·底池容错</title>
+<title>青云 v2.9.53 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池容错</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -804,7 +804,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.52',
+    version:'2.9.53',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -836,7 +836,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.52',
+  CURRENT_VERSION:'2.9.53',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1615,12 +1615,22 @@ function postF(k){
   var blocker=getBlockerScore(k,oppRange);
   var hClass=handClassify(hole,comm);
   var betPotRatio=bet>0?bet/(pot+bet):0;
-  var mcIter=(function(){var b=2000;if(bc.length===5)b=3000;else if(bc.length===4)b=2500;if(betPotRatio>=0.66)b=Math.round(b*2.0);else if(betPotRatio>=0.33)b=Math.round(b*1.3);return Math.min(b,8000);})();
-  // V2.9.46: MC结果——同步取缓存或立即算(Worker异步在go()中处理)
-  var sim=_mcSimCache||mcVsRange(hole,comm,oppRange,mcIter);
+  // V2.9.53: 河牌完全枚举——5张公共牌确定时精确计算，不走MC
+  var sim;
+  if(bc.length===5){
+    // 河牌: 完全枚举，100%精确胜率
+    sim=riverExactEquity(hole,comm,oppRange);
+    console.log('[河牌枚举] exact='+sim.eq.toFixed(1)+'% combos='+sim.combos);
+  }else{
+    var mcIter=(function(){var b=2000;if(bc.length===4)b=2500;if(betPotRatio>=0.66)b=Math.round(b*2.0);else if(betPotRatio>=0.33)b=Math.round(b*1.3);return Math.min(b,8000);})();
+    sim=_mcSimCache||mcVsRange(hole,comm,oppRange,mcIter);
+  }
   _mcSimCache=null;
   var betLevel=betPotRatio<0.33?'small':betPotRatio<0.66?'normal':'large';
   var eq=sim.eq;
+  // V2.9.53: 保存河牌精确枚举标记，供show()显示
+  var _exactEq=sim.exact||false;
+  var _exactCombos=sim.combos||0;
   // V2.9.46: MC虚高校准(基于实际牌谱对比,非经验值)
   // DRAW折扣: 组合听牌0.82, 强听8+outs 0.78, 中听4-7outs 0.72, 弱听<4outs 0.65
   if(hClass.name==='DRAW'){
@@ -1990,7 +2000,10 @@ function show(r){
     }
   }
   if(r.eq!==undefined){
-    h+='<div class="r-ev-sm">胜率: '+r.eq.toFixed(0)+'%'+(r.po!==undefined?' | 需'+r.po.toFixed(0)+'%':'')+'</div>';
+    // V2.9.53: 河牌显示"精确胜率"标识
+    var isRiver=(r.scene==='河牌');
+    var eqLabel=isRiver?'🎯精确胜率':'胜率';
+    h+='<div class="r-ev-sm">'+eqLabel+': '+r.eq.toFixed(1)+'%'+(r.po!==undefined?' | 需'+r.po.toFixed(0)+'%':'')+'</div>';
   }
   // V2.9.52: 底池置信度显示
   if(PotConfidence.score<100){
@@ -2024,13 +2037,28 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
       var bTexture=boardTexture(bc);
       var oppRange=getOppRange(G.bet>0?'postflop':'preflop',G.bet>0?'cbet':'check',bTexture.wetness>=2?'wet':'dry');
       var betPotRatio=G.bet>0?G.bet/(G.pot+G.bet):0;
-      var mcIter=(function(){var b=1500;if(bc.length===5)b=2000;else if(bc.length===4)b=1800;if(betPotRatio>=0.66)b=Math.round(b*1.5);else if(betPotRatio>=0.33)b=Math.round(b*1.2);return Math.min(b,4000);})();
+      // V2.9.53: 河牌完全枚举(同步精确), 翻牌/转牌仍走Worker异步MC
+      if(bc.length===5){
+        // 河牌: 直接精确枚举，无需异步Worker
+        var sim=riverExactEquity(hole,comm,oppRange);
+        _mcSimCache=sim;
+        try{
+          var r=decide();
+          show(r);
+          HandHistory.add(r,true);
+          try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}}}}catch(e2){}
+          var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
+        }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
+        return; // 河牌同步完成
+      }
+      // 翻牌/转牌: 走Worker异步MC
+      var mcIter=(function(){var b=1500;if(bc.length===4)b=1800;if(betPotRatio>=0.66)b=Math.round(b*1.5);else if(betPotRatio>=0.33)b=Math.round(b*1.2);return Math.min(b,4000);})();
       mcVsRangeAsync(hole,comm,oppRange,mcIter).then(function(sim){
         _mcSimCache=sim;
         try{
           var r=decide();
           show(r);
-          HandHistory.add(r,true); // V2.9.46: 记录手牌历史（含Vision原始值）
+          HandHistory.add(r,true);
           try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}}}}catch(e2){}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
         }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
@@ -2180,6 +2208,54 @@ function selHFromMx(k,i,j){
   uCards();afterPick();
 }
 function e5(cards){var best=0;var all5=[];var n=cards.length;for(var i=0;i<n-4;i++)for(var j=i+1;j<n-3;j++)for(var k=j+1;k<n-2;k++)for(var l=k+1;l<n-1;l++)for(var m=l+1;m<n;m++)all5.push([cards[i],cards[j],cards[k],cards[l],cards[m]]);for(var idx=0;idx<all5.length;idx++){var v=eH(all5[idx]);if(v>best)best=v;}return best;}
+// V2.9.53: 河牌完全枚举——5张公共牌确定时精确计算胜率
+// 原理: 河牌无需模拟未知公共牌，只需枚举对手所有可能手牌组合，逐一比较牌力
+// 精度: 100%精确（非MC近似），典型场景1000-2000组合，<100ms
+function riverExactEquity(hole,comm,oppRange){
+  var known=[].concat(hole,comm.filter(function(c){return c;}));
+  // 构建剩余牌堆
+  var deck=[];
+  for(var ri=0;ri<R.length;ri++){
+    for(var si=0;si<SU.length;si++){
+      var rank=R[ri],suit=SU[si];
+      if(!known.some(function(c){return c.rank===rank&&c.suit===suit;})){
+        deck.push({rank:rank,suit:suit});
+      }
+    }
+  }
+  // 构建对手范围: 展开oppRange为具体手牌组合，排除已知牌
+  var oppHands=[];
+  for(var ki=0;ki<oppRange.length;ki++){
+    var key=oppRange[ki];
+    var hands=handKeyToCards(key);
+    for(var hi=0;hi<hands.length;hi++){
+      var h=hands[hi];
+      if(!known.some(function(c){return c.rank===h[0].rank&&c.suit===h[0].suit;})
+        &&!known.some(function(c){return c.rank===h[1].rank&&c.suit===h[1].suit;})){
+        oppHands.push(h);
+      }
+    }
+  }
+  // 如果对手范围为空，枚举所有剩余2张组合（无范围约束）
+  if(oppHands.length===0){
+    for(var i=0;i<deck.length;i++){
+      for(var j=i+1;j<deck.length;j++){
+        oppHands.push([deck[i],deck[j]]);
+      }
+    }
+  }
+  // 我的牌力（河牌7张选最佳5张，只算一次）
+  var myBest=e5([].concat(hole,comm));
+  var w=0,t=0,total=oppHands.length;
+  // 遍历对手每一手，精确比较（7张选最佳5张）
+  for(var oi=0;oi<total;oi++){
+    var oppBest=e5([].concat(oppHands[oi],comm));
+    if(myBest>oppBest) w++;
+    else if(myBest===oppBest) t++;
+  }
+  return {eq:(w+t*0.5)/total*100, win:w/total*100, tie:t/total*100, exact:true, combos:total};
+}
+
 function mcVsRange(hole,comm,oppRange,iterations){if(iterations===undefined)iterations=2000;var known=[].concat(hole,comm.filter(function(c){return c;}));var deck=[];for(var ri=0;ri<R.length;ri++){for(var si=0;si<SU.length;si++){var rank=R[ri];var suit=SU[si];if(!known.some(function(c){return c.rank===rank&&c.suit===suit;})){deck.push({rank:rank,suit:suit});}}}var cn=comm.filter(function(c){return c;}).length;var nd=5-cn;var oppHands=[];for(var ki=0;ki<oppRange.length;ki++){var key=oppRange[ki];var hands=handKeyToCards(key);for(var hi=0;hi<hands.length;hi++){var h=hands[hi];if(!known.some(function(c){return c.rank===h[0].rank&&c.suit===h[0].suit;})&&!known.some(function(c){return c.rank===h[1].rank&&c.suit===h[1].suit;})){oppHands.push(h);}}}var w=0,t=0;var hv=eH([].concat(hole,comm.filter(function(c){return c;})));for(var i=0;i<iterations;i++){var sh=[].concat(deck);for(var j=sh.length-1;j>sh.length-1-nd&&j>0;j--){var k=Math.floor(Math.random()*(j+1));var tmp=sh[j];sh[j]=sh[k];sh[k]=tmp;}var board=[].concat(comm.filter(function(c){return c;}),(nd>0?sh.slice(-nd):[]));var myBest=eH([].concat(hole,board));var oppBest=0;if(oppHands.length>0){var oppIdx=Math.floor(Math.random()*oppHands.length);var oppHole=oppHands[oppIdx];if(oppHole)oppBest=eH([].concat(oppHole,board));}else{var oppSh=[].concat(deck.slice(0,-nd));for(var jj=oppSh.length-1;jj>oppSh.length-3&&jj>0;jj--){var kk=Math.floor(Math.random()*(jj+1));var tmp2=oppSh[jj];oppSh[jj]=oppSh[kk];oppSh[kk]=tmp2;}oppBest=eH([oppSh[0],oppSh[1]].concat(board));}if(myBest>oppBest)w++;else if(myBest===oppBest)t++;}return{eq:(w+t*0.5)/iterations*100,win:w/iterations*100,tie:t/iterations*100};}
 function handKeyToCards(key){var results=[];var r1=key[0],r2=key[1];var isSuited=key.indexOf('s')!==-1;var isPaired=r1===r2;if(isPaired){for(var s1i=0;s1i<SU.length;s1i++){for(var s2i=s1i+1;s2i<SU.length;s2i++){results.push([{rank:r1,suit:SU[s1i]},{rank:r2,suit:SU[s2i]}]);}}}else if(isSuited){for(var si=0;si<SU.length;si++){results.push([{rank:r1,suit:SU[si]},{rank:r2,suit:SU[si]}]);}}else{for(var s1j=0;s1j<SU.length;s1j++){for(var s2j=0;s2j<SU.length;s2j++){if(SU[s1j]!==SU[s2j])results.push([{rank:r1,suit:SU[s1j]},{rank:r2,suit:SU[s2j]}]);}}}return results;}
 async function toggleCamModal(){
