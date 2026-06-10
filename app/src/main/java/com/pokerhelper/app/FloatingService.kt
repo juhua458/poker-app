@@ -23,6 +23,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -1228,6 +1229,4 @@ class FloatingService : Service() {
 
             val manager = getSystemService(NotificationManager::class.java)
             manager.notify(NOTIFICATION_ID, notification)
-        } catch (e: Exception) {}
-    }
-}
+        } catch (e
