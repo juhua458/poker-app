@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Android 14+ 前台服务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- V2.9.68: 电池优化白名单，防止一加/小米等杀后台 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- V2.9.68: WakeLock保活 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- 语音识别权限 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

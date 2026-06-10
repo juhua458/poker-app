@@ -7,6 +7,9 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.view.View
@@ -245,12 +248,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // V2.9.68: 请求忽略电池优化，防止一加/小米杀后台
+    private fun requestBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    // 某些设备不支持，降级到手动设置
+                    try {
+                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        startActivity(intent)
+                        Toast.makeText(this, "请找到「青云」→选「不限制」", Toast.LENGTH_LONG).show()
+                    } catch (e2: Exception) {
+                        Log.w(TAG, "Cannot open battery optimization settings", e2)
+                    }
+                }
+            }
+        }
+    }
+
     private fun startDirectly() {
         try {
             if (!isAccessibilityServiceEnabled()) {
                 Toast.makeText(this, "⚠️ 请先开启无障碍服务（点下方按钮）", Toast.LENGTH_LONG).show()
                 return
             }
+
+            // V2.9.68: 请求电池优化白名单（防止服务被杀）
+            requestBatteryOptimization()
 
             val httpIntent = Intent(this, HttpServerService::class.java).apply { action = "START" }
             startForegroundService(httpIntent)
@@ -260,6 +290,15 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "📱 青云启动中...", Toast.LENGTH_SHORT).show()
 
             tryLaunchFloatingHelper()
+
+            // V2.9.68: 启动后3秒自检——如果服务被杀，提示用户
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!FloatingService.isRunning) {
+                    Toast.makeText(this, "⚠️ 服务被系统杀了！请去设置→电池→青云→不限制", Toast.LENGTH_LONG).show()
+                    isRunning = false
+                    updateUI()
+                }
+            }, 3000)
         } catch (e: Exception) {
             Log.e(TAG, "Start error", e)
             Toast.makeText(this, "启动失败: ${e.message}", Toast.LENGTH_LONG).show()

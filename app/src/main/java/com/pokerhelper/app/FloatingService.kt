@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -77,6 +78,9 @@ class FloatingService : Service() {
     private val KEY_BALL_X = "ball_x"
     private val KEY_BALL_Y = "ball_y"
 
+    // V2.9.68: WakeLock保活，防止CPU休眠导致服务被杀
+    private var wakeLock: PowerManager.WakeLock? = null
+
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
     private val pendingJsCalls = mutableListOf<String>()
@@ -120,6 +124,15 @@ class FloatingService : Service() {
         }
         isRunning = true
 
+        // V2.9.68: WakeLock保活——防止一加/小米等杀后台
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pokerhelper::FloatingService")
+            wakeLock?.acquire(4 * 60 * 60 * 1000L) // 最长4小时
+        } catch (e: Exception) {
+            Log.w("FloatingService", "WakeLock acquire failed", e)
+        }
+
         // V2.9.38: 注册通知按钮广播接收器
         val filter = IntentFilter().apply {
             addAction(ACTION_CAPTURE)
@@ -140,6 +153,9 @@ class FloatingService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        // V2.9.68: 释放WakeLock
+        try { wakeLock?.release() } catch (_: Exception) {}
+        wakeLock = null
         currentPanelWidth = 0
         currentPanelHeight = 0
         handler.removeCallbacksAndMessages(null)
