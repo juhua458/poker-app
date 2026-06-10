@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.73 · catch必更新悬浮球+phase修正</title>
+<title>青云 v2.9.74 · catch必更新悬浮球+phase修正</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -750,6 +750,10 @@ var FallbackStrategy={
     
     // 面对下注: 只看胜率+赔率，不做精细剥削
     if(scene==='bet'||scene==='allin'){
+      // V2.9.74: AIR保护——中置信度也不追空气牌
+      if(hClass.name==='AIR'&&bet>0){
+        return{a:'fold',r:'[中置信]空气牌不追',eq:eq,c:'l'};
+      }
       if(scene==='allin'){
         if(eq>=nq+10)return{a:'call',r:'[中置信]胜率够跟全下',eq:eq,c:eq>=nq?'h':'m'};
         return{a:'fold',r:'[中置信]胜率不够',eq:eq,c:'l'};
@@ -808,6 +812,10 @@ var FallbackStrategy={
     
     // 面对下注: 纯胜率+赔率判断
     if(scene==='bet'||scene==='allin'){
+      // V2.9.74: AIR保护——低置信度也不追空气牌
+      if(hClass.name==='AIR'&&bet>0){
+        return{a:'fold',r:'[低置信]空气牌不追',eq:eq,c:'l'};
+      }
       if(scene==='allin'){
         if(eq>=nq+15)return{a:'call',r:'[低置信]强牌跟全下',eq:eq,c:'h'};
         return{a:'fold',r:'[低置信]全下弃牌',eq:eq,c:'l'};
@@ -1099,7 +1107,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.73',
+    version:'2.9.74',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1217,7 +1225,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.73',
+  CURRENT_VERSION:'2.9.74',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -3291,6 +3299,11 @@ function postF(k){
     if(eq>=nq+3&&street==='river'){
       var exploitResultR=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
       return{a:'call',r:'河牌短码跟',eq:exploitResultR.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResultR.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
+    // V2.9.74: AIR保护——短码也不追空气牌（6c2s短码call bug修复）
+    if(hClass.name==='AIR'&&bet>0){
+      var exploitAirSPR=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+      return{a:'fold',r:'短码空气牌不追',eq:exploitAirSPR.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     if(eq>=nq+5){
       var exploitResult3=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});

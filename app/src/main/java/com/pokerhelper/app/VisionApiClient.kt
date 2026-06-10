@@ -72,7 +72,8 @@ object VisionApiClient {
 
         return try {
             // V2.9.48: 裁剪+压缩提速——裁掉上下无关区域，缩720宽+quality65
-            val compressedJpeg = compressImage(jpegData, maxWidth = 720)
+            // V2.9.74: 提升分辨率720→1080，牌面识别率大幅提升
+            val compressedJpeg = compressImage(jpegData, maxWidth = 1080)
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
             val dataUri = "data:image/jpeg;base64,$base64Image"
 
@@ -133,10 +134,10 @@ object VisionApiClient {
     private fun compressImage(jpegData: ByteArray, maxWidth: Int): ByteArray {
         val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
 
-        // V2.9.48: 裁剪上下无关区域——顶部5%可能含盲注标题保留，底部12%可能含按钮保留
-        // 实际只裁掉顶部2%状态栏和底部5%导航栏空白
+        // V2.9.74: 不裁剪底部——操作按钮和手牌在底部，裁掉会导致识别失败
+        // 只裁掉顶部2%状态栏（纯黑无信息）
         val cropTop = (bitmap.height * 0.02).toInt()
-        val cropBottom = (bitmap.height * 0.95).toInt()
+        val cropBottom = bitmap.height  // 保留到底部
         val cropped = if (cropTop > 0 || cropBottom < bitmap.height) {
             try {
                 android.graphics.Bitmap.createBitmap(bitmap, 0, cropTop, bitmap.width, cropBottom - cropTop)
@@ -161,71 +162,68 @@ object VisionApiClient {
         }
 
         val stream = ByteArrayOutputStream()
-        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, stream)
+        // V2.9.74: 提高JPEG质量65→85，牌面细节需要高保真才能识别
+        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, stream)
         scaled.recycle()
         return stream.toByteArray()
     }
 
     private fun buildRequest(base64Image: String): String {
-        val prompt = """你是德州扑克截图识别专家。按以下步骤识别：
+        val prompt = """你是GG扑克(GGPoker)截图识别专家。按以下步骤识别：
 
-【步骤1】先找到2个关键位置（从上到下）：
-  ① 顶部白色数字框 → 这是底池(pot_size)
-  ② 左下角你头像下方的数字 → 这是你的筹码(my_chips)
-  判断依据：底池数字在屏幕上方1/3区域的白色框里；你的筹码在屏幕左下角头像旁边
+★★★ 关键：你是屏幕最下方中间位置的玩家 ★★★
 
-【步骤2】底池(pot_size)识别——最关键，错误会导致策略全错：
+【步骤1】手牌识别（最重要！）：
+  - 你在屏幕最下方中间位置，手牌是紧挨你头像上方的2张正面朝上的扑克牌
+  - 牌面通常较大，左1张右1张并排显示
+  - 仔细看花色：♠=黑桃(s) ♥=红心(h) ♦=方块(d) ♣=梅花(c)
+  - 如果看不到2张正面手牌，说明你不在牌局中→hole_cards返回空数组[]
+  - 注意区分：6和9、5和3、8和0——看仔细再报
+
+【步骤2】你的位置(my_position)识别——必须识别D按钮：
+  - 找到黄色小圆形"D"标记，那是庄家按钮(Dealer/Button)
+  - 如果"D"在你（屏幕最下方）旁边 → my_position="BTN"
+  - 如果"D"在紧挨你左边的玩家 → 你是SB → my_position="SB"  
+  - 如果"D"在左边第2个玩家 → 你是BB → my_position="BB"
+  - 以此类推：UTG/MP/CO等
+  - 6人桌位置顺序（从D按钮顺时针）：BTN→SB→BB→UTG→MP→CO
+  - 5人桌：BTN→SB→BB→UTG→CO
+  - 如果看不到D按钮，返回my_position="unknown"
+
+【步骤3】底池(pot_size)识别：
   来源优先级：牌桌中央"底池XXX"标签 > 顶部白色数字框
-  - 两处数字应该一致，取较大值
   - 去掉逗号："5,750"→5750
   - K/M转换："10K"→10000
-  ❌ pot_size不是左下角你头像下的数字（那是my_chips）
-  ❌ pot_size不是其他玩家头像旁的数字
-  ❌ pot_size不是玩家头像旁边下注筹码堆上的数字
-  ❌ pot_size不要自己算（不要把各玩家下注加起来）
+  ❌ pot_size不是你头像下的数字（那是my_chips）
+  ❌ pot_size不是玩家头像旁筹码堆上的数字
 
-【步骤3】你的筹码(my_chips)识别：
-  - 只看左下角你自己头像名字下方的数字
-  - ❌ my_chips不是顶部白色数字框（那是底池）
+【步骤4】你的筹码(my_chips)识别：
+  - 只看你自己头像名字下方的数字（屏幕最下方中间位置的玩家）
 
-【步骤4】识别其余信息：
-  1. 手牌：屏幕最下方2张正面牌
-  2. 公共牌：桌面中央0/3/4/5张牌
-  3. 操作按钮：底部按钮原样输出
-  4. 座位总数、活跃玩家数（面前有牌的，已弃牌不算）
-  5. 盲注：桌面标题"200 / 500"→blind_sb=200 blind_bb=500
-  6. 前注ante
+【步骤5】公共牌识别：
+  - 桌面中央0/3/4/5张牌
+  - 翻前0张，翻牌3张，转牌4张，河牌5张
 
-【步骤5】跟注金额(to_call)识别：
-  - "跟注3,194"→to_call=3194
-  - "跟注10K"→to_call=10000
-  - "让牌"/"过牌"→to_call=0
-  - "全押"/"全下"→to_call=my_chips值
+【步骤6】跟注金额(to_call)识别：
+  - "跟注3,194"→3194 "跟注10K"→10000
+  - "让牌"/"过牌"→0 "全押"→my_chips值
 
-★★★ 关键规则 ★★★：
-- rank: A K Q J T 9 8 7 6 5 4 3 2（T=10）
+【步骤7】盲注识别：
+  - 桌面标题"100 / 200"→blind_sb=100 blind_bb=200
+
+★★★ 输出规则 ★★★：
+- rank: A K Q J T 9 8 7 6 5 4 3 2（T=10，不是10）
 - suit: s=黑桃 h=红心 d=方块 c=梅花
-- K/M后缀转换：10K=10000 1.5M=1500000
 - street：0张=preflop 3=flop 4=turn 5=river
+- 底池vs筹码自检：翻后pot_size通常≥my_chips
 
-★★★ 底池vs筹码自检（输出前必做）★★★：
-如果pot_size < my_chips 且有多张公共牌，很可能是底池和筹码搞反了！
-正确情况：翻后pot_size通常 ≥ my_chips（底池至少是盲注的几倍）
-
-【步骤6】对手位置信息识别（V2.9.72新增）：
-  从屏幕看，除你之外最多4个对手，按位置识别：
-  ① 上方(top): 屏幕上方1/3的玩家
-  ② 左侧(left): 屏幕左侧的玩家
-  ③ 右上(right_top): 屏幕右侧上方的玩家
-  ④ 右下(right_bottom): 屏幕右侧下方的玩家
-  每个对手识别：
-  - bet: 绿色圆角框里的下注金额（没有=0）
-  - chips: 头像下方的筹码数字（去掉逗号，K→×1000）
-  - active: 头像是否被两张牌遮挡→在牌局=true，头像完全可见→已弃牌=false
-  识别不准的位置可以跳过，宁可少报不可误报
+【步骤8】对手位置信息：
+  除你外最多4个对手：
+  - top: 屏幕上方 | left: 屏幕左侧 | right_top: 右上 | right_bottom: 右下
+  - bet: 下注金额(没有=0) | chips: 筹码 | active: 头像被牌遮挡=true(在牌局), 完全可见=false(已弃牌)
 
 返回JSON：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"players":[{"position":"top","bet":0,"chips":13540,"active":false},{"position":"right_top","bet":200,"chips":48441,"active":true}]}
+{"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","my_position":"BTN","blind_sb":200,"blind_bb":500,"ante":0,"players":[{"position":"top","bet":0,"chips":13540,"active":false}]}
 
 只返回JSON"""
 
