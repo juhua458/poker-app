@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.71 · 保活+电池优化白名单</title>
+<title>青云 v2.9.72 · 保活+电池优化白名单</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1092,7 +1092,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.71',
+    version:'2.9.72',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1210,7 +1210,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.71',
+  CURRENT_VERSION:'2.9.72',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2834,6 +2834,15 @@ function decide(){
       result._colorInfo.colorKey='CHECK';
       result._colorInfo.color=ColorStrategy.COLORS.CHECK;
     }
+    // V2.9.72: ★ 动作可用性终极防线 ★
+    // 策略建议check但实际面对下注(bet>0)→降级为fold(不能check)
+    if(result.a==='check' && G.bet>0){
+      console.log('[动作纠错] 建议check但bet='+G.bet+'BB>0→场景矛盾,降级fold');
+      result.a='fold';
+      result.r='[纠错]面对下注不能过牌→弃牌';
+      result._colorInfo.colorKey='FOLD';
+      result._colorInfo.color=ColorStrategy.COLORS.FOLD;
+    }
     TablePulse.record(_profile);
     var keys=Object.keys(_decisionCache);
     if(keys.length>=_cacheMax)delete _decisionCache[keys[0]];
@@ -4300,6 +4309,30 @@ function onVisionResult(data){
     if(warnings.length>0)console.log('[底池校验] '+warnings.join('; '));
   })();
   
+  // V2.9.72: ★ 场景-赔率交叉校验 ★
+  // 根因: Vision API有时不返回buttons→detectSceneFromButtons默认'check'→提示过牌但无过牌按钮
+  // 修复: 用to_call(G.bet)反推场景——bet>0说明面对下注,不可能是check/open
+  (function validateSceneBet(){
+    if(G.bet>0){
+      if(G.phase==='post' && (G.scene==='check' || G.scene==='open')){
+        console.log('[场景纠错] postflop bet='+G.bet+'BB但scene='+G.scene+'→强制bet(按钮检测失败,赔率推断)');
+        G.scene='bet';
+        try{
+          document.querySelectorAll('#sceneBtnsPost .big-btn').forEach(function(b){b.classList.remove('on');});
+          var el=document.getElementById('scBet');if(el)el.classList.add('on');
+        }catch(e){}
+      }
+      if(G.phase==='pre' && G.scene==='open'){
+        console.log('[场景纠错] preflop bet='+G.bet+'BB但scene=open→强制raise(按钮检测失败,赔率推断)');
+        G.scene='raise';
+        try{
+          document.querySelectorAll('#sceneBtnsPre .big-btn').forEach(function(b){b.classList.remove('on');});
+          var el=document.getElementById('scRaise');if(el)el.classList.add('on');
+        }catch(e){}
+      }
+    }
+  })();
+
   // V2.9.10: 保存按钮文字
   if(data.buttons && data.buttons.length>0){
     G.buttons=data.buttons;
