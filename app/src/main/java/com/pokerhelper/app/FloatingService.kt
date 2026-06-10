@@ -76,7 +76,7 @@ class FloatingService : Service() {
     // V2.9.40: 悬浮球 — 一键截屏
     private var floatingBall: TextView? = null
     private var ballParams: WindowManager.LayoutParams? = null
-    private val BALL_SIZE_DP = 48
+    private val BALL_SIZE_DP = 56
     private val KEY_BALL_X = "ball_x"
     private val KEY_BALL_Y = "ball_y"
 
@@ -710,8 +710,10 @@ class FloatingService : Service() {
 
         val ball = TextView(this).apply {
             text = "🎯"
-            textSize = 20f
+            textSize = 16f
             gravity = Gravity.CENTER
+            setTextColor(0xFFFFFFFF.toInt())
+            setSingleLine(true)
             val shape = GradientDrawable()
             shape.shape = GradientDrawable.OVAL
             shape.setColor(0xDD1a1a2e.toInt())
@@ -846,51 +848,65 @@ class FloatingService : Service() {
                 }
                 advice.contains("COLOR:RAISE_BIG") -> {
                     shape.setColor(0xBB00E676.toInt()); shape.setStroke(stroke, 0xFF00E676.toInt())
+                    ball.text="重锤";ball.textSize=11f
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:RAISE") -> {
                     shape.setColor(0xBB69F0AE.toInt()); shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                    ball.text="加";ball.textSize=14f
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:CALL") -> {
                     shape.setColor(0xBBFFAB40.toInt()); shape.setStroke(stroke, 0xFFFFAB40.toInt())
+                    ball.text="跟";ball.textSize=14f
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:WEAK_CALL") -> {
                     shape.setColor(0xBBFF8C00.toInt()); shape.setStroke(stroke, 0xFFFF8C00.toInt())
+                    ball.text="弱跟";ball.textSize=11f
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:FOLD") -> {
                     shape.setColor(0xBBFF5252.toInt()); shape.setStroke(stroke, 0xFFFF5252.toInt())
+                    // V2.9.70: 悬浮球显示建议文字
+                    if(advice.contains("NO_TABLE")){ball.text="❓";ball.textSize=20f}
+                    else{ball.text="弃";ball.textSize=14f}
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:CHECK") -> {
                     shape.setColor(0xBBBDBDBD.toInt()); shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                    ball.text="过";ball.textSize=14f
                     startBallSignal(0)
                 }
                 // fallback: 旧5色兼容
                 advice.contains("全押") -> {
                     shape.setColor(0xBBCE93D8.toInt()); shape.setStroke(stroke, 0xFFCE93D8.toInt())
+                    ball.text="全押";ball.textSize=11f
                     startBallSignal(0)
                 }
                 advice.contains("加注") -> {
                     shape.setColor(0xBB69F0AE.toInt()); shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                    ball.text="加";ball.textSize=14f
                     startBallSignal(0)
                 }
                 advice.contains("跟注") -> {
                     shape.setColor(0xBBFFAB40.toInt()); shape.setStroke(stroke, 0xFFFFAB40.toInt())
+                    ball.text="跟";ball.textSize=14f
                     startBallSignal(0)
                 }
                 advice.contains("弃牌") -> {
                     shape.setColor(0xBBFF5252.toInt()); shape.setStroke(stroke, 0xFFFF5252.toInt())
+                    ball.text="弃";ball.textSize=14f
                     startBallSignal(0)
                 }
                 advice.contains("让牌") || advice.contains("过牌") -> {
                     shape.setColor(0xBBBDBDBD.toInt()); shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                    ball.text="过";ball.textSize=14f
                     startBallSignal(0)
                 }
                 else -> {
                     shape.setColor(0xBB4ade80.toInt()); shape.setStroke(stroke, 0xFF4ade80.toInt())
+                    ball.text="🎯";ball.textSize=16f
                     startBallSignal(0)
                 }
             }
@@ -1052,6 +1068,7 @@ class FloatingService : Service() {
             // V2.9.70: 截图失败→悬浮球闪烁红 + 记录错误日志
             updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
             isBlinkingError = true
+            floatingBall?.text="⚠️";floatingBall?.textSize=14f
             errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} 截屏失败: $diag")
             if (errorLogs.size > 50) errorLogs.removeAt(0)
             return
@@ -1123,6 +1140,7 @@ class FloatingService : Service() {
                         // V2.9.70: API失败→悬浮球闪烁红 + 记录错误日志
                         updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
                         isBlinkingError = true
+                        floatingBall?.text="⚠️";floatingBall?.textSize=14f
                         errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API失败: ${VisionApiClient.lastError.take(100)}")
                         if (errorLogs.size > 50) errorLogs.removeAt(0)
                         Log.e(TAG, "V2.9.70诊断: API失败, error=${VisionApiClient.lastError}")
@@ -1137,6 +1155,7 @@ class FloatingService : Service() {
                     // V2.9.70: API异常→悬浮球闪烁红 + 记录错误日志
                     updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
                     isBlinkingError = true
+                    floatingBall?.text="⚠️";floatingBall?.textSize=14f
                     errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API异常: ${e.message?.take(100) ?: "未知"}")
                     if (errorLogs.size > 50) errorLogs.removeAt(0)
                     if (isStealthMode) updateAdviceNotification("API错误", e.message?.take(50) ?: "")
