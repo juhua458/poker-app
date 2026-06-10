@@ -40,8 +40,8 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.70
-        name: "V2.9.70 青云·保活+电池优化白名单"
+        tag_name: v2.9.71
+        name: "V2.9.71 场景检测修复+策略同步"
         body: "V2.9.53: 河牌完全枚举精确胜率+底池置信度评估(PotConfidence)+底池离散化4档(PotBucket)+三层Fallback策略(高/中/低置信度→精确GTO/粗粒度区间/纯胜率兜底)+多帧平滑校验+River容错策略(胜率区间决策)+UI显示置信度"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:

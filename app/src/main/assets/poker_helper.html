@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.70 · 保活+电池优化白名单</title>
+<title>青云 v2.9.71 · 保活+电池优化白名单</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1092,7 +1092,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.70',
+    version:'2.9.71',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1210,7 +1210,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.70',
+  CURRENT_VERSION:'2.9.71',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2669,8 +2669,9 @@ var StrategicBluff={
     }
     // V2.9.58: 范围偏宽的对手+中等牌力→价值下注
     // V2.9.60: Tilt对手降低宽范围门槛
-    var wideThresh=isTiltValue?0.25:0.35;
-    var eqThresh=isTiltValue?46:50;
+    var _tvTilt=TiltDetector.detectTilt(DRTA.getProfile());
+    var wideThresh=_tvTilt&&_tvTilt.isTilt?0.25:0.35;
+    var eqThresh=_tvTilt&&_tvTilt.isTilt?46:50;
     if(wideRatio>=wideThresh&&eq>=eqThresh&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
       return{action:'raise',strategy:'宽范围价值下注(宽'+Math.round(wideRatio*100)+'%)',sizing:Math.round(G.pot*0.5)};
     }
@@ -2814,7 +2815,8 @@ function decide(){
     // 颜色+信号决策
     var _colorResult=ColorStrategy.decide(_evBest,_eq,_oppType,_tiltInfo,_ceResult,_potConfLevel,_pulse);
     // V2.9.65: SafetyGuard保险 — 用equity给EV颜色上锁, 防止底池误读导致致命建议
-    var _reliability=SafetyGuard.dataReliability(_potConfLevel,_spr,_bet,_pot,_stk||G.stk);
+    var _stk=G.stk||100000;
+    var _reliability=SafetyGuard.dataReliability(_potConfLevel,_spr,_bet,_pot,_stk);
     var _guardResult=SafetyGuard.guard(_colorResult.colorKey,_eq,_reliability,_potConfLevel);
     if(_guardResult.changed){
       console.log('[SafetyGuard] '+_colorResult.colorKey+'→'+_guardResult.colorKey+' '+_guardResult.reason);
@@ -2830,17 +2832,30 @@ function decide(){
     result._evs=_evs;
     result._evBest=_evBest;
     result._reliability=_reliability;
-    // V2.9.64: 如果颜色决策改变了动作(对手偏移),更新动作
-    // V2.9.65: SafetyGuard已经过滤, 这里只做最终动作同步
+    // V2.9.71: action与color必须同步——悬浮球按color显示，action必须一致
     // 防御: check场景不允许覆盖为FOLD(过牌是免费的,永远不比弃牌差)
-    if(_colorResult.colorKey==='RAISE_BIG'){
-      result.a='raise_big';
-      if(!result.v||result.v<_pot*0.75)result.v=Math.round(_pot*0.75);
-    }else if(_colorResult.colorKey==='WEAK_CALL'){
-      result.a='weak_call';
-    }else if(result.a==='check'&&_colorResult.colorKey==='FOLD'){
+    if(result.a==='check'&&_colorResult.colorKey==='FOLD'){
       _colorResult.colorKey='CHECK';
       _colorResult.color=ColorStrategy.COLORS.CHECK;
+      result.a='check';
+    }else if(_colorResult.colorKey==='FOLD'){
+      result.a='fold';
+    }else if(_colorResult.colorKey==='WEAK_CALL'){
+      result.a='weak_call';
+    }else if(_colorResult.colorKey==='CALL'){
+      // V2.9.71: check+CALL不一致→场景可能是postflop facing bet
+      // 如果原始action=check但color=CALL，说明应该call而不是check
+      if(result.a==='check')result.a='call';
+      else result.a='call';
+    }else if(_colorResult.colorKey==='RAISE'){
+      result.a='raise';
+    }else if(_colorResult.colorKey==='RAISE_BIG'){
+      result.a='raise_big';
+      if(!result.v||result.v<_pot*0.75)result.v=Math.round(_pot*0.75);
+    }else if(_colorResult.colorKey==='ALL_IN'){
+      result.a='allin';
+    }else if(_colorResult.colorKey==='CHECK'){
+      result.a='check';
     }
     // 记录桌面节奏
     TablePulse.record(_profile);
@@ -2968,13 +2983,19 @@ function preF(k){
       var exploitResult9=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
       return{a:'call',r:k+' 多人底池跟注',eq:exploitResult9.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult9.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
+    // V2.9.71: 赔率兜底——limped pot跟注便宜，不该全弃
+    var poCall=actualBet>0?actualBet/(pot+actualBet*2):0;
+    if(eq>=35&&eq>=poCall*100){
+      var exploitResult9b=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      return{a:'call',r:'limp池赔率够',eq:exploitResult9b.eq,c:'m',po:poCall*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult9b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
     return{a:'fold',r:k+' 多人池需强牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(oS.indexOf(k)!==-1||eq>=50){
     // V2.9.47: 2人桌SB开池2x, 3人桌SB开池2.5x, 其他3x
     var rb=p==='bb'?2:(G.tt<=2&&p==='sb')?2:p==='sb'?2.5:3;
     var exploitResult10=applyExploit(eq,'raise',G.opp,{pot:pot});
-    var sizing=betSizingAdv(eq,spr,null,pa>=0.5,G.opp,exploitResult10.sizingMod,hClass?hClass.name:"PRE","preflop");
+    var sizing=betSizingAdv(eq,spr,null,pa>=0.5,G.opp,exploitResult10.sizingMod,"PRE","preflop");
     return{a:'raise',v:rb,r:oS.indexOf(k)!==-1?k+' '+pL(p)+'开池':k+' 位好',eq:exploitResult10.eq,c:eq>=55?'h':eq>=45?'m':'l',sizing:Math.max(rb,sizing),scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,0,rb),exploit:exploitResult10.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   var exploitResult11=applyExploit(eq,'fold',G.opp,{pot:pot});
@@ -3967,7 +3988,11 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
   // GG特有：组合按钮检测
   var hasCheckFold = buttons.some(function(b){return (b.indexOf('让牌')>=0||b.indexOf('过牌')>=0)&&b.indexOf('弃牌')>=0;});
   if (hasCheckFold) hasCheck = true; // 组合按钮包含让牌选项
+  // V2.9.71: 翻前有"跟注"按钮 = 有人下注/加注
+  // 关键判断：有"加注"按钮说明我们可以raise→面对的是bet/raise，不是limp
+  // 只有"跟注"没有"加注"时（极少见）才考虑call场景
   if (hasCall && street === 'preflop') {
+    if (hasRaise) return 'raise';  // 面对加注，可以跟注或3bet
     return (activePlayers > 2) ? 'call' : 'raise';
   }
   if (hasCall && street !== 'preflop') return 'bet';
