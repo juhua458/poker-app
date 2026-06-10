@@ -372,7 +372,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.62"
+            text = "青云 v2.9.63"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -558,6 +558,14 @@ class FloatingService : Service() {
                         tvRecResult?.text = "$advice | $currentText"
                         tvRecResult?.visibility = View.VISIBLE
                         when {
+                            advice.contains("COLOR:FOLD") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
+                            advice.contains("COLOR:WEAK_CALL") -> tvRecResult?.setTextColor(0xFFFF8C00.toInt())
+                            advice.contains("COLOR:CALL") -> tvRecResult?.setTextColor(0xFFFFAB40.toInt())
+                            advice.contains("COLOR:RAISE_BIG") -> tvRecResult?.setTextColor(0xFF00E676.toInt())
+                            advice.contains("COLOR:RAISE") -> tvRecResult?.setTextColor(0xFF69F0AE.toInt())
+                            advice.contains("COLOR:ALL_IN") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
+                            advice.contains("COLOR:CHECK") -> tvRecResult?.setTextColor(0xFFBDBDBD.toInt())
+                            // fallback: 旧5色兼容
                             advice.contains("弃牌") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
                             advice.contains("跟注") -> tvRecResult?.setTextColor(0xFFFFAB40.toInt())
                             advice.contains("全押") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
@@ -787,8 +795,9 @@ class FloatingService : Service() {
     }
 
     /**
-     * V2.9.48: 根据建议更新悬浮球颜色——背景整体变色+边框加粗
-     * 绿=加注/全押 橙=跟注 红=弃牌 灰=让牌 紫=全押
+     * V2.9.63: 7色信号系统 — 悬浮球颜色+闪烁信号
+     * 🔴红=弃牌 🟠深橙=勉强跟 🟡黄=跟注 🟢绿=加注 💚青绿=重锤 🟣紫=全押 ⚪灰=过牌
+     * 🔥慢闪=Tilt对手 ⚔️快闪=反剥削 ⚠️双闪=底池不确定
      */
     fun updateBallAdvice(advice: String) {
         try {
@@ -796,33 +805,115 @@ class FloatingService : Service() {
             val shape = ball.background as? GradientDrawable ?: return
             val density = resources.displayMetrics.density
             val stroke = (3 * density).toInt()
+            // V2.9.63: 7色+3信号
             when {
+                advice.contains("COLOR:ALL_IN") -> {
+                    shape.setColor(0xBBCE93D8.toInt()); shape.setStroke(stroke, 0xFFCE93D8.toInt())
+                    startBallSignal(0) // 无闪烁
+                }
+                advice.contains("COLOR:RAISE_BIG") -> {
+                    shape.setColor(0xBB00E676.toInt()); shape.setStroke(stroke, 0xFF00E676.toInt())
+                    startBallSignal(0)
+                }
+                advice.contains("COLOR:RAISE") -> {
+                    shape.setColor(0xBB69F0AE.toInt()); shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                    startBallSignal(0)
+                }
+                advice.contains("COLOR:CALL") -> {
+                    shape.setColor(0xBBFFAB40.toInt()); shape.setStroke(stroke, 0xFFFFAB40.toInt())
+                    startBallSignal(0)
+                }
+                advice.contains("COLOR:WEAK_CALL") -> {
+                    shape.setColor(0xBBFF8C00.toInt()); shape.setStroke(stroke, 0xFFFF8C00.toInt())
+                    startBallSignal(0)
+                }
+                advice.contains("COLOR:FOLD") -> {
+                    shape.setColor(0xBBFF5252.toInt()); shape.setStroke(stroke, 0xFFFF5252.toInt())
+                    startBallSignal(0)
+                }
+                advice.contains("COLOR:CHECK") -> {
+                    shape.setColor(0xBBBDBDBD.toInt()); shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                    startBallSignal(0)
+                }
+                // fallback: 旧5色兼容
                 advice.contains("全押") -> {
-                    shape.setColor(0xBBCE93D8.toInt())  // 紫色渗透
-                    shape.setStroke(stroke, 0xFFCE93D8.toInt())
+                    shape.setColor(0xBBCE93D8.toInt()); shape.setStroke(stroke, 0xFFCE93D8.toInt())
+                    startBallSignal(0)
                 }
                 advice.contains("加注") -> {
-                    shape.setColor(0xBB69F0AE.toInt())  // 绿色渗透
-                    shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                    shape.setColor(0xBB69F0AE.toInt()); shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                    startBallSignal(0)
                 }
                 advice.contains("跟注") -> {
-                    shape.setColor(0xBBFFAB40.toInt())  // 橙色渗透
-                    shape.setStroke(stroke, 0xFFFFAB40.toInt())
+                    shape.setColor(0xBBFFAB40.toInt()); shape.setStroke(stroke, 0xFFFFAB40.toInt())
+                    startBallSignal(0)
                 }
                 advice.contains("弃牌") -> {
-                    shape.setColor(0xBBFF5252.toInt())  // 红色渗透
-                    shape.setStroke(stroke, 0xFFFF5252.toInt())
+                    shape.setColor(0xBBFF5252.toInt()); shape.setStroke(stroke, 0xFFFF5252.toInt())
+                    startBallSignal(0)
                 }
                 advice.contains("让牌") || advice.contains("过牌") -> {
-                    shape.setColor(0xBBBDBDBD.toInt())  // 灰色渗透
-                    shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                    shape.setColor(0xBBBDBDBD.toInt()); shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                    startBallSignal(0)
                 }
                 else -> {
-                    shape.setColor(0xBB4ade80.toInt())
-                    shape.setStroke(stroke, 0xFF4ade80.toInt())
+                    shape.setColor(0xBB4ade80.toInt()); shape.setStroke(stroke, 0xFF4ade80.toInt())
+                    startBallSignal(0)
                 }
             }
+            // V2.9.63: 信号闪烁
+            when {
+                advice.contains("SIGNAL:COUNTER") -> startBallSignal(3)   // 快闪: 反剥削
+                advice.contains("SIGNAL:TILT") -> startBallSignal(1)     // 慢闪: Tilt对手
+                advice.contains("SIGNAL:UNCERTAIN") -> startBallSignal(-1) // 双闪: 底池不确定
+            }
         } catch (_: Exception) {}
+    }
+
+    // V2.9.63: 悬浮球信号闪烁
+    private var ballSignalRunnable: Runnable? = null
+    private var ballSignalHandler: android.os.Handler? = null
+    private var ballSignalCount = 0
+
+    private fun startBallSignal(freqHz: Int) {
+        // 停止之前的信号
+        ballSignalRunnable?.let { ballSignalHandler?.removeCallbacks(it) }
+        ballSignalRunnable = null
+        if (freqHz == 0) {
+            // 无信号,恢复正常透明度
+            floatingBall?.alpha = 1.0f
+            return
+        }
+        if (ballSignalHandler == null) ballSignalHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        ballSignalCount = 0
+        val intervalMs = when {
+            freqHz == -1 -> 150L  // 双闪
+            freqHz == 1 -> 1000L  // 慢闪1Hz
+            freqHz == 3 -> 167L   // 快闪3Hz
+            else -> return
+        }
+        val runnable = object : Runnable {
+            override fun run() {
+                val ball = floatingBall ?: return
+                if (freqHz == -1) {
+                    // 双闪: 闪2下停
+                    ballSignalCount++
+                    ball.alpha = if (ballSignalCount % 2 == 1) 0.2f else 1.0f
+                    if (ballSignalCount >= 4) {
+                        // 闪完2次,暂停1.2秒
+                        ballSignalCount = 0
+                        ballSignalHandler?.postDelayed(this, 1200)
+                        return
+                    }
+                } else {
+                    // 正常闪烁
+                    ball.alpha = if (ball.alpha < 0.5f) 1.0f else 0.2f
+                }
+                ballSignalHandler?.postDelayed(this, intervalMs)
+            }
+        }
+        ballSignalRunnable = runnable
+        ballSignalHandler?.post(runnable)
     }
 
     private fun removeFloatingBall() {

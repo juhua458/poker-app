@@ -3,26 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.62 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测·反剥削·尺度精细化</title>
+<title>青云 v2.9.63 · 7色信号系统·EV驱动决策·对手偏移·桌面节奏</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
 body.speed-mode{max-width:none;background:transparent;min-height:auto}
 .res{background:linear-gradient(135deg,#0f1b2e,#16213e);border-radius:14px;padding:12px;text-align:center;margin-bottom:4px;min-height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .r-a{font-size:60px;font-weight:900;letter-spacing:3px;line-height:1}
-.r-a.raise{color:#2ed573;text-shadow:0 0 25px rgba(46,213,115,.6)}
-.r-a.call{color:#ffa502;text-shadow:0 0 25px rgba(255,165,2,.6)}
-.r-a.fold{color:#ff4757;text-shadow:0 0 25px rgba(255,71,87,.6)}
-.r-a.check{color:#aaa}
-.r-a.allin{color:#a855f7;text-shadow:0 0 25px rgba(168,85,247,.6)}
+.r-a.raise{color:#69F0AE;text-shadow:0 0 25px rgba(105,240,174,.6)}
+.r-a.raise_big{color:#00E676;text-shadow:0 0 30px rgba(0,230,118,.8)}
+.r-a.call{color:#FFAB40;text-shadow:0 0 25px rgba(255,171,64,.6)}
+.r-a.weak_call{color:#FF8C00;text-shadow:0 0 25px rgba(255,140,0,.6)}
+.r-a.fold{color:#FF5252;text-shadow:0 0 25px rgba(255,82,82,.6)}
+.r-a.check{color:#BDBDBD}
+.r-a.allin{color:#CE93D8;text-shadow:0 0 25px rgba(206,147,216,.6)}
+/* V2.9.63: 7色信号闪烁动画 */
+@keyframes signal-slow{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes signal-fast{0%,100%{opacity:1}25%{opacity:.2}75%{opacity:1}}
+@keyframes signal-double{0%{opacity:1}15%{opacity:.2}30%{opacity:1}45%{opacity:.2}100%{opacity:1}}
+.signal-tilt{animation:signal-slow 1s ease-in-out infinite}
+.signal-counter{animation:signal-fast .33s ease-in-out infinite}
+.signal-uncertain{animation:signal-double 1.5s ease-in-out infinite}
 .r-v{font-size:22px;color:#ccc;margin-top:2px;font-weight:bold}
 .r-d{font-size:11px;color:#888;margin-top:2px;line-height:1.4}
 .r-tip{font-size:10px;color:#2ed573;margin-top:4px;font-weight:bold;padding:3px 12px;background:rgba(46,213,115,.1);border-radius:20px;display:inline-block}
-body.speed-mode .r-tip.fold-tip{color:#ff4757;background:rgba(255,71,87,.12)}
-body.speed-mode .r-tip.call-tip{color:#ffa502;background:rgba(255,165,2,.12)}
-body.speed-mode .r-tip.raise-tip{color:#2ed573;background:rgba(46,213,115,.12)}
-body.speed-mode .r-tip.check-tip{color:#aaa;background:rgba(170,170,170,.1)}
-body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
+body.speed-mode .r-tip.fold-tip{color:#FF5252;background:rgba(255,82,82,.12)}
+body.speed-mode .r-tip.weak_call-tip{color:#FF8C00;background:rgba(255,140,0,.12)}
+body.speed-mode .r-tip.call-tip{color:#FFAB40;background:rgba(255,171,64,.12)}
+body.speed-mode .r-tip.raise-tip{color:#69F0AE;background:rgba(105,240,174,.12)}
+body.speed-mode .r-tip.raise_big-tip{color:#00E676;background:rgba(0,230,118,.15)}
+body.speed-mode .r-tip.check-tip{color:#BDBDBD;background:rgba(189,189,189,.1)}
+body.speed-mode .r-tip.allin-tip{color:#CE93D8;background:rgba(206,147,216,.12)}
 .r-exploit{font-size:9px;padding:2px 8px;border-radius:10px;margin-top:3px;display:inline-block}
 .r-exploit.fish{background:rgba(46,213,115,.15);color:#2ed573}
 .r-exploit.tp{background:rgba(93,173,226,.15);color:#5dade2}
@@ -1074,7 +1085,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.62',
+    version:'2.9.63',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1191,7 +1202,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.62',
+  CURRENT_VERSION:'2.9.63',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1724,6 +1735,177 @@ var CounterExploit={
     var icons={overfolding:'🛡️',over_3betting:'⚔️',over_stealing:'🔒',over_cbetting:'🎯'};
     var labels={overfolding:'反诈唬剥削',over_3betting:'反3bet剥削',over_stealing:'反偷盲剥削',over_cbetting:'反cbet剥削'};
     return(icons[ceResult.type]||'🛡️')+(labels[ceResult.type]||'反剥削');
+  }
+};
+
+// ===== V2.9.63: EVCalc — 精确EV计算引擎 =====
+var EVCalc={
+  // 精确底池赔率(需跟注比例)
+  potOdds:function(betToCall,pot){
+    if(betToCall<=0)return 0;
+    return betToCall/(pot+betToCall+betToCall);
+  },
+  // Fold Equity — 基于对手类型+下注尺度+街道+位置
+  foldEquity:function(oppType,raiseSize,pot,street,ip){
+    var baseFold={nit:0.55,tight:0.45,tag:0.35,lag:0.25,maniac:0.15,calling_station:0.08,fish:0.30,unknown:0.35};
+    var fe=baseFold[oppType]||0.35;
+    if(!ip)fe+=0.08; // OOP弃牌更多
+    if(street==='river')fe+=0.10;
+    else if(street==='turn')fe+=0.05;
+    var raiseRatio=raiseSize/Math.max(pot,1);
+    if(raiseRatio>1.0)fe+=0.15;
+    else if(raiseRatio>0.66)fe+=0.08;
+    else if(raiseRatio<0.33)fe-=0.10;
+    return Math.max(0.05,Math.min(0.95,fe));
+  },
+  // 各动作EV计算
+  calc:function(eq,pot,betToCall,raiseSize,oppType,street,ip,spr){
+    var results={};
+    var eq01=eq/100; // 转0-1
+    // Fold EV = 0(基准)
+    results.fold={ev:0,action:'fold'};
+    // Call EV = eq*(pot+betToCall) - (1-eq)*betToCall
+    if(betToCall>0){
+      results.call={ev:eq01*(pot+betToCall)-(1-eq01)*betToCall,action:'call'};
+    }
+    // Check EV = eq*pot - (1-eq)*0 = eq*pot(简化:过牌无成本但也没主动收益)
+    if(betToCall<=0){
+      results.check={ev:0,action:'check'}; // 过牌EV=0,不亏不赚
+    }
+    // Raise EV = FE*pot + (1-FE)*[eq*(pot+raiseSize)-(1-eq)*raiseSize]
+    if(raiseSize>0){
+      var fe=this.foldEquity(oppType,raiseSize,pot,street,ip);
+      var callEvWhenCalled=eq01*(pot+raiseSize)-(1-eq01)*raiseSize;
+      results.raise={ev:fe*pot+(1-fe)*callEvWhenCalled,action:'raise',foldEquity:fe};
+    }
+    // All-in EV(短码时)
+    if(spr!==undefined&&spr<=4&&raiseSize>0){
+      var allInSize=spr*pot;
+      var fe2=this.foldEquity(oppType,allInSize,pot,street,ip);
+      var callEvAI=eq01*(pot+allInSize)-(1-eq01)*allInSize;
+      results.allin={ev:fe2*pot+(1-fe2)*callEvAI,action:'allin',foldEquity:fe2};
+    }
+    return results;
+  },
+  // 选择最优动作
+  best:function(evResults){
+    var best=null;
+    for(var key in evResults){
+      if(!best||evResults[key].ev>best.ev){
+        best={action:key,ev:evResults[key].ev,details:evResults[key]};
+      }
+    }
+    return best;
+  },
+  // 置信度 = 最优EV - 次优EV
+  confidence:function(evResults){
+    var evs=[];
+    for(var key in evResults){evs.push(evResults[key].ev);}
+    evs.sort(function(a,b){return b-a;});
+    if(evs.length<2)return 1.0;
+    return Math.min(1.0,(evs[0]-evs[1])/Math.max(Math.abs(evs[0]),1));
+  }
+};
+
+// ===== V2.9.63: TablePulse — 桌面节奏感知 =====
+var TablePulse={
+  _history:[],
+  record:function(profile){
+    if(!profile||!profile.hands)return;
+    this._history.push({vpip:profile.vpip||0,pfr:profile.pfr||0,af:profile.af||1,hands:profile.hands,ts:Date.now()});
+    if(this._history.length>20)this._history.shift();
+  },
+  analyze:function(){
+    if(this._history.length<5)return{type:'normal',label:'数据不足',vpip:0,af:1};
+    var recent=this._history.slice(-10);
+    var avgVPIP=recent.reduce(function(s,h){return s+h.vpip;},0)/recent.length;
+    var avgAF=recent.reduce(function(s,h){return s+h.af;},0)/recent.length;
+    if(avgVPIP>0.45)return{type:'loose',label:'🟠松桌',vpip:avgVPIP,af:avgAF};
+    if(avgVPIP>0.35)return{type:'normal',label:'🟢正常桌',vpip:avgVPIP,af:avgAF};
+    if(avgVPIP<0.20)return{type:'tight',label:'🔵紧桌',vpip:avgVPIP,af:avgAF};
+    if(avgAF>2.5)return{type:'crazy',label:'🔴疯狂桌',vpip:avgVPIP,af:avgAF};
+    return{type:'normal',label:'🟢正常桌',vpip:avgVPIP,af:avgAF};
+  }
+};
+
+// ===== V2.9.63: ColorStrategy — 7色信号决策 =====
+var ColorStrategy={
+  COLORS:{
+    FOLD:{color:'#FF5252',name:'弃牌',key:'fold',css:'fold',bg:'rgba(255,82,82,.12)'},
+    WEAK_CALL:{color:'#FF8C00',name:'勉强跟',key:'weak_call',css:'weak_call',bg:'rgba(255,140,0,.12)'},
+    CALL:{color:'#FFAB40',name:'跟注',key:'call',css:'call',bg:'rgba(255,171,64,.12)'},
+    RAISE:{color:'#69F0AE',name:'加注',key:'raise',css:'raise',bg:'rgba(105,240,174,.12)'},
+    RAISE_BIG:{color:'#00E676',name:'重锤',key:'raise_big',css:'raise_big',bg:'rgba(0,230,118,.15)'},
+    ALL_IN:{color:'#CE93D8',name:'全押',key:'allin',css:'allin',bg:'rgba(206,147,216,.12)'},
+    CHECK:{color:'#BDBDBD',name:'过牌',key:'check',css:'check',bg:'rgba(189,189,189,.1)'}
+  },
+  // 对手类型→颜色偏移
+  oppColorShift:function(baseColor,oppType,eq,tiltInfo,ceResult){
+    // vs鱼/跟站: 偏价值,不bluff
+    if(oppType==='fish'||oppType==='calling_station'){
+      if(baseColor==='CALL'&&eq>=55)return'RAISE';
+      if(baseColor==='RAISE'&&eq>=65)return'RAISE_BIG';
+      if(baseColor==='WEAK_CALL')return'FOLD';
+    }
+    // vs紧: bluff效率高,可更多加注
+    if(oppType==='nit'||oppType==='tight'){
+      if(baseColor==='WEAK_CALL'&&eq>=48)return'CALL';
+      if(baseColor==='CALL'&&eq>=52)return'RAISE';
+    }
+    // vs疯/松凶: 控池,偏跟/过
+    if(oppType==='maniac'||oppType==='lag'){
+      if(baseColor==='RAISE'&&eq<60)return'CALL';
+      if(baseColor==='RAISE_BIG'&&eq<70)return'RAISE';
+    }
+    // Tilt对手: 偏价值加注
+    if(tiltInfo&&tiltInfo.tilt){
+      if(baseColor==='RAISE'&&eq>=55)return'RAISE_BIG';
+      if(baseColor==='CALL'&&eq>=50)return'RAISE';
+    }
+    // 反剥削触发: 收紧
+    if(ceResult&&ceResult.detected){
+      if(baseColor==='WEAK_CALL')return'FOLD';
+      if(baseColor==='RAISE'&&eq<55)return'CALL';
+    }
+    return baseColor;
+  },
+  // 综合决策 → 颜色+信号
+  decide:function(evBest,eq,oppType,tiltInfo,ceResult,potConfLevel,tablePulse){
+    // 1. 基于EV选基础颜色
+    var baseColor;
+    var ev=evBest.ev;
+    var action=evBest.action;
+    if(action==='fold'){
+      baseColor='FOLD';
+    }else if(action==='call'){
+      if(ev>0&&ev<1.5)baseColor='WEAK_CALL';
+      else baseColor='CALL';
+    }else if(action==='raise'){
+      if(ev>3.0&&eq>=60)baseColor='RAISE_BIG';
+      else baseColor='RAISE';
+    }else if(action==='allin'){
+      baseColor='ALL_IN';
+    }else{
+      baseColor='CHECK';
+    }
+    // 2. 对手类型偏移
+    var shifted=this.oppColorShift(baseColor,oppType,eq,tiltInfo,ceResult);
+    // 3. 桌面节奏偏移
+    if(tablePulse){
+      if(tablePulse.type==='tight'&&shifted==='CALL'&&eq>=50)shifted='RAISE';
+      if(tablePulse.type==='loose'&&shifted==='RAISE'&&eq<55)shifted='CALL';
+      if(tablePulse.type==='crazy'&&shifted==='RAISE'&&eq<60)shifted='CALL';
+    }
+    // 4. 信号优先级: 反剥削>Tilt>底池不确定
+    var signalType='NONE';
+    if(ceResult&&ceResult.detected)signalType='COUNTER';
+    else if(tiltInfo&&tiltInfo.tilt)signalType='TILT';
+    else if(potConfLevel&&potConfLevel!=='high')signalType='UNCERTAIN';
+    var signalClass='';
+    if(signalType==='TILT')signalClass='signal-tilt';
+    else if(signalType==='COUNTER')signalClass='signal-counter';
+    else if(signalType==='UNCERTAIN')signalClass='signal-uncertain';
+    return{colorKey:shifted,color:this.COLORS[shifted],signalType:signalType,signalClass:signalClass,evBB:ev};
   }
 };
 
@@ -2476,7 +2658,40 @@ function decide(){
   if(_decisionCache[ck])return _decisionCache[ck];
   var cc=G.comm.filter(function(c){return c;}).length;
   var result=cc>0?postF(k):preF(k);
+  // V2.9.63: 7色信号决策 — 基于EV+对手偏移+桌面节奏
   if(result){
+    var _eq=result.eq||50;
+    var _pot=G.pot||1;
+    var _bet=G.bet||0;
+    var _spr=G.spr||10;
+    var _oppType=G.opp||'unknown';
+    var _street=cc===5?'river':cc===4?'turn':cc===3?'flop':'preflop';
+    var _ip=pA(G.pos)>=0.5;
+    var _profile=DRTA.getProfile();
+    var _tiltInfo=TiltDetector.detectTilt(_profile);
+    var _ceResult=CounterExploit.detect(_profile);
+    // 计算EV
+    var _raiseSz=result.v||Math.round(_pot*0.66);
+    var _evs=EVCalc.calc(_eq,_pot,_bet,_raiseSz,_oppType,_street,_ip,_spr);
+    var _evBest=EVCalc.best(_evs);
+    // 桌面节奏
+    var _pulse=TablePulse.analyze();
+    // 底池置信度
+    var _potConfLevel=PotConfidence.level||'high';
+    // 颜色+信号决策
+    var _colorResult=ColorStrategy.decide(_evBest,_eq,_oppType,_tiltInfo,_ceResult,_potConfLevel,_pulse);
+    result._colorInfo=_colorResult;
+    result._evs=_evs;
+    result._evBest=_evBest;
+    // V2.9.63: 如果颜色决策改变了动作(对手偏移),更新动作
+    if(_colorResult.colorKey==='RAISE_BIG'){
+      result.a='raise_big';
+      if(!result.v||result.v<_pot*0.75)result.v=Math.round(_pot*0.75);
+    }else if(_colorResult.colorKey==='WEAK_CALL'){
+      result.a='weak_call';
+    }
+    // 记录桌面节奏
+    TablePulse.record(_profile);
     var keys=Object.keys(_decisionCache);
     if(keys.length>=_cacheMax)delete _decisionCache[keys[0]];
     _decisionCache[ck]=result;
@@ -2980,27 +3195,41 @@ function show(r){
     document.getElementById('hint').textContent='👆 点击格子选牌，或点右上角📷开摄像头';
     return;
   }
-  var am={raise:'加注',call:'跟注',fold:'弃牌',check:'过牌',allin:'全下'};
+  var am={raise:'加注',call:'跟注',fold:'弃牌',check:'过牌',allin:'全下',raise_big:'重锤',weak_call:'勉强跟'};
   var cn=am[r.a]||r.a;
+  // V2.9.63: 7色系统 — 用颜色决策结果替代原动作CSS类
+  var colorInfo=r._colorInfo||null;
+  var cssClass=colorInfo?colorInfo.color.css:r.a;
+  var colorName=colorInfo?colorInfo.color.name:cn;
+  var signalClass=colorInfo?colorInfo.signalClass:'';
   // V2.9.10: 匹配实际按钮文字（比默认文字更准确）
   var btnText='';
   if(G.buttons && G.buttons.length>0){
     if(r.a==='fold') btnText=G.buttons.find(function(b){return b.indexOf('弃牌')>=0;})||'';
-    else if(r.a==='call') btnText=G.buttons.find(function(b){return b.indexOf('跟注')>=0||b.indexOf('过牌')>=0;})||'';
-    else if(r.a==='raise') btnText=G.buttons.find(function(b){return b.indexOf('加注')>=0||b.indexOf('下注')>=0||b.indexOf('全下')>=0;})||'';
+    else if(r.a==='call'||r.a==='weak_call') btnText=G.buttons.find(function(b){return b.indexOf('跟注')>=0||b.indexOf('过牌')>=0;})||'';
+    else if(r.a==='raise'||r.a==='raise_big') btnText=G.buttons.find(function(b){return b.indexOf('加注')>=0||b.indexOf('下注')>=0||b.indexOf('全下')>=0;})||'';
     else if(r.a==='check') btnText=G.buttons.find(function(b){return b.indexOf('过牌')>=0;})||'';
     else if(r.a==='allin') btnText=G.buttons.find(function(b){return b.indexOf('全下')>=0;})||'';
   }
   var displayAction=btnText||cn;
-  // V2.9.1: 极速模式建议做大、动作缩成小标签
+  // V2.9.63: 7色tip
   var tip='';
-  if(r.a==='raise'||r.a==='allin')tip='位好可加注';
+  var tipClass=cssClass;
+  if(r.a==='raise_big')tip='💪强牌重锤';
+  else if(r.a==='raise')tip='位好可加注';
+  else if(r.a==='allin')tip='强牌全押';
   else if(r.a==='call')tip='赔率够可跟';
+  else if(r.a==='weak_call')tip='赔率刚够谨慎跟';
   else if(r.a==='fold')tip='牌力不够弃牌';
   else if(r.a==='check')tip='牌力中等过牌';
-  if(G.stk<=30)tip='短码→'+cn;
-  var h='<div class="r-a '+r.a+'">💡按【'+displayAction+'】</div>';
-  if(tip)h+='<div class="r-tip '+r.a+'-tip">💡 '+tip+'</div>';
+  if(G.stk<=30)tip='短码→'+colorName;
+  // V2.9.63: 信号图标
+  var signalIcon='';
+  if(colorInfo&&colorInfo.signalType==='TILT')signalIcon=' 🔥';
+  else if(colorInfo&&colorInfo.signalType==='COUNTER')signalIcon=' ⚔️';
+  else if(colorInfo&&colorInfo.signalType==='UNCERTAIN')signalIcon=' ⚠️';
+  var h='<div class="r-a '+cssClass+' '+(signalClass||'')+'">💡按【'+displayAction+'】'+signalIcon+'</div>';
+  if(tip)h+='<div class="r-tip '+tipClass+'-tip">💡 '+tip+'</div>';
   if(r.hClass){
     var classMap={NUTS:'nuts',STRONG:'strong',MEDIUM:'medium',WEAK:'weak',DRAW:'draw',AIR:'air'};
     var cls=classMap[r.hClass.name]||'';
@@ -3096,7 +3325,7 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
           var r=decide();
           show(r);
           HandHistory.add(r,true);
-          try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}}}}catch(e2){}
+          try{bridgeAdvice(r);}catch(e2){}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
         }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
         return; // 河牌同步完成
@@ -3109,7 +3338,7 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
           var r=decide();
           show(r);
           HandHistory.add(r,true);
-          try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}}}}catch(e2){}
+          try{bridgeAdvice(r);}catch(e2){}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
         }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
       });
@@ -3118,9 +3347,29 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
   }
   // 翻前或无手牌时同步
   try{
-    var r=decide();show(r);try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}}}}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
+    var r=decide();show(r);try{bridgeAdvice(r);}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
   }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
 },10);}
+// V2.9.63: 7色信号桥接 — 将颜色+信号传递给Android悬浮球
+function bridgeAdvice(r){
+  try{
+    var resEl=document.getElementById('res');
+    if(!resEl)return;
+    var aDiv=resEl.querySelector('.r-a');
+    var vDiv=resEl.querySelector('.r-v');
+    if(!aDiv)return;
+    var adv=aDiv.textContent.trim();
+    var val=vDiv?vDiv.textContent.trim():'';
+    var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';
+    var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');
+    // V2.9.63: 传递颜色代码和信号类型
+    var colorKey=r._colorInfo?r._colorInfo.colorKey:'FOLD';
+    var signalType=r._colorInfo?r._colorInfo.signalType:'NONE';
+    var bridgeData=fullAdv+'|COLOR:'+colorKey+'|SIGNAL:'+signalType;
+    if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(bridgeData);}
+    if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}
+  }catch(e){}
+}
 function setPhase(p){
   G.phase=p;
   document.getElementById('tabPre').classList.toggle('on',p==='pre');
