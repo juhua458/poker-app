@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.63 · 7色信号系统·EV驱动决策·对手偏移·桌面节奏</title>
+<title>青云 v2.9.64 · 7色信号系统·EV驱动决策·对手偏移·桌面节奏</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1085,7 +1085,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.63',
+    version:'2.9.64',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1202,7 +1202,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.63',
+  CURRENT_VERSION:'2.9.64',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1747,9 +1747,9 @@ var EVCalc={
   },
   // Fold Equity — 基于对手类型+下注尺度+街道+位置
   foldEquity:function(oppType,raiseSize,pot,street,ip){
-    var baseFold={nit:0.55,tight:0.45,tag:0.35,lag:0.25,maniac:0.15,calling_station:0.08,fish:0.30,unknown:0.35};
+    var baseFold={nit:0.50,tight:0.40,tag:0.28,lag:0.18,maniac:0.10,calling_station:0.06,fish:0.25,unknown:0.28};
     var fe=baseFold[oppType]||0.35;
-    if(!ip)fe+=0.08; // OOP弃牌更多
+    if(!ip)fe+=0.05; // OOP弃牌略多
     if(street==='river')fe+=0.10;
     else if(street==='turn')fe+=0.05;
     var raiseRatio=raiseSize/Math.max(pot,1);
@@ -1770,10 +1770,11 @@ var EVCalc={
     }
     // Check EV = eq*pot - (1-eq)*0 = eq*pot(简化:过牌无成本但也没主动收益)
     if(betToCall<=0){
-      results.check={ev:0,action:'check'}; // 过牌EV=0,不亏不赚
+      results.check={ev:eq01*pot,action:'check'}; // 过牌EV=eq*pot(保留equity)
     }
     // Raise EV = FE*pot + (1-FE)*[eq*(pot+raiseSize)-(1-eq)*raiseSize]
-    if(raiseSize>0){
+    // V2.9.64: eq<20时禁止bluff(equity太低不应主动加注)
+    if(raiseSize>0&&eq>=20){
       var fe=this.foldEquity(oppType,raiseSize,pot,street,ip);
       var callEvWhenCalled=eq01*(pot+raiseSize)-(1-eq01)*raiseSize;
       results.raise={ev:fe*pot+(1-fe)*callEvWhenCalled,action:'raise',foldEquity:fe};
@@ -2683,12 +2684,16 @@ function decide(){
     result._colorInfo=_colorResult;
     result._evs=_evs;
     result._evBest=_evBest;
-    // V2.9.63: 如果颜色决策改变了动作(对手偏移),更新动作
+    // V2.9.64: 如果颜色决策改变了动作(对手偏移),更新动作
+    // 防御: check场景不允许覆盖为FOLD(过牌是免费的,永远不比弃牌差)
     if(_colorResult.colorKey==='RAISE_BIG'){
       result.a='raise_big';
       if(!result.v||result.v<_pot*0.75)result.v=Math.round(_pot*0.75);
     }else if(_colorResult.colorKey==='WEAK_CALL'){
       result.a='weak_call';
+    }else if(result.a==='check'&&_colorResult.colorKey==='FOLD'){
+      _colorResult.colorKey='CHECK';
+      _colorResult.color=ColorStrategy.COLORS.CHECK;
     }
     // 记录桌面节奏
     TablePulse.record(_profile);

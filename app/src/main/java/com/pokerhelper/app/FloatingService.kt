@@ -555,7 +555,7 @@ class FloatingService : Service() {
                 handler.post {
                     val currentText = tvRecResult?.text?.toString() ?: ""
                     if (advice.isNotEmpty()) {
-                        tvRecResult?.text = "$advice | $currentText"
+                        tvRecResult?.text = advice  // V2.9.64: 只显示最新建议,不累积
                         tvRecResult?.visibility = View.VISIBLE
                         when {
                             advice.contains("COLOR:FOLD") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
