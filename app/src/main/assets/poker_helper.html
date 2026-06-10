@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.49 · GTO+DRTA融合版·2-9人桌全桌型·Worker异步MC</title>
+<title>青云 v2.9.50 · GTO+DRTA融合版·2-9人桌全桌型·Worker异步MC</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -479,7 +479,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.49',
+    version:'2.9.50',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -511,7 +511,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.49',
+  CURRENT_VERSION:'2.9.50',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -907,7 +907,7 @@ function handClassify(hole,comm){
       // 手牌参与了对子——正常顶对/中对/底对逻辑
       var topPairR=holePairRanks[0];
       var commCards2=comm.filter(function(c){return c;});
-      // V2.9.49-fix: 判断顶对/中对/底对应看非对子rank的公共牌(排除对子本身的rank)
+      // V2.9.50-fix: 判断顶对/中对/底对应看非对子rank的公共牌(排除对子本身的rank)
       var nonPairCommRanks=commCards2.map(function(c){return RV[c.rank];}).filter(function(r){return r!==topPairR;});
       var maxCommRank=nonPairCommRanks.length>0?Math.max.apply(null,nonPairCommRanks):-1;
       var minCommRank=nonPairCommRanks.length>0?Math.min.apply(null,nonPairCommRanks):-1;
