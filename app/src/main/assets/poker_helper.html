@@ -907,9 +907,10 @@ function handClassify(hole,comm){
       // 手牌参与了对子——正常顶对/中对/底对逻辑
       var topPairR=holePairRanks[0];
       var commCards2=comm.filter(function(c){return c;});
-      var commRanks2=commCards2.map(function(c){return RV[c.rank];});
-      var maxCommRank=commRanks2.length>0?Math.max.apply(null,commRanks2):-1;
-      var minCommRank=commRanks2.length>0?Math.min.apply(null,commRanks2):-1;
+      // V2.9.49-fix: 判断顶对/中对/底对应看非对子rank的公共牌(排除对子本身的rank)
+      var nonPairCommRanks=commCards2.map(function(c){return RV[c.rank];}).filter(function(r){return r!==topPairR;});
+      var maxCommRank=nonPairCommRanks.length>0?Math.max.apply(null,nonPairCommRanks):-1;
+      var minCommRank=nonPairCommRanks.length>0?Math.min.apply(null,nonPairCommRanks):-1;
       var nonPairVals=rankVals.filter(function(v){return v!==topPairR;});
       var bestKicker=nonPairVals.length>0?Math.max.apply(null,nonPairVals):0;
       if(maxCommRank<0){
