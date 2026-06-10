@@ -3474,12 +3474,14 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
         var sim=riverExactEquity(hole,comm,oppRange);
         _mcSimCache=sim;
         try{
+          console.log('[go诊断] 河牌同步开始');
           var r=decide();
+          console.log('[go诊断] 河牌decide() a='+r.a+' eq='+(r.eq||'?')+' color='+(r._colorInfo?r._colorInfo.colorKey:'无'));
           show(r);
           HandHistory.add(r,true);
-          try{bridgeAdvice(r);}catch(e2){}
+          try{bridgeAdvice(r);console.log('[go诊断] 河牌bridgeAdvice完成');}catch(e2){console.log('[go诊断] 河牌bridgeAdvice失败: '+e2.message);}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
-        }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
+        }catch(e){console.log('[go诊断] ❌河牌策略出错: '+e.message);document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
         return; // 河牌同步完成
       }
       // 翻牌/转牌: 走Worker异步MC
@@ -3487,29 +3489,37 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
       mcVsRangeAsync(hole,comm,oppRange,mcIter).then(function(sim){
         _mcSimCache=sim;
         try{
+          console.log('[go诊断] 翻后Worker异步完成');
           var r=decide();
+          console.log('[go诊断] 翻后decide() a='+r.a+' eq='+(r.eq||'?')+' color='+(r._colorInfo?r._colorInfo.colorKey:'无'));
           show(r);
           HandHistory.add(r,true);
-          try{bridgeAdvice(r);}catch(e2){}
+          try{bridgeAdvice(r);console.log('[go诊断] 翻后bridgeAdvice完成');}catch(e2){console.log('[go诊断] 翻后bridgeAdvice失败: '+e2.message);}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
-        }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
+        }catch(e){console.log('[go诊断] ❌翻后策略出错: '+e.message);document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
       });
       return; // 异步等待Worker返回
     }
   }
   // 翻前或无手牌时同步
   try{
-    var r=decide();show(r);try{bridgeAdvice(r);}catch(e2){}var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
-  }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
+    console.log('[go诊断] 翻前同步开始 hand='+G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit+' scene='+G.scene+' phase='+G.phase);
+    var r=decide();
+    console.log('[go诊断] decide()返回 a='+r.a+' eq='+(r.eq||'?')+' color='+(r._colorInfo?r._colorInfo.colorKey:'无'));
+    show(r);
+    console.log('[go诊断] show()完成');
+    try{bridgeAdvice(r);console.log('[go诊断] bridgeAdvice()完成');}catch(e2){console.log('[go诊断] bridgeAdvice失败: '+e2.message);}
+    var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
+  }catch(e){console.log('[go诊断] ❌策略计算出错: '+e.message);document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
 },10);}
 // V2.9.63: 7色信号桥接 — 将颜色+信号传递给Android悬浮球
 function bridgeAdvice(r){
   try{
     var resEl=document.getElementById('res');
-    if(!resEl)return;
+    if(!resEl){console.log('[bridge诊断] ❌res元素不存在');return;}
     var aDiv=resEl.querySelector('.r-a');
     var vDiv=resEl.querySelector('.r-v');
-    if(!aDiv)return;
+    if(!aDiv){console.log('[bridge诊断] ❌r-a元素不存在');return;}
     var adv=aDiv.textContent.trim();
     var val=vDiv?vDiv.textContent.trim():'';
     var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';
@@ -3518,7 +3528,7 @@ function bridgeAdvice(r){
     var colorKey=r._colorInfo?r._colorInfo.colorKey:'FOLD';
     var signalType=r._colorInfo?r._colorInfo.signalType:'NONE';
     var bridgeData=fullAdv+'|COLOR:'+colorKey+'|SIGNAL:'+signalType;
-    if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(bridgeData);}
+    if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){console.log('[bridge诊断] ✅调用showAdvice: '+bridgeData.substring(0,80));AndroidBridge.showAdvice(bridgeData);}else{console.log('[bridge诊断] ❌AndroidBridge不可用');}
     if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}
   }catch(e){}
 }
@@ -4230,6 +4240,7 @@ function onVisionResult(data){
   
   // 8. 触发策略分析（唯一的go()调用，数据此时已全部就绪）
   // V2.9.13: showAdvice+脉冲动画已移到go()内部异步回调中，确保decide()完成后才执行
+  console.log('[onVisionResult诊断] 调用go() hand='+G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit+' scene='+G.scene+' phase='+G.phase+' pot='+G.pot+' bet='+G.bet);
   go();
   
   // 10. ★ V2.0: 显示识别结果横幅 ★
