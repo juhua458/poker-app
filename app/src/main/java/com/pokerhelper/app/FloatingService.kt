@@ -41,6 +41,7 @@ import android.graphics.drawable.GradientDrawable
 class FloatingService : Service() {
 
     companion object {
+        private const val TAG = "FloatingService"
         var isRunning = false
         var currentPanelWidth: Int = 0
         var currentPanelHeight: Int = 0
@@ -572,7 +573,7 @@ class FloatingService : Service() {
             
             @JavascriptInterface
             fun showAdvice(advice: String) {
-                Log.d("V269", "showAdvice调用: advice=" + advice)
+                Log.d(TAG, "showAdvice调用: advice=" + advice)
                 handler.post {
                     val currentText = tvRecResult?.text?.toString() ?: ""
                     if (advice.isNotEmpty()) {
@@ -821,7 +822,7 @@ class FloatingService : Service() {
      * 🔥慢闪=Tilt对手 ⚔️快闪=反剥削 ⚠️双闪=底池不确定
      */
     fun updateBallAdvice(advice: String) {
-        Log.d("V269", "updateBallAdvice: advice=$advice, ball=${if(floatingBall!=null)"存在" else "null"}")
+        Log.d(TAG, "updateBallAdvice: advice=$advice, ball=${if(floatingBall!=null)"存在" else "null"}")
         try {
             val ball = floatingBall ?: return
             val shape = ball.background as? GradientDrawable ?: return
@@ -1059,13 +1060,13 @@ class FloatingService : Service() {
         Thread {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
-                Log.d("V269", "V2.9.69诊断: VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
+                Log.d(TAG, "V2.9.69诊断: VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
                 if (result != null) {
                     val resultJson = VisionApiClient.toJson(result)
                     handler.post {
                         executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}else{console.log('[V269]onVisionResult未定义!')}")
                         tvAction?.alpha = 1.0f
-                        Log.d("V269", "V2.9.69诊断: onVisionResult已调用")
+                        Log.d(TAG, "V2.9.69诊断: onVisionResult已调用")
                         if (isStealthMode) updateAdviceNotification("3/4 API识别OK", "策略计算中...")
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
@@ -1102,7 +1103,7 @@ class FloatingService : Service() {
                         tvAction?.alpha = 1.0f
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
                         executeJs("document.body.classList.remove('api-processing')")
-                        Log.e("V269", "V2.9.69诊断: API失败, error=${VisionApiClient.lastError}")
+                        Log.e(TAG, "V2.9.69诊断: API失败, error=${VisionApiClient.lastError}")
                         if (isStealthMode) updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
                     }
                 }
