@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.50 · GTO+DRTA融合版·2-9人桌全桌型·Worker异步MC</title>
+<title>青云 v2.9.51 · GTO+DRTA融合版·2-9人桌全桌型·Worker异步MC</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -479,7 +479,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.50',
+    version:'2.9.51',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -511,7 +511,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.50',
+  CURRENT_VERSION:'2.9.51',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -907,7 +907,7 @@ function handClassify(hole,comm){
       // 手牌参与了对子——正常顶对/中对/底对逻辑
       var topPairR=holePairRanks[0];
       var commCards2=comm.filter(function(c){return c;});
-      // V2.9.50-fix: 判断顶对/中对/底对应看非对子rank的公共牌(排除对子本身的rank)
+      // V2.9.51-fix: 判断顶对/中对/底对应看非对子rank的公共牌(排除对子本身的rank)
       var nonPairCommRanks=commCards2.map(function(c){return RV[c.rank];}).filter(function(r){return r!==topPairR;});
       var maxCommRank=nonPairCommRanks.length>0?Math.max.apply(null,nonPairCommRanks):-1;
       var minCommRank=nonPairCommRanks.length>0?Math.min.apply(null,nonPairCommRanks):-1;
@@ -1521,6 +1521,12 @@ function postF(k){
     return{a:'fold',r:'胜率不够',eq:eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(bet>0||scene==='bet'){
+    // V2.9.51: ★ bet=0终极防御 ★ scene=bet但bet=0→数据矛盾，降级为check
+    if(bet<=0&&scene==='bet'){
+      console.log('[bet=0防御] scene=bet但bet=0，数据矛盾降级为check');
+      var exploitResult0=applyExploit(eq,'check',G.opp,{pot:pot});
+      return{a:'check',r:'数据异常-过牌',eq:exploitResult0.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
     var raiseEq=nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12);
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
     if((G.opp==='maniac'||G.opp==='lag')&&bet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
@@ -2114,6 +2120,45 @@ function onVisionResult(data){
   if(data.to_call!==undefined) G.bet=Math.round(parseInt(data.to_call)/bbValue)||0;
   if(data.my_chips>0){
     G.stk=Math.max(1,Math.round(parseInt(data.my_chips)/bbValue));
+  }
+  
+  // V2.9.51: ★ 从按钮文字自动推断scene ★
+  // 翻后默认check，但按钮文字能告诉我们实际面对什么情况
+  if(G.phase==='post' && data.buttons && data.buttons.length>0){
+    var btns=data.buttons;
+    var hasAllin=btns.some(function(b){return b.indexOf('全押')>=0||b.indexOf('全下')>=0;});
+    var hasCall=btns.some(function(b){return b.indexOf('跟注')>=0;});
+    var hasCheck=btns.some(function(b){return b.indexOf('让牌')>=0||b.indexOf('过牌')>=0;});
+    var hasRaise=btns.some(function(b){return b.indexOf('加注')>=0;});
+    var inferredScene='';
+    if(hasAllin){
+      inferredScene='allin';
+    }else if(hasCall && !hasCheck){
+      // 有跟注按钮但没有让牌=有人下注了
+      inferredScene='bet';
+    }else if(hasCheck && !hasCall){
+      // 有让牌但没有跟注=没人下注
+      inferredScene='check';
+    }else if(hasCall && hasCheck){
+      // 两者都有不太可能，但有跟注说明有人下注
+      inferredScene='bet';
+    }
+    if(inferredScene && inferredScene!==G.scene){
+      console.log('[Scene自动推断] buttons='+JSON.stringify(btns)+' → '+G.scene+'→'+inferredScene);
+      G.scene=inferredScene;
+      // 同步UI按钮
+      try{
+        document.querySelectorAll('#sceneBtnsPost .big-btn').forEach(function(b){b.classList.remove('on');});
+        var sceneMap={check:'scCheck',bet:'scBet',allin:'scAllin'};
+        var el=document.getElementById(sceneMap[inferredScene]);
+        if(el)el.classList.add('on');
+      }catch(e){}
+    }
+    // V2.9.51: ★ bet=0防御 ★ 有跟注按钮但bet=0→说明to_call提取失败
+    if(hasCall && !hasCheck && G.bet===0){
+      console.log('[bet=0防御] 有跟注按钮但bet=0，可能to_call提取失败，设最小bet=1BB');
+      G.bet=1; // 至少1BB，防止误判raise
+    }
   }
   
   // V2.9.48: 底池合理性校验——防止Vision API误读

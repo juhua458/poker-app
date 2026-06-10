@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.50
-        name: "V2.9.50 青云·底池识别+速度优化"
-        body: "V2.9.50: 底池识别强化(Vision prompt重点标注+逗号数字解析+合理性校验)+速度优化(图片压缩960/55%+MC迭代减半+延时10ms+超时缩短)+筹码/盲注解析增强"
+        tag_name: v2.9.51
+        name: "V2.9.51 青云·3BUG修复+场景推断"
+        body: "V2.9.51: 3BUG修复(底池识别prompt强化+to_call提取加固+bet=0防御)+场景自动推断(从按钮文字推断scene)+版本号升级"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

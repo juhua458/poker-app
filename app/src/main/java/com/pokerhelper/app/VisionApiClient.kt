@@ -165,7 +165,7 @@ object VisionApiClient {
 - 牌桌中央深绿色框 = "底池 XXX"（跟顶部数字一样，两处互相验证）
 - 左下角你的头像名字下方 = 你的筹码（如"8,750"）
 - 其他玩家头像下方 = 他们的筹码
-- 下注筹码堆上的数字 = 某玩家的下注额，❌不是底池
+- 下注筹码堆上的数字 = 某玩家的下注额，❌绝对不是底池！下注堆在玩家头像旁边，数字小且偏角落
 
 1. 手牌：屏幕最下方2张正面牌
 2. 公共牌：桌面中央0/3/4/5张牌
@@ -177,14 +177,15 @@ object VisionApiClient {
 8. 盲注级别
 9. 前注
 
-★★★ 底池识别（极重要）★★★：
-- 找牌桌中央"底池"二字，紧跟的数字就是pot_size
-- 顶部白色数字框也是底池，应与中央"底池"数字一致
+★★★ 底池识别（极重要，识别错误会导致策略全错）★★★：
+- pot_size = 顶部白色数字框里的数字，或牌桌中央"底池"二字紧跟的数字，两处应一致
 - 格式示例："底池 16,447"→pot_size=16447，"底池 5,750"→pot_size=5750
 - 数字可能带逗号，必须去掉逗号后输出
 - ❌绝不能把左下角你头像下的筹码当作底池！那是my_chips！
 - ❌绝不能把其他玩家头像下的筹码当作底池！
-- ❌绝不能把下注筹码堆上的数字当作底池！
+- ❌绝不能把下注筹码堆上的数字当作底池！下注堆是玩家头像旁边的小数字！
+- ❌绝不能把各玩家下注额加起来当作底池！底池是桌面上明确显示的"底池XXX"！
+- 底池数字通常是全场最大的数字，且只出现在顶部白框和中央"底池"标签处
 
 ★★★ 你的筹码识别（极重要）★★★：
 - my_chips = 左下角你自己头像名字下方的数字
@@ -193,6 +194,13 @@ object VisionApiClient {
 ★★★ 盲注识别（极重要）★★★：
 - 桌面标题"德州扑克, 200 / 500"→blind_sb=200 blind_bb=500
 - 必须识别并输出
+
+★★★ 跟注金额识别（极重要）★★★：
+- 底部操作按钮中含"跟注XXX"时，XXX就是to_call金额
+- 例如："跟注3,194"→to_call=3194，"跟注10K"→to_call=10000
+- 如果按钮只有"跟注"无数字→to_call=0（可以免费跟注）
+- 如果按钮含"让牌"或"过牌"→to_call=0（无人下注）
+- 如果按钮含"全押"或"全下"→to_call=你的全部筹码
 
 ★★★ 关键规则 ★★★：
 - rank: A K Q J T 9 8 7 6 5 4 3 2（T=10）
@@ -203,7 +211,7 @@ object VisionApiClient {
 - 按钮：原样输出含"跟注10K""让牌／弃牌""全押"等
 
 返回JSON：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0}
+{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0}
 
 只返回JSON"""
 
@@ -382,8 +390,8 @@ object VisionApiClient {
      * V2.0: 校验识别结果合理性，返回警告列表
      */
     /**
-     * V2.9.10: 从按钮文字解析跟注金额（比模型直接识别更可靠）
-     * "跟注10K" → 10000, "跟注87K" → 87000, "跟注5000" → 5000, "过牌" → 0
+     * V2.9.51: 从按钮文字解析跟注金额（比模型直接识别更可靠）
+     * "跟注10K" → 10000, "跟注87K" → 87000, "跟注5000" → 5000, "跟注3,194" → 3194, "过牌" → 0
      * @return 跟注金额，无跟注按钮返回-1
      */
     private fun parseCallAmountFromButtons(buttons: List<String>): Int {
@@ -394,14 +402,37 @@ object VisionApiClient {
                 val numStr = btn.replace("跟注", "").trim()
                 if (numStr.isEmpty()) return 0
                 return try {
-                    if (numStr.endsWith("K", ignoreCase = true)) {
-                        (numStr.dropLast(1).toFloat() * 1000).toInt()
-                    } else if (numStr.endsWith("M", ignoreCase = true)) {
-                        (numStr.dropLast(1).toFloat() * 1000000).toInt()
+                    // V2.9.51: 先去掉逗号再解析（"3,194"→"3194"）
+                    val cleaned = numStr.replace(",", "")
+                    if (cleaned.endsWith("K", ignoreCase = true)) {
+                        (cleaned.dropLast(1).toFloat() * 1000).toInt()
+                    } else if (cleaned.endsWith("M", ignoreCase = true)) {
+                        (cleaned.dropLast(1).toFloat() * 1000000).toInt()
                     } else {
-                        numStr.replace(",", "").toInt()
+                        cleaned.toInt()
                     }
-                } catch (e: Exception) { -1 }
+                } catch (e: Exception) {
+                    Log.w(TAG, "parseCallAmount失败: btn='$btn' err=${e.message}")
+                    -1
+                }
+            }
+            // V2.9.51: GG全押按钮 "全押3,194" 或 "全下5,000"
+            if (btn.contains("全押") || btn.contains("全下")) {
+                val numStr = btn.replace("全押", "").replace("全下", "").trim()
+                if (numStr.isEmpty()) return -1 // 全押无金额，需从其他来源获取
+                return try {
+                    val cleaned = numStr.replace(",", "")
+                    if (cleaned.endsWith("K", ignoreCase = true)) {
+                        (cleaned.dropLast(1).toFloat() * 1000).toInt()
+                    } else if (cleaned.endsWith("M", ignoreCase = true)) {
+                        (cleaned.dropLast(1).toFloat() * 1000000).toInt()
+                    } else {
+                        cleaned.toInt()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "parseAllInAmount失败: btn='$btn' err=${e.message}")
+                    -1
+                }
             }
         }
         return -1 // 没有跟注/过牌按钮
