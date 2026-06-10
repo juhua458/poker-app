@@ -793,7 +793,187 @@ function getSPRAdvice(spr){if(spr<3)return{label:'短码区',color:'lo'};if(spr<
 function getHandKey(){var h=G.hole;if(!h[0]||!h[1])return null;var r1=h[0].rank,r2=h[1].rank,s1=h[0].suit,s2=h[1].suit;if(RV[r1]<RV[r2]){var t=r1;r1=r2;r2=t;var ts=s1;s1=s2;s2=ts;}var suited=s1===s2;var k=r1+r2+(r1===r2?'':(suited?'s':'o'));return k;}
 function eH(cards){var ranks=[],suits=[];cards.forEach(function(c){if(c){ranks.push(c.rank);suits.push(c.suit);}});var values=ranks.map(function(r){return RV[r]||0;});values.sort(function(a,b){return b-a;});var isFlush=suits.length>=5&&(function(){var s={};suits.forEach(function(su){s[su]=(s[su]||0)+1;});for(var k in s)if(s[k]>=5)return true;return false;})();var isStraight=(function(){var uniq=[];values.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return b-a;});if(uniq.length>=5){for(var i=0;i<=uniq.length-5;i++){if(uniq[i]-uniq[i+4]===4)return true;}if(uniq.indexOf(12)>=0&&uniq.indexOf(3)>=0&&uniq.indexOf(2)>=0&&uniq.indexOf(1)>=0&&uniq.indexOf(0)>=0)return true;}return false;})();var pairCount=(function(){var c={};ranks.forEach(function(r){c[r]=(c[r]||0)+1;});return Object.values(c).filter(function(n){return n>=2;}).sort(function(a,b){return b-a;});})();var topPair=(function(){if(pairCount[0]>=2){for(var i=0;i<ranks.length;i++){var cnt=0;for(var j=0;j<ranks.length;j++)if(ranks[j]===ranks[i])cnt++;if(cnt>=2)return RV[ranks[i]];}}return-1;})();var madeHand='high';if(isFlush&&isStraight)madeHand='sf';else if(isFlush)madeHand='flush';else if(isStraight)madeHand='straight';else if(pairCount[0]>=4)madeHand='quads';else if(pairCount[0]>=3&&pairCount[1]>=2)madeHand='fh';else if(pairCount[0]>=3)madeHand='set';else if(pairCount[0]>=2&&pairCount[1]>=2)madeHand='twoPair';else if(pairCount[0]>=2)madeHand='pair';var kicker=Math.max.apply(null,values.slice(0,Math.min(5,values.length)));var score=(function(){var handVals={high:0,pair:100,twoPair:200,set:300,straight:400,flush:500,fh:600,quads:700,sf:800};if(madeHand==='pair'){var npv=values.filter(function(v){return v!==topPair;});var pk=npv.length>0?npv[0]:0;return handVals.pair+topPair*5+pk;}return(handVals[madeHand]||0)+(kicker||0);})();return score;}
 function eQ(key){var pairEq={AA:85,KK:82,QQ:80,JJ:77,TT:75,99:72,88:70,77:68,66:66,55:64,44:62,33:60,22:56};if(pairEq[key])return pairEq[key];var s=key.indexOf('s')>=0?1:0;var m={AK:[63,65],AQ:[59,62],AJ:[55,58],AT:[44,50],A9:[44,52],A8:[43,51],A7:[42,50],A6:[41,50],A5:[41,52],A4:[40,51],A3:[39,50],A2:[38,50],KQ:[55,58],KJ:[50,55],KT:[46,53],K9:[42,50],K8:[37,48],K7:[36,47],K6:[35,46],K5:[34,45],K4:[33,44],K3:[32,43],K2:[31,42],QJ:[48,54],QT:[45,52],Q9:[40,49],Q8:[36,47],JT:[46,53],J9:[38,48],J8:[35,46],T9:[42,52],T8:[36,48],T7:[33,46],98:[35,50],97:[32,46],87:[34,49],86:[31,45],76:[33,48],65:[31,46],54:[29,44],43:[28,42],32:[26,40]};var combo=key.slice(0,2);if(m[combo])return m[combo][s];var idx;if((idx=O6.btn.indexOf(key))!==-1)return 48;if((idx=O6.co.indexOf(key))!==-1)return 45;if((idx=O6.mp.indexOf(key))!==-1)return 42;if((idx=O6.utg.indexOf(key))!==-1)return 38;return 30;}
-function handClassify(hole,comm){var cards=[].concat(hole.filter(function(c){return c;}),comm.filter(function(c){return c;}));var cc=comm.filter(function(c){return c;}).length;if(cc===0)return{name:'PRE',desc:'翻前'};var score=eH(cards);var rankCounts={};cards.forEach(function(c){if(c)rankCounts[c.rank]=(rankCounts[c.rank]||0)+1;});var flushSuits={};cards.forEach(function(c){if(c)flushSuits[c.suit]=(flushSuits[c.suit]||0)+1;});var flushDraw=false,flushMade=false;for(var s in flushSuits){if(flushSuits[s]>=5)flushMade=true;else if(flushSuits[s]===4)flushDraw=true;}var rankVals=cards.map(function(c){return c?RV[c.rank]:0;});var uniq=[];rankVals.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return b-a;});var hasMadeStraight=false;for(var i=0;i<=uniq.length-5;i++){if(uniq[i]-uniq[i+4]===4)hasMadeStraight=true;}if(uniq.indexOf(12)>=0&&uniq.indexOf(3)>=0&&uniq.indexOf(2)>=0&&uniq.indexOf(1)>=0&&uniq.indexOf(0)>=0)hasMadeStraight=true;var uniqAce=uniq.slice();if(uniq.indexOf(12)>=0)uniqAce.push(-1);uniqAce.sort(function(a,b){return b-a;});var isOpenEnd=false,isGutshot=false;var holeRanks=hole.filter(function(c){return c;}).map(function(c){return RV[c.rank];});var commCount=comm.filter(function(c){return c;}).length;if(!hasMadeStraight&&commCount<5){for(var i=0;i<=uniqAce.length-4;i++){if(uniqAce[i]-uniqAce[i+3]===3){var consecutive=true;for(var j=0;j<3;j++){if(uniqAce[i+j]-uniqAce[i+j+1]!==1)consecutive=false;}if(consecutive){var drawRanks=[uniqAce[i],uniqAce[i+1],uniqAce[i+2],uniqAce[i+3]];if(!drawRanks.some(function(r){return holeRanks.indexOf(r)>=0;}))continue;var highEnd=uniqAce[i];var lowEnd=uniqAce[i+3];var highOpen=highEnd<12;var lowOpen=lowEnd>0;if(lowEnd===0)lowOpen=true;if(lowEnd===-1)lowOpen=false;if(highOpen&&lowOpen)isOpenEnd=true;else if(highOpen||lowOpen)isGutshot=true;}}}if(!isOpenEnd&&!isGutshot){for(var i=0;i<=uniqAce.length-4;i++){var span=uniqAce[i]-uniqAce[i+3];if(span===4){var gaps=0;for(var j=0;j<3;j++){if(uniqAce[i+j]-uniqAce[i+j+1]>1)gaps++;}if(gaps===1){var gapRanks=[uniqAce[i],uniqAce[i+1],uniqAce[i+2],uniqAce[i+3]];if(gapRanks.some(function(r){return holeRanks.indexOf(r)>=0;}))isGutshot=true;}}}}}var pairCount2=(function(){var c={};cards.forEach(function(c2){if(c2){c[c2.rank]=(c[c2.rank]||0)+1;}});return Object.values(c).filter(function(n){return n>=2;}).sort(function(a,b){return b-a;});})();var madeHand2='high';var isFlush2=cards.length>=5&&(function(){var s2={};cards.forEach(function(c2){if(c2)s2[c2.suit]=(s2[c2.suit]||0)+1;});for(var k in s2)if(s2[k]>=5)return true;return false;})();if(isFlush2&&hasMadeStraight)madeHand2='sf';else if(isFlush2)madeHand2='flush';else if(hasMadeStraight)madeHand2='straight';else if(pairCount2[0]>=4)madeHand2='quads';else if(pairCount2[0]>=3&&pairCount2[1]>=2)madeHand2='fh';else if(pairCount2[0]>=3)madeHand2='set';else if(pairCount2[0]>=2&&pairCount2[1]>=2)madeHand2='twoPair';else if(pairCount2[0]>=2)madeHand2='pair';var madeType='high';var pairSubType='';if(madeHand2==='sf'||madeHand2==='quads'||madeHand2==='fh'||madeHand2==='flush'||madeHand2==='straight'||madeHand2==='set'){madeType='NUTS';}else if(madeHand2==='twoPair'){madeType='STRONG';pairSubType='两对';}else if(madeHand2==='pair'){var topPairR=(function(){if(pairCount2[0]>=2){var rc={};cards.forEach(function(c2){if(c2)rc[c2.rank]=(rc[c2.rank]||0)+1;});var pr=Object.entries(rc).filter(function(e){return e[1]>=2;}).map(function(e){return RV[e[0]];});return pr.length>0?Math.max.apply(null,pr):-1;}return-1;})();var commCards2=comm.filter(function(c){return c;});var commRanks2=commCards2.map(function(c){return RV[c.rank];});var maxCommRank=commRanks2.length>0?Math.max.apply(null,commRanks2):-1;var minCommRank=commRanks2.length>0?Math.min.apply(null,commRanks2):-1;var nonPairVals=rankVals.filter(function(v){return v!==topPairR;});var bestKicker=nonPairVals.length>0?Math.max.apply(null,nonPairVals):0;if(maxCommRank<0){if(topPairR>=10)madeType='STRONG';else madeType='MEDIUM';}else if(topPairR>=maxCommRank){var isOverpair=hole.length>=2&&hole[0]&&hole[1]&&hole[0].rank===hole[1].rank&&topPairR>maxCommRank;if(isOverpair){madeType='STRONG';pairSubType='超对';}else if(bestKicker>=10){madeType='STRONG';pairSubType='顶对顶踢';}else{madeType='MEDIUM';pairSubType=bestKicker>=7?'顶对中踢':'顶对弱踢';}}else{if(topPairR>=minCommRank){madeType='MEDIUM';pairSubType='中对';}else{madeType='AIR';pairSubType='底对';}}}else if(score>=150){madeType='STRONG';}else if(score>=100){madeType='MEDIUM';}else if(flushDraw||isOpenEnd||isGutshot){madeType='DRAW';}else{madeType='AIR';}var outs=0;var hasComboDraw=false;if(madeType==='DRAW'){if(isOpenEnd)outs=8;else if(isGutshot)outs=4;if(flushDraw)outs+=9;if((isOpenEnd||isGutshot)&&flushDraw)hasComboDraw=true;}if(madeType==='MEDIUM'||madeType==='STRONG'){var bonusOuts=0;if(flushDraw)bonusOuts+=9;if(isOpenEnd)bonusOuts+=8;else if(isGutshot)bonusOuts+=4;outs=2;if(bonusOuts>0){outs+=bonusOuts;hasComboDraw=true;}}if(madeType==='AIR'&&(flushDraw||isOpenEnd||isGutshot)){madeType='DRAW';if(isOpenEnd)outs=8;else if(isGutshot)outs=4;if(flushDraw)outs+=9;if((isOpenEnd||isGutshot)&&flushDraw)hasComboDraw=true;}if(madeType==="AIR"&&holeRanks.indexOf(12)>=0&&commCount>=3){var _maxComm=comm.filter(function(c){return c;}).map(function(c){return RV[c.rank];});_maxComm=_maxComm.length>0?Math.max.apply(null,_maxComm):-1;if(_maxComm<12){madeType="DRAW";outs=3;isGutshot=true;}}var desc='';if(madeType==='NUTS')desc='坚果牌';else if(madeType==='STRONG')desc=hasComboDraw?'强牌+听牌':(pairSubType||'强牌');else if(madeType==='MEDIUM')desc=hasComboDraw?'中对+听牌':(pairSubType||'中对/底对');else if(madeType==='DRAW')desc=outs+'outs'+(hasComboDraw?' 组合听牌':(isOpenEnd?' 开放顺听':(isGutshot?' 卡顺听':(flushDraw?' 同花听':'听牌'))));else desc='空气/弱牌';return{name:madeType,desc:desc,outs:outs};}
+function handClassify(hole,comm){
+  var cards=[].concat(hole.filter(function(c){return c;}),comm.filter(function(c){return c;}));
+  var cc=comm.filter(function(c){return c;}).length;
+  if(cc===0)return{name:'PRE',desc:'翻前'};
+  var score=eH(cards);
+  var rankCounts={};
+  cards.forEach(function(c){if(c)rankCounts[c.rank]=(rankCounts[c.rank]||0)+1;});
+  var flushSuits={};
+  cards.forEach(function(c){if(c)flushSuits[c.suit]=(flushSuits[c.suit]||0)+1;});
+  var flushDraw=false,flushMade=false;
+  for(var s in flushSuits){
+    if(flushSuits[s]>=5)flushMade=true;
+    else if(flushSuits[s]===4)flushDraw=true;
+  }
+  var rankVals=cards.map(function(c){return c?RV[c.rank]:0;});
+  var uniq=[];
+  rankVals.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});
+  uniq.sort(function(a,b){return b-a;});
+  var hasMadeStraight=false;
+  for(var i=0;i<=uniq.length-5;i++){if(uniq[i]-uniq[i+4]===4)hasMadeStraight=true;}
+  if(uniq.indexOf(12)>=0&&uniq.indexOf(3)>=0&&uniq.indexOf(2)>=0&&uniq.indexOf(1)>=0&&uniq.indexOf(0)>=0)hasMadeStraight=true;
+  var uniqAce=uniq.slice();
+  if(uniq.indexOf(12)>=0)uniqAce.push(-1);
+  uniqAce.sort(function(a,b){return b-a;});
+  var isOpenEnd=false,isGutshot=false;
+  var holeRanks=hole.filter(function(c){return c;}).map(function(c){return RV[c.rank];});
+  var holeRankNames=hole.filter(function(c){return c;}).map(function(c){return c.rank;});
+  var commCount=comm.filter(function(c){return c;}).length;
+  if(!hasMadeStraight&&commCount<5){
+    for(var i=0;i<=uniqAce.length-4;i++){
+      if(uniqAce[i]-uniqAce[i+3]===3){
+        var consecutive=true;
+        for(var j=0;j<3;j++){if(uniqAce[i+j]-uniqAce[i+j+1]!==1)consecutive=false;}
+        if(consecutive){
+          var drawRanks=[uniqAce[i],uniqAce[i+1],uniqAce[i+2],uniqAce[i+3]];
+          if(!drawRanks.some(function(r){return holeRanks.indexOf(r)>=0;}))continue;
+          var highEnd=uniqAce[i];var lowEnd=uniqAce[i+3];
+          var highOpen=highEnd<12;var lowOpen=lowEnd>0;
+          if(lowEnd===0)lowOpen=true;if(lowEnd===-1)lowOpen=false;
+          if(highOpen&&lowOpen)isOpenEnd=true;
+          else if(highOpen||lowOpen)isGutshot=true;
+        }
+      }
+    }
+    if(!isOpenEnd&&!isGutshot){
+      for(var i=0;i<=uniqAce.length-4;i++){
+        var span=uniqAce[i]-uniqAce[i+3];
+        if(span===4){
+          var gaps=0;
+          for(var j=0;j<3;j++){if(uniqAce[i+j]-uniqAce[i+j+1]>1)gaps++;}
+          if(gaps===1){
+            var gapRanks=[uniqAce[i],uniqAce[i+1],uniqAce[i+2],uniqAce[i+3]];
+            if(gapRanks.some(function(r){return holeRanks.indexOf(r)>=0;}))isGutshot=true;
+          }
+        }
+      }
+    }
+  }
+  // V2.9.48-fix: 对子分类必须区分手牌参与 vs 纯公共牌对子
+  var pairCount2=(function(){
+    var c={};
+    cards.forEach(function(c2){if(c2){c[c2.rank]=(c[c2.rank]||0)+1;}});
+    return Object.values(c).filter(function(n){return n>=2;}).sort(function(a,b){return b-a;});
+  })();
+  // V2.9.48-fix: 检查手牌是否参与了对子（关键！AJ在QQ面=没有对子）
+  var holePairRanks=[];  // 手牌参与的对子rank列表
+  var boardOnlyPairs=[];  // 纯公共牌对子rank列表
+  var holeRankSet={};
+  holeRankNames.forEach(function(r){holeRankSet[r]=true;});
+  var commRankCounts={};
+  comm.filter(function(c){return c;}).forEach(function(c){commRankCounts[c.rank]=(commRankCounts[c.rank]||0)+1;});
+  for(var rk in rankCounts){
+    if(rankCounts[rk]>=2){
+      if(holeRankSet[rk]){holePairRanks.push(RV[rk]);}
+      else{boardOnlyPairs.push(RV[rk]);}
+    }
+  }
+  holePairRanks.sort(function(a,b){return b-a;});
+  boardOnlyPairs.sort(function(a,b){return b-a;});
+  var hasHolePair=holePairRanks.length>0;
+  var hasBoardPair=boardOnlyPairs.length>0;
+  var madeHand2='high';
+  var isFlush2=cards.length>=5&&(function(){
+    var s2={};cards.forEach(function(c2){if(c2)s2[c2.suit]=(s2[c2.suit]||0)+1;});
+    for(var k in s2)if(s2[k]>=5)return true;return false;
+  })();
+  if(isFlush2&&hasMadeStraight)madeHand2='sf';
+  else if(isFlush2)madeHand2='flush';
+  else if(hasMadeStraight)madeHand2='straight';
+  else if(pairCount2[0]>=4)madeHand2='quads';
+  else if(pairCount2[0]>=3&&pairCount2[1]>=2)madeHand2='fh';
+  else if(pairCount2[0]>=3)madeHand2='set';
+  else if(pairCount2[0]>=2&&pairCount2[1]>=2)madeHand2='twoPair';
+  else if(pairCount2[0]>=2)madeHand2='pair';
+  var madeType='high';var pairSubType='';
+  if(madeHand2==='sf'||madeHand2==='quads'||madeHand2==='fh'||madeHand2==='flush'||madeHand2==='straight'||madeHand2==='set'){
+    madeType='NUTS';
+  }else if(madeHand2==='twoPair'){
+    madeType='STRONG';pairSubType='两对';
+  }else if(madeHand2==='pair'){
+    // V2.9.48-fix: 关键修正——区分"我的对子"和"公共牌对子"
+    if(!hasHolePair&&hasBoardPair){
+      // 没有手牌参与对子，只是公共牌有对→我只有high card
+      // 检查是否有A-high等强high card
+      var bestHoleRank=holeRanks.length>0?Math.max.apply(null,holeRanks):-1;
+      if(bestHoleRank>=12){
+        madeType='AIR';pairSubType='Ace-high(无对)';
+      }else{
+        madeType='AIR';pairSubType='无对弱牌';
+      }
+    }else if(hasHolePair){
+      // 手牌参与了对子——正常顶对/中对/底对逻辑
+      var topPairR=holePairRanks[0];
+      var commCards2=comm.filter(function(c){return c;});
+      var commRanks2=commCards2.map(function(c){return RV[c.rank];});
+      var maxCommRank=commRanks2.length>0?Math.max.apply(null,commRanks2):-1;
+      var minCommRank=commRanks2.length>0?Math.min.apply(null,commRanks2):-1;
+      var nonPairVals=rankVals.filter(function(v){return v!==topPairR;});
+      var bestKicker=nonPairVals.length>0?Math.max.apply(null,nonPairVals):0;
+      if(maxCommRank<0){
+        if(topPairR>=10)madeType='STRONG';else madeType='MEDIUM';
+      }else if(topPairR>=maxCommRank){
+        var isOverpair=hole.length>=2&&hole[0]&&hole[1]&&hole[0].rank===hole[1].rank&&topPairR>maxCommRank;
+        if(isOverpair){madeType='STRONG';pairSubType='超对';}
+        else if(bestKicker>=10){madeType='STRONG';pairSubType='顶对顶踢';}
+        else{madeType='MEDIUM';pairSubType=bestKicker>=7?'顶对中踢':'顶对弱踢';}
+      }else{
+        if(topPairR>=minCommRank){madeType='MEDIUM';pairSubType='中对';}
+        else{madeType='AIR';pairSubType='底对';}
+      }
+    }else{
+      // 有对子但手牌没参与也不走上面的逻辑→fallback
+      madeType='AIR';pairSubType='无对';
+    }
+  }else if(score>=150){
+    madeType='STRONG';
+  }else if(score>=100){
+    madeType='MEDIUM';
+  }else if(flushDraw||isOpenEnd||isGutshot){
+    madeType='DRAW';
+  }else{
+    madeType='AIR';
+  }
+  var outs=0;var hasComboDraw=false;
+  if(madeType==='DRAW'){
+    if(isOpenEnd)outs=8;else if(isGutshot)outs=4;
+    if(flushDraw)outs+=9;
+    if((isOpenEnd||isGutshot)&&flushDraw)hasComboDraw=true;
+  }
+  if(madeType==='MEDIUM'||madeType==='STRONG'){
+    var bonusOuts=0;
+    if(flushDraw)bonusOuts+=9;
+    if(isOpenEnd)bonusOuts+=8;else if(isGutshot)bonusOuts+=4;
+    outs=2;
+    if(bonusOuts>0){outs+=bonusOuts;hasComboDraw=true;}
+  }
+  if(madeType==='AIR'&&(flushDraw||isOpenEnd||isGutshot)){
+    madeType='DRAW';
+    if(isOpenEnd)outs=8;else if(isGutshot)outs=4;
+    if(flushDraw)outs+=9;
+    if((isOpenEnd||isGutshot)&&flushDraw)hasComboDraw=true;
+  }
+  // V2.9.48-fix: Ace-high在公共牌对子面=卡顺3outs(A当高牌)
+  if(madeType==="AIR"&&holeRanks.indexOf(12)>=0&&commCount>=3){
+    var _maxComm=comm.filter(function(c){return c;}).map(function(c){return RV[c.rank];});
+    _maxComm=_maxComm.length>0?Math.max.apply(null,_maxComm):-1;
+    if(_maxComm<12){madeType="DRAW";outs=3;isGutshot=true;pairSubType='Ace-high';}
+  }
+  // V2.9.48-fix: 公共牌对子面，没有手牌参与→检查是否有顺子听牌
+  if(madeType==='AIR'&&hasBoardPair&&!hasHolePair&&commCount>=3){
+    if(isOpenEnd){madeType='DRAW';outs=8;}
+    else if(isGutshot){madeType='DRAW';outs=4;}
+  }
+  var desc='';
+  if(madeType==='NUTS')desc='坚果牌';
+  else if(madeType==='STRONG')desc=hasComboDraw?'强牌+听牌':(pairSubType||'强牌');
+  else if(madeType==='MEDIUM')desc=hasComboDraw?'中对+听牌':(pairSubType||'中对/底对');
+  else if(madeType==='DRAW')desc=outs+'outs'+(hasComboDraw?' 组合听牌':(isOpenEnd?' 开放顺听':(isGutshot?' 卡顺听':(flushDraw?' 同花听':'听牌'))));
+  else desc=pairSubType||'空气/弱牌';
+  return{name:madeType,desc:desc,outs:outs};
+}
 function boardTexture(comm){var c=comm.filter(function(card){return card;});if(c.length===0)return{wetness:0,desc:'翻前',hasMonotone:false,hasPaired:false,rangeAdv:'neutral',category:'preflop'};var ranks=c.map(function(card){return card.rank;});var suits=c.map(function(card){return card.suit;});var rankCount={};ranks.forEach(function(r){rankCount[r]=(rankCount[r]||0)+1;});var hasPaired=Object.values(rankCount).some(function(n){return n>=2;});var hasTrips=Object.values(rankCount).some(function(n){return n>=3;});var suitCount={};suits.forEach(function(s){suitCount[s]=(suitCount[s]||0)+1;});var maxSuit=Math.max.apply(null,Object.values(suitCount));var hasMonotone=maxSuit>=3;var vals=ranks.map(function(r){return RV[r]||0;}).sort(function(a,b){return a-b;});var uniq=[];vals.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return a-b;});var maxGap=0,connected=0;for(var i=1;i<uniq.length;i++){var gap=uniq[i]-uniq[i-1];if(gap<=2)connected++;if(gap>maxGap)maxGap=gap;}if(uniq.indexOf(12)!==-1&&uniq.indexOf(1)!==-1&&uniq.indexOf(0)!==-1)connected++;var category,wetness;if(hasTrips){category='paired';wetness=3;}else if(hasMonotone&&connected>=2){category='wet';wetness=4;}else if(hasMonotone){category='wet';wetness=4;}else if(hasPaired&&connected>=2){category='semi-wet';wetness=2;}else if(hasPaired){category='paired';wetness=3;}else if(maxSuit>=2&&connected>=2){category='semi-wet';wetness=2;}else if(connected>=2&&maxGap<=3){category='semi-wet';wetness=2;}else if(maxSuit>=2||connected>=1){category='dry';wetness=1;}else{category='static';wetness=0;}var street=c.length===3?'翻牌':c.length===4?'转牌':'河牌';var catNames={'static':'极干','dry':'干燥','semi-wet':'半湿','paired':'对子','wet':'湿面','preflop':'翻前'};var texture={wetness:wetness,desc:street+'('+catNames[category]+')',hasMonotone:hasMonotone,hasPaired:hasPaired,rangeAdv:'neutral',category:category};return texture;}
 function calcOuts(hole,comm){var hc=handClassify(hole.filter(function(c){return c;}),comm);return hc.outs||0;}
 function impliedOdds(outs,spr,bet,pot){if(outs===0||spr<=0)return null;var turnEq=outs/47;var riverEq=outs/46;var total=turnEq+(1-turnEq)*riverEq;var callCost=bet;var toWin=pot;var breakeven=callCost/(toWin+callCost);var io={total:total*100,breakeven:breakeven*100,advice:'隐含赔率不足'};if(total>=breakeven*1.3)io.advice='隐含赔率充足';else if(total>=breakeven)io.advice='勉强跟注';return io;}
