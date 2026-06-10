@@ -62,8 +62,8 @@ object VisionApiClient {
         }
 
         return try {
-            // V2.9.48: 压缩到960宽度+quality55，更快传输且识别精度足够
-            val compressedJpeg = compressImage(jpegData, maxWidth = 960)
+            // V2.9.48: 压缩到1080宽度+quality70，底池小文字需要足够清晰
+            val compressedJpeg = compressImage(jpegData, maxWidth = 1080)
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
             val dataUri = "data:image/jpeg;base64,$base64Image"
 
@@ -129,7 +129,7 @@ object VisionApiClient {
         if (scale >= 1f) {
             // 只压缩质量
             val stream = ByteArrayOutputStream()
-            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 55, stream)
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
             bitmap.recycle()
             return stream.toByteArray()
         }
@@ -140,7 +140,7 @@ object VisionApiClient {
         bitmap.recycle()
 
         val stream = ByteArrayOutputStream()
-        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 55, stream)
+        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
         scaled.recycle()
         return stream.toByteArray()
     }
