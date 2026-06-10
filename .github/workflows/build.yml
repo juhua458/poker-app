@@ -41,7 +41,7 @@ jobs:
       if: success()
       with:
         tag_name: v2.9.62
-        name: "V2.9.62 青云·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测"
+        name: "V2.9.62 青云·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测·反剥削·尺度精细化"
         body: "V2.9.53: 河牌完全枚举精确胜率+底池置信度评估(PotConfidence)+底池离散化4档(PotBucket)+三层Fallback策略(高/中/低置信度→精确GTO/粗粒度区间/纯胜率兜底)+多帧平滑校验+River容错策略(胜率区间决策)+UI显示置信度"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:

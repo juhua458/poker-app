@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.62 · ⚡2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测"
+        android:text="V2.9.62 · ⚡2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测·反剥削·尺度精细化"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />

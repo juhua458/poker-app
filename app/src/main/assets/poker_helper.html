@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.59 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测</title>
+<title>青云 v2.9.62 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测·反剥削·尺度精细化</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1629,6 +1629,105 @@ var TiltDetector={
 };
 
 
+// ===== V2.9.61: CounterExploit — 反剥削逻辑 =====
+var CounterExploit={
+  // 检测我方是否被对手剥削——对手可能针对性调整
+  // 返回: {detected:bool, type:string, counterAction:string, adjustments:{}}
+  detect:function(profile){
+    var result={detected:false,type:'',counterAction:'',adjustments:{}};
+    if(profile.hands<10)return result; // 样本不足不判断
+    
+    var type=profile.type;
+    var foldToBet=profile.fold_to_bet||50;
+    var vpip=profile.vpip;
+    var af=profile.af;
+    var threebet=profile.threebet||0;
+    var steal=profile.steal||0;
+    var cbet=profile.cbet||0;
+    
+    // === 检测1: 对手过度弃牌→对手可能在剥削我们的诈唬 ===
+    // 如果对手fold_to_bet很高(>65%)，说明对手可能知道我们诈唬多
+    // 对策: 减少诈唬，增加价值下注
+    if(foldToBet>=65&&type!=='nit'&&type!=='tight'){
+      result.detected=true;
+      result.type='overfolding';
+      result.counterAction='减少诈唬+扩大价值范围';
+      result.adjustments={
+        bluffReduce:0.4,      // 诈唬减少40%
+        valueExpand:0.10,     // 价值范围扩大10%
+        sizingAdj:1.10,       // 价值下注加大10%(对手不跟就大打)
+        callThreshAdj:-3      // 跟注阈值降3%(对手诈唬少了，可多跟)
+      };
+      return result;
+    }
+    
+    // === 检测2: 对手3bet频率极高→对手在剥削我们的开池范围 ===
+    // 如果对手3bet>18%(非LAG/maniac)，说明对手在攻击我们的宽开池
+    // 对策: 收紧开池范围，4bet更多
+    if(threebet>=18&&type!=='maniac'&&type!=='lag'){
+      result.detected=true;
+      result.type='over_3betting';
+      result.counterAction='收紧开池+4bet反击';
+      result.adjustments={
+        rangeContract:0.15,   // 开池范围缩小15%
+        fourbetExpand:0.10,   // 4bet范围扩大10%
+        foldTo3bet:0.10,      // 面对3bet多弃10%
+        callThreshAdj:3       // 跟注更谨慎
+      };
+      return result;
+    }
+    
+    // === 检测3: 对手频繁偷盲→对手在剥削我们的BB防守 ===
+    // steal>45%(非LAG/maniac)→对手知道我们BB弃牌多
+    // 对策: 扩大BB防守范围，3bet反击
+    if(steal>=45&&type!=='maniac'&&type!=='lag'){
+      result.detected=true;
+      result.type='over_stealing';
+      result.counterAction='扩大BB防守+3bet反击';
+      result.adjustments={
+        defendExpand:0.15,    // 防守范围扩大15%
+        threebetExpand:0.10,  // 3bet反击范围扩大
+        callThreshAdj:-2      // 跟注阈值降2%(多看牌)
+      };
+      return result;
+    }
+    
+    // === 检测4: 对手C-bet极高→对手在剥削我们的弃牌率 ===
+    // cbet>80%(非maniac)→对手知道我们面对cbet弃牌多
+    // 对策: 增加float(跟注cbet后操作)，减少弃牌
+    if(cbet>=80&&type!=='maniac'){
+      result.detected=true;
+      result.type='over_cbetting';
+      result.counterAction='增加float+延迟诈唬';
+      result.adjustments={
+        foldToCbetReduce:0.15, // 面对cbet弃牌减少15%
+        floatExpand:0.10,      // float(跟注后操作)增加
+        callThreshAdj:-3,      // 跟注阈值降3%
+        bluffDelay:0.05        // 延迟诈唬频率加5%
+      };
+      return result;
+    }
+    
+    return result;
+  },
+  
+  // 将反剥削调整应用到策略
+  applyAdjustments:function(profile,ceResult){
+    if(!ceResult.detected)return profile;
+    profile.counterExploit=ceResult;
+    return profile;
+  },
+  
+  // 获取反剥削显示文本
+  getDisplay:function(ceResult){
+    if(!ceResult.detected)return'';
+    var icons={overfolding:'🛡️',over_3betting:'⚔️',over_stealing:'🔒',over_cbetting:'🎯'};
+    var labels={overfolding:'反诈唬剥削',over_3betting:'反3bet剥削',over_stealing:'反偷盲剥削',over_cbetting:'反cbet剥削'};
+    return(icons[ceResult.type]||'🛡️')+(labels[ceResult.type]||'反剥削');
+  }
+};
+
+
 // V2.9.30: DRTA自动采集 - 从场景推导对手动作
 var _lastRecordedKey=''; // 防止同一手牌同一场景重复记录
 function inferOpponentAction(scene,street){
@@ -2214,11 +2313,9 @@ var StrategicBluff={
         // V2.9.59: SPR感知诈唬频率——短码不bluff，深码多bluff
         bf=SPRZone.bluffFreq(spr,bf,type,hClass.name);
         // V2.9.60: Tilt对手减少bluff（tilt玩家不弃牌，bluff无效）
-        var _tiltInfo=TiltDetector.detectTilt(DRTA.getProfile());
-        if(_tiltInfo.tilt)bf*=(1-(_tiltInfo.adjustments.bluffReduce||0));
+        if(tiltInfo.tilt)bf*=(1-(tiltInfo.adjustments.bluffReduce||0));
         // V2.9.61: 反剥削——对手过度弃牌说明知道我们bluff多→减少bluff
-        var _ceInfo=CounterExploit.detect(DRTA.getProfile());
-        if(_ceInfo.detected&&_ceInfo.adjustments.bluffReduce)bf*=(1-_ceInfo.adjustments.bluffReduce);
+        if(ceResult.detected&&ceResult.adjustments.bluffReduce)bf*=(1-ceResult.adjustments.bluffReduce);
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
         if(Math.random()<bf){
@@ -2406,6 +2503,9 @@ function preF(k){
   // V2.9.60: Tilt检测——对手情绪状态影响策略
   var tiltInfo=TiltDetector.detectTilt(profile);
   profile=TiltDetector.applyTiltAdjustments(profile,tiltInfo);
+  // V2.9.61: 反剥削检测——对手可能在针对性调整
+  var ceResult=CounterExploit.detect(profile);
+  profile=CounterExploit.applyAdjustments(profile,ceResult);
   var weights=DRTA.getDRTAWeight(profile);
   var sceneLabel='';
   if(scene==='reraise'){eq-=12;sceneLabel='面对再raise';}
@@ -2582,10 +2682,7 @@ function postF(k){
   var io=null;
   if(outs>0&&bet>0)io=impliedOddsSPR(outs,spr,bet,pot);
   var exploitResult=applyExploit(eq,scene==='check'?'raise':scene==='allin'?'call':'call',G.opp,{bet:bet,pot:pot});
-  var _tiltSizingMod=tiltInfo.tilt?tiltInfo.adjustments.sizingAdj||1:1;
-  var _ceSizingMod=ceResult.detected&&ceResult.adjustments.sizingAdj?ceResult.adjustments.sizingAdj:1;
-  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1*_tiltSizingMod*_ceSizingMod,hClass.name,street);
-  // DRTA profile
+  // DRTA profile + Tilt检测 + 反剥削检测（必须在sizing计算之前）
   var profile=DRTA.getProfile();
   // V2.9.60: Tilt检测
   var tiltInfo=TiltDetector.detectTilt(profile);
@@ -2593,6 +2690,10 @@ function postF(k){
   // V2.9.61: 反剥削检测
   var ceResult=CounterExploit.detect(profile);
   profile=CounterExploit.applyAdjustments(profile,ceResult);
+  // Tilt+反剥削尺度修正
+  var _tiltSizingMod=tiltInfo.tilt?tiltInfo.adjustments.sizingAdj||1:1;
+  var _ceSizingMod=ceResult.detected&&ceResult.adjustments.sizingAdj?ceResult.adjustments.sizingAdj:1;
+  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1*_tiltSizingMod*_ceSizingMod,hClass.name,street);
   var weights=DRTA.getDRTAWeight(profile);
   if(street==='turn'){eq=Math.max(5,eq-5);}
   else if(street==='river'){eq=Math.max(5,eq-3);}
