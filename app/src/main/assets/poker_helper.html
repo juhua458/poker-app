@@ -2626,11 +2626,11 @@ var StrategicBluff={
       if(ftb>=50&&opponents<=2&&isDryBoard&&conf>=0.3){
         var bf=DRTA.BLUFF_FREQ[type]||0.10;
         // V2.9.59: SPR感知诈唬频率——短码不bluff，深码多bluff
-        bf=SPRZone.bluffFreq(spr,bf,type,hClass.name);
+        bf=SPRZone.bluffFreq(G.spr||calcSPR(),bf,type,hClass.name);
         // V2.9.60: Tilt对手减少bluff（tilt玩家不弃牌，bluff无效）
-        if(tiltInfo.tilt)bf*=(1-(tiltInfo.adjustments.bluffReduce||0));
+        if(typeof tiltInfo!=="undefined"&&tiltInfo.tilt)bf*=(1-(tiltInfo.adjustments.bluffReduce||0));
         // V2.9.61: 反剥削——对手过度弃牌说明知道我们bluff多→减少bluff
-        if(ceResult.detected&&ceResult.adjustments.bluffReduce)bf*=(1-ceResult.adjustments.bluffReduce);
+        if(typeof ceResult!=="undefined"&&ceResult.detected&&ceResult.adjustments.bluffReduce)bf*=(1-ceResult.adjustments.bluffReduce);
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
         if(Math.random()<bf){
@@ -2642,10 +2642,10 @@ var StrategicBluff={
     // 半诈唬: 8+outs+对手可逼退
     // V2.9.59: 短码不半诈唬(筹码太珍贵)
     if((street==='flop'||street==='turn')&&hClass.name==='DRAW'&&hClass.outs>=8){
-      var sprZone2=SPRZone.getZone(spr);
+      var sprZone2=SPRZone.getZone(G.spr||calcSPR());
       if(conf>=0.2&&opponents<=2&&sprZone2!=='ultra_short'&&sprZone2!=='short'){
         var bf2=DRTA.BLUFF_FREQ[type]||0.10;
-        bf2=SPRZone.bluffFreq(spr,bf2,type,hClass.name);
+        bf2=SPRZone.bluffFreq(G.spr||calcSPR(),bf2,type,hClass.name);
         if(Math.random()<bf2){
           blu.action='raise';blu.strategy='半诈唬('+hClass.outs+'outs)';
           blu.sizing=Math.round(pot*0.6);
