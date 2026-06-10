@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.53 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池容错</title>
+<title>青云 v2.9.54 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池识别增强</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -422,71 +422,130 @@ function gtoRandom(freqArr){
   return freqArr.length-1;
 }
 
-// === V2.9.52: 底池置信度评估模块 ===
-// 参考GTO Wizard离散化+CMU容错研究，三层Fallback架构
+// === V2.9.54: 底池识别增强模块（替代V2.9.52 PotConfidence）===
+// 核心升级: ①EMA多帧平滑(25%阈值) ②to_call交叉验证+自动纠正 ③跨街底池约束 ④智能修正
 var PotConfidence={
-  // 最近3帧底池记录(用于多帧平滑)
+  // EMA历史帧
   _history:[],
-  _maxHistory:3,
-  // 置信度等级: high/medium/low
+  _maxHistory:5,
+  // EMA平滑值
+  _ema:0,
+  _emaInited:false,
+  _emaAlpha:0.4,
+  // 上一街底池（用于跨街约束）
+  _lastStreetPot:0,
+  _lastStreet:'',
+  // 置信度等级/档位/分数（保持API兼容）
   level:'high',
-  // 底池离散档位: small/medium/large/huge
   tier:'medium',
-  // 具体分数 0-100
   score:100,
-  
-  // 评估底池置信度
+  // 纠正记录
+  _corrections:[],
+
+  // 评估底池置信度 + 自动纠正
   evaluate:function(pot,bet,stk,bb,street,warnings){
-    var s=100; // 起始满分
+    var s=100;
     var reasons=[];
-    
-    // 规则1: 底池与BB比例校验
+    var corrected=pot;
+    this._corrections=[];
+
+    // === 规则1: 底池与BB比例校验 + 纠正 ===
     if(pot>0&&bb>0){
       var potBB=pot/bb;
       if(potBB<2&&street!=='preflop'&&street!=='pre'){
         s-=30; reasons.push('翻后pot仅'+potBB.toFixed(1)+'BB(太小)');
+        if(corrected<2*bb) corrected=2*bb;
       }
       if(potBB>200){
         s-=15; reasons.push('pot='+potBB.toFixed(0)+'BB(异常大)');
       }
     }
-    
-    // 规则2: 底池与筹码比例校验
+
+    // === 规则2: 底池与筹码比例校验 + 纠正 ===
     if(pot>0&&stk>0){
       if(pot>stk*5){
         s-=25; reasons.push('pot>>stk(可能误读对手筹码为底池)');
-      }
-      if(pot>stk*3){
+        corrected=Math.min(corrected, Math.round(stk*3));
+        this._corrections.push('pot>'+stk+'*5→cap to '+corrected);
+      }else if(pot>stk*3){
         s-=10; reasons.push('pot>3x stk(需谨慎)');
       }
     }
-    
-    // 规则3: to_call与底池交叉验证
+
+    // === 规则3: to_call交叉验证 + 智能纠正（V2.9.54核心）===
     if(bet>0&&pot>0){
       var betPotRatio=bet/pot;
       if(betPotRatio>3){
-        // 跟注额远大于底池→底池可能识别偏小
         s-=20; reasons.push('跟注/底池='+betPotRatio.toFixed(1)+'(底池可能偏小)');
+        var estimatedPot=Math.round(bet/0.6);
+        if(estimatedPot>0 && estimatedPot<=pot*8){
+          corrected=estimatedPot;
+          this._corrections.push('to_call='+bet+' pot='+pot+'→反推pot='+corrected);
+          console.log('[底池纠正] to_call交叉验证: pot '+pot+'→'+corrected);
+        }
+      }else if(betPotRatio>2){
+        s-=10; reasons.push('跟注/底池='+betPotRatio.toFixed(1)+'(偏大)');
+        var estPot2=Math.round(bet/0.7);
+        if(estPot2>0 && estPot2<=pot*3 && estPot2>pot){
+          corrected=estPot2;
+          this._corrections.push('to_call温和纠正: pot '+pot+'→'+corrected);
+        }
       }
     }
-    
-    // 规则4: 多帧一致性校验
-    this._history.push({pot:pot,ts:Date.now()});
+
+    // === 规则4: 跨街底池约束（V2.9.54新增）===
+    if(street&&this._lastStreet&&pot>0&&this._lastStreetPot>0){
+      if(street!==this._lastStreet){
+        if(corrected<this._lastStreetPot*0.8){
+          s-=20; reasons.push('新街底池('+corrected+')<上街('+this._lastStreetPot+')*0.8');
+          corrected=Math.max(corrected, this._lastStreetPot);
+          this._corrections.push('跨街纠正: pot '+pot+'→'+corrected);
+        }
+        if(corrected>this._lastStreetPot*5){
+          s-=15; reasons.push('新街底池暴增'+(corrected/this._lastStreetPot).toFixed(1)+'倍(异常)');
+          if(this._emaInited){
+            corrected=Math.round(this._ema);
+            this._corrections.push('暴增纠正→EMA='+corrected);
+          }
+        }
+      }
+    }
+
+    // === 规则5: EMA多帧平滑（V2.9.54升级，阈值25%）===
+    this._history.push({pot:corrected,ts:Date.now(),street:street});
     if(this._history.length>this._maxHistory)this._history.shift();
+    if(!this._emaInited){
+      this._ema=corrected;
+      this._emaInited=true;
+    }else{
+      this._ema=this._emaAlpha*corrected+(1-this._emaAlpha)*this._ema;
+    }
+    if(this._history.length>=3&&this._ema>0){
+      var emaDeviation=Math.abs(corrected-this._ema)/this._ema;
+      if(emaDeviation>0.25){
+        var emaPenalty=emaDeviation>1.0?30:15;
+        s-=emaPenalty; reasons.push('与EMA偏差'+(emaDeviation*100).toFixed(0)+'%'+(emaDeviation>1.0?'(极端)':''));
+        if(s<80){
+          corrected=Math.round(this._ema);
+          this._corrections.push('EMA平滑: pot '+pot+'→'+corrected);
+          console.log('[底池EMA纠正] pot '+pot+'→'+corrected+' (EMA='+this._ema.toFixed(1)+')');
+        }
+      }
+    }
+    // 同街内跳变检测
     if(this._history.length>=2){
-      var prev=this._history[this._history.length-2].pot;
-      if(prev>0&&pot>0){
-        var changeRatio=Math.abs(pot-prev)/prev;
-        // 翻牌阶段底池突变正常(多人进池)，转牌/河牌突变异常
-        if(changeRatio>0.4&&street==='river'){
-          s-=15; reasons.push('河牌底池突变'+(changeRatio*100).toFixed(0)+'%(可能识别跳变)');
-        }else if(changeRatio>0.6&&street==='turn'){
+      var prev=this._history[this._history.length-2];
+      if(prev.street===street&&prev.pot>0&&corrected>0){
+        var changeRatio=Math.abs(corrected-prev.pot)/prev.pot;
+        if(changeRatio>0.3&&street==='river'){
+          s-=15; reasons.push('河牌底池突变'+(changeRatio*100).toFixed(0)+'%');
+        }else if(changeRatio>0.5&&street==='turn'){
           s-=10; reasons.push('转牌底池突变'+(changeRatio*100).toFixed(0)+'%');
         }
       }
     }
-    
-    // 规则5: Vision API警告
+
+    // === 规则6: Vision API警告 ===
     if(warnings&&warnings.length>0){
       for(var i=0;i<warnings.length;i++){
         var w=warnings[i];
@@ -497,49 +556,64 @@ var PotConfidence={
         }
       }
     }
-    
-    // 河牌特殊：对底池精度容忍度更高（参考调研结论：河牌决策主要由range分布决定）
+
+    // 河牌精度容忍+10
     if(street==='river')s=Math.min(100,s+10);
-    
+
     s=Math.max(0,Math.min(100,s));
     this.score=s;
-    
-    // 分级
+
     if(s>=85)this.level='high';
     else if(s>=60)this.level='medium';
     else this.level='low';
-    
-    // 底池离散档位
-    var potBB2=pot/(bb||1);
+
+    var potBB2=corrected/(bb||1);
     if(potBB2<=10)this.tier='small';
     else if(potBB2<=30)this.tier='medium';
     else if(potBB2<=100)this.tier='large';
     else this.tier='huge';
-    
-    if(reasons.length>0){
-      console.log('[底池置信度] score='+s+' level='+this.level+' tier='+this.tier+' | '+reasons.join('; '));
-    }else{
-      console.log('[底池置信度] score='+s+' level='+this.level+' tier='+this.tier);
+
+    // 保存街底池（用于下一街约束）
+    if(street!==this._lastStreet){
+      this._lastStreetPot=corrected;
+      this._lastStreet=street;
+    }else if(corrected>this._lastStreetPot){
+      this._lastStreetPot=corrected;
     }
-    
-    return{level:this.level,score:s,tier:this.tier,reasons:reasons};
+
+    if(reasons.length>0){
+      console.log('[底池识别] score='+s+' level='+this.level+' tier='+this.tier+' pot='+pot+(corrected!==pot?'→'+corrected:'')+' | '+reasons.join('; '));
+    }else{
+      console.log('[底池识别] score='+s+' level='+this.level+' tier='+this.tier+' pot='+pot);
+    }
+
+    return{level:this.level,score:s,tier:this.tier,reasons:reasons,corrected:corrected};
   },
-  
-  // 多帧平滑：用中位数替代极端值
+
+  // EMA平滑取值（V2.9.54升级，阈值25%）
   getSmoothedPot:function(currentPot,bb){
-    if(this._history.length<2)return currentPot;
-    var pots=this._history.map(function(h){return h.pot;});
-    pots.sort(function(a,b){return a-b;});
-    var median=pots[Math.floor(pots.length/2)];
-    // 如果当前值与中位数偏差>40%，用中位数替代
-    if(median>0&&Math.abs(currentPot-median)/median>0.4){
-      console.log('[底池平滑] 当前pot='+currentPot+' vs 中位数='+median+'，偏差>40%，用中位数');
-      return median;
+    if(!this._emaInited)return currentPot;
+    if(this._ema>0&&Math.abs(currentPot-this._ema)/this._ema>0.25){
+      var smoothed=Math.round(this._ema);
+      console.log('[底池EMA] 当前pot='+currentPot+' vs EMA='+this._ema.toFixed(1)+'→'+smoothed);
+      return smoothed;
     }
     return currentPot;
   },
-  
-  reset:function(){this._history=[];this.level='high';this.score=100;this.tier='medium';}
+
+  // 新一手牌重置EMA和跨街记录
+  resetForNewHand:function(){
+    this._history=[];
+    this._ema=0;
+    this._emaInited=false;
+    this._lastStreetPot=0;
+    this._lastStreet='';
+    this._corrections=[];
+    console.log('[底池识别] 新一手牌，EMA和跨街记录已重置');
+  },
+
+  // 兼容旧reset接口
+  reset:function(){this.resetForNewHand();this.level='high';this.score=100;this.tier='medium';}
 };
 
 // === V2.9.52: 底池离散化分档策略 ===
@@ -804,7 +878,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.53',
+    version:'2.9.54',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -836,7 +910,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.53',
+  CURRENT_VERSION:'2.9.54',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1671,16 +1745,22 @@ function postF(k){
   if(bet>0)po=bet/(pot+bet+bet)*100;
   var nq=po;
 
-  // ===== V2.9.52: 底池置信度评估 + Fallback路由 =====
-  // 注意: postF()中pot/bet/stk已转为BB单位，所以bb传1
+  // ===== V2.9.54: 底池识别增强 + 智能纠正 + Fallback路由 =====
+  // postF()中pot/bet/stk已转为BB单位，所以bb传1
   var rawWarnings=G._warnings||[];
   var potConf=PotConfidence.evaluate(pot,bet,stk,1,street,rawWarnings);
   
-  // 多帧平滑: 中/低置信度时用平滑底池
+  // V2.9.54: 应用自动纠正的底池值（核心升级）
+  if(potConf.corrected && potConf.corrected!==pot){
+    console.log('[底池纠正] postF pot '+pot+'→'+potConf.corrected+'BB (score='+potConf.score+')');
+    pot=potConf.corrected;
+    G.pot=pot;
+  }
+  // 低置信度额外EMA平滑
   if(potConf.level!=='high'&&potConf.score<70){
     var smoothedPot=PotConfidence.getSmoothedPot(pot,1);
     if(smoothedPot!==pot){
-      console.log('[底池平滑] pot '+pot+'→'+smoothedPot+' (BB)');
+      console.log('[底池EMA平滑] pot '+pot+'→'+smoothedPot+' (BB)');
       pot=smoothedPot;
       G.pot=pot;
     }
@@ -2005,7 +2085,7 @@ function show(r){
     var eqLabel=isRiver?'🎯精确胜率':'胜率';
     h+='<div class="r-ev-sm">'+eqLabel+': '+r.eq.toFixed(1)+'%'+(r.po!==undefined?' | 需'+r.po.toFixed(0)+'%':'')+'</div>';
   }
-  // V2.9.52: 底池置信度显示
+  // V2.9.54: 底池置信度+纠正状态显示
   if(PotConfidence.score<100){
     var confColors={high:'#2ed573',medium:'#ffa502',low:'#ff4757'};
     var confCN={high:'高',medium:'中',low:'低'};
@@ -2013,7 +2093,11 @@ function show(r){
     var confColor=confColors[PotConfidence.level]||'#888';
     var confText=confCN[PotConfidence.level]||'未知';
     var tierText=tierCN[PotConfidence.tier]||'';
-    h+='<div style="font-size:9px;padding:2px 8px;border-radius:10px;display:inline-block;background:rgba(255,255,255,.06);color:'+confColor+';margin-top:2px">🎯底池置信度:'+confText+'('+PotConfidence.score+'%) | '+tierText+'</div>';
+    var correctionInfo='';
+    if(PotConfidence._corrections&&PotConfidence._corrections.length>0){
+      correctionInfo=' 🔧'+PotConfidence._corrections.length+'项纠正';
+    }
+    h+='<div style="font-size:9px;padding:2px 8px;border-radius:10px;display:inline-block;background:rgba(255,255,255,.06);color:'+confColor+';margin-top:2px">🎯底池:'+confText+'('+PotConfidence.score+'%) | '+tierText+correctionInfo+'</div>';
   }
   // 极速模式退出按钮
   h+='<div class="speed-exit" onclick="exitSpeedMode()">✏️ 手动编辑</div>';
@@ -2435,6 +2519,8 @@ function onVisionResult(data){
     var activeP=parseInt(data.active_players)||2;
     if(street==='preflop'||street==='pre'){
       G.phase='pre';
+      // V2.9.54: 新一手牌重置底池EMA和跨街记录
+      if(typeof PotConfidence!=='undefined') PotConfidence.resetForNewHand();
     } else {
       G.phase='post';
     }

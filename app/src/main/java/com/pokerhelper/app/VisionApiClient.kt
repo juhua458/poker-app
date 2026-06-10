@@ -158,57 +158,50 @@ object VisionApiClient {
     }
 
     private fun buildRequest(base64Image: String): String {
-        val prompt = """你是德州扑克截图识别专家。识别以下信息：
+        val prompt = """你是德州扑克截图识别专家。按以下步骤识别：
 
-★★★ GG扑克界面布局（极重要，先看懂再识别）★★★：
-- 顶部白色数字框 = 底池金额（如"5,750"或"16,447"）❌这不是你的筹码！
-- 牌桌中央深绿色框 = "底池 XXX"（跟顶部数字一样，两处互相验证）
-- 左下角你的头像名字下方 = 你的筹码（如"8,750"）
-- 其他玩家头像下方 = 他们的筹码
-- 下注筹码堆上的数字 = 某玩家的下注额，❌绝对不是底池！下注堆在玩家头像旁边，数字小且偏角落
+【步骤1】先找到2个关键位置（从上到下）：
+  ① 顶部白色数字框 → 这是底池(pot_size)
+  ② 左下角你头像下方的数字 → 这是你的筹码(my_chips)
+  判断依据：底池数字在屏幕上方1/3区域的白色框里；你的筹码在屏幕左下角头像旁边
 
-1. 手牌：屏幕最下方2张正面牌
-2. 公共牌：桌面中央0/3/4/5张牌
-3. 操作按钮：底部按钮原样输出
-4. 你的筹码：左下角你头像名字下方的数字
-5. 底池筹码：牌桌中央"底池"二字后的数字（与顶部白色数字框一致）
-6. 座位总数
-7. 活跃玩家数
-8. 盲注级别
-9. 前注
+【步骤2】底池(pot_size)识别——最关键，错误会导致策略全错：
+  来源优先级：牌桌中央"底池XXX"标签 > 顶部白色数字框
+  - 两处数字应该一致，取较大值
+  - 去掉逗号："5,750"→5750
+  - K/M转换："10K"→10000
+  ❌ pot_size不是左下角你头像下的数字（那是my_chips）
+  ❌ pot_size不是其他玩家头像旁的数字
+  ❌ pot_size不是玩家头像旁边下注筹码堆上的数字
+  ❌ pot_size不要自己算（不要把各玩家下注加起来）
 
-★★★ 底池识别（极重要，识别错误会导致策略全错）★★★：
-- pot_size = 顶部白色数字框里的数字，或牌桌中央"底池"二字紧跟的数字，两处应一致
-- 格式示例："底池 16,447"→pot_size=16447，"底池 5,750"→pot_size=5750
-- 数字可能带逗号，必须去掉逗号后输出
-- ❌绝不能把左下角你头像下的筹码当作底池！那是my_chips！
-- ❌绝不能把其他玩家头像下的筹码当作底池！
-- ❌绝不能把下注筹码堆上的数字当作底池！下注堆是玩家头像旁边的小数字！
-- ❌绝不能把各玩家下注额加起来当作底池！底池是桌面上明确显示的"底池XXX"！
-- 底池数字通常是全场最大的数字，且只出现在顶部白框和中央"底池"标签处
+【步骤3】你的筹码(my_chips)识别：
+  - 只看左下角你自己头像名字下方的数字
+  - ❌ my_chips不是顶部白色数字框（那是底池）
 
-★★★ 你的筹码识别（极重要）★★★：
-- my_chips = 左下角你自己头像名字下方的数字
-- ❌my_chips不是顶部白色数字框！那是底池！
+【步骤4】识别其余信息：
+  1. 手牌：屏幕最下方2张正面牌
+  2. 公共牌：桌面中央0/3/4/5张牌
+  3. 操作按钮：底部按钮原样输出
+  4. 座位总数、活跃玩家数（面前有牌的，已弃牌不算）
+  5. 盲注：桌面标题"200 / 500"→blind_sb=200 blind_bb=500
+  6. 前注ante
 
-★★★ 盲注识别（极重要）★★★：
-- 桌面标题"德州扑克, 200 / 500"→blind_sb=200 blind_bb=500
-- 必须识别并输出
-
-★★★ 跟注金额识别（极重要）★★★：
-- 底部操作按钮中含"跟注XXX"时，XXX就是to_call金额
-- 例如："跟注3,194"→to_call=3194，"跟注10K"→to_call=10000
-- 如果按钮只有"跟注"无数字→to_call=0（可以免费跟注）
-- 如果按钮含"让牌"或"过牌"→to_call=0（无人下注）
-- 如果按钮含"全押"或"全下"→to_call=你的全部筹码
+【步骤5】跟注金额(to_call)识别：
+  - "跟注3,194"→to_call=3194
+  - "跟注10K"→to_call=10000
+  - "让牌"/"过牌"→to_call=0
+  - "全押"/"全下"→to_call=my_chips值
 
 ★★★ 关键规则 ★★★：
 - rank: A K Q J T 9 8 7 6 5 4 3 2（T=10）
 - suit: s=黑桃 h=红心 d=方块 c=梅花
-- 筹码带K/M后缀要转换：10K=10000 1.5M=1500000
-- active_players：面前有牌的玩家数（已弃牌无牌的不算）
+- K/M后缀转换：10K=10000 1.5M=1500000
 - street：0张=preflop 3=flop 4=turn 5=river
-- 按钮：原样输出含"跟注10K""让牌／弃牌""全押"等
+
+★★★ 底池vs筹码自检（输出前必做）★★★：
+如果pot_size < my_chips 且有多张公共牌，很可能是底池和筹码搞反了！
+正确情况：翻后pot_size通常 ≥ my_chips（底池至少是盲注的几倍）
 
 返回JSON：
 {"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0}
@@ -585,7 +578,13 @@ object VisionApiClient {
         // 底池不应超过任何单个玩家筹码的5倍（可能把玩家筹码当底池了）
         if (corrected.potSize > 0 && corrected.playerChips > 0 && corrected.potSize > corrected.playerChips * 5) {
             corrections.add("⚠️pot(${corrected.potSize})>>chips(${corrected.playerChips})，可能误读玩家筹码为底池")
-            // 不自动纠正，但标记警告
+            // V2.9.54: 自动纠正——pot和chips可能互换了
+            if (corrected.playerChips < corrected.potSize && corrected.playerChips > 0) {
+                // chips比pot小很多，可能是把chips识别成了pot
+                val swapped = corrected.copy(potSize = corrected.playerChips, playerChips = corrected.potSize)
+                corrected = swapped
+                corrections.add("🔧pot/chips互换纠正: pot=${corrected.potSize} chips=${corrected.playerChips}")
+            }
         }
         // 翻后底池至少应≥2*BB（SB+BB就1.5BB，加前注翻前至少1.5BB）
         val bb = if (corrected.blindBB > 0) corrected.blindBB else if (corrected.blindSB > 0) corrected.blindSB * 2 else 0
@@ -593,6 +592,17 @@ object VisionApiClient {
             // 翻后底池太小，可能识别错误
             val minPot = bb * 2
             corrections.add("⚠️翻后pot(${corrected.potSize})<2*BB(${minPot})，底池可能识别偏小")
+        }
+
+        // === V2.9.54规则6c: 底池/筹码互换检测 ===
+        // 翻后如果有公共牌但pot<chips且chips看起来像底池（chips远大于BB*3）
+        if (corrected.potSize > 0 && corrected.playerChips > 0 && corrected.communityCards.isNotEmpty()) {
+            if (corrected.potSize < corrected.playerChips && corrected.playerChips > bb * 3 && bb > 0) {
+                // pot < chips 但 chips远大于BB → 很可能互换了
+                val swapped = corrected.copy(potSize = corrected.playerChips, playerChips = corrected.potSize)
+                corrected = swapped
+                corrections.add("🔧翻后pot/chips互换: pot=${corrected.potSize} chips=${corrected.playerChips}")
+            }
         }
 
         // === 规则7: to_call 不能为负 ===
