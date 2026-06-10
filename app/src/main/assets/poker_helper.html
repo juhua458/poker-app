@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.72 · 保活+电池优化白名单</title>
+<title>青云 v2.9.73 · catch必更新悬浮球+phase修正</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1099,7 +1099,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.72',
+    version:'2.9.73',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1217,7 +1217,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.72',
+  CURRENT_VERSION:'2.9.73',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -3548,6 +3548,17 @@ function show(r){
 var _mcSimCache=null; // V2.9.46: Worker异步MC结果缓存
 function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){
   // V2.9.30: 自动采集对手动作(在decide之前)
+  // V2.9.73: ★ phase修正——post但无公共牌→强制pre ★
+  // 根因: Vision API可能误将翻前识别为翻后→走MC异步路径→decide()崩溃→悬浮球卡死
+  if(G.phase==='post'){
+    var _realCC=G.comm.filter(function(c){return c;}).length;
+    if(_realCC===0){
+      console.log('[phase修正] post但无公共牌→强制pre (Vision API street误识别)');
+      G.phase='pre';
+      if(G.scene==='check'){G.scene='open';}
+      else if(G.scene==='bet'){G.scene='raise';}
+    }
+  }
   if(G.hole[0]&&G.hole[1])autoRecordOpponent(G.scene,G.phase==='pre'?'preflop':'postflop');
   // V2.9.46: 翻后用Worker异步MC, 翻前同步
   if(G.phase==='post'&&G.hole[0]&&G.hole[1]){
@@ -3572,7 +3583,17 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
           HandHistory.add(r,true);
           try{bridgeAdvice(r);console.log('[go诊断] 河牌bridgeAdvice完成');}catch(e2){console.log('[go诊断] 河牌bridgeAdvice失败: '+e2.message);}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
-        }catch(e){console.log('[go诊断] ❌河牌策略出错: '+e.message);document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
+        }catch(e){
+          console.log('[go诊断] ❌河牌策略出错: '+e.message);
+          document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';
+          // V2.9.73: catch分支必须更新悬浮球+记录HandHistory
+          try{
+            var _errR={a:'fold',r:'[出错]'+e.message,eq:0,c:'l',_colorInfo:{colorKey:'FOLD',color:'#FF5252',signalType:'NONE'}};
+            HandHistory.add(_errR,false);
+            // V2.9.73: catch分支直接调AndroidBridge(不走bridgeAdvice,因DOM已被错误信息覆盖)
+            if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('弃牌|COLOR:FOLD|SIGNAL:ERROR');}
+          }catch(e3){console.log('[go诊断] catch补救也失败: '+e3.message);}
+        }
         return; // 河牌同步完成
       }
       // 翻牌/转牌: 走Worker异步MC
@@ -3587,21 +3608,39 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
           HandHistory.add(r,true);
           try{bridgeAdvice(r);console.log('[go诊断] 翻后bridgeAdvice完成');}catch(e2){console.log('[go诊断] 翻后bridgeAdvice失败: '+e2.message);}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
-        }catch(e){console.log('[go诊断] ❌翻后策略出错: '+e.message);document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
+        }catch(e){
+          console.log('[go诊断] ❌翻后策略出错: '+e.message);
+          document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';
+          // V2.9.73: catch分支必须更新悬浮球+记录HandHistory
+          try{
+            var _errR2={a:'fold',r:'[出错]'+e.message,eq:0,c:'l',_colorInfo:{colorKey:'FOLD',color:'#FF5252',signalType:'NONE'}};
+            HandHistory.add(_errR2,false);
+            if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('弃牌|COLOR:FOLD|SIGNAL:ERROR');}
+          }catch(e3){console.log('[go诊断] catch补救也失败: '+e3.message);}
+        }
       });
       return; // 异步等待Worker返回
     }
   }
   // 翻前或无手牌时同步
   try{
-    console.log('[go诊断] 翻前同步开始 hand='+G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit+' scene='+G.scene+' phase='+G.phase);
+    var _hLog=(G.hole[0]&&G.hole[1])?G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit:'null';console.log('[go诊断] 翻前同步开始 hand='+_hLog+' scene='+G.scene+' phase='+G.phase);
     var r=decide();
     console.log('[go诊断] decide()返回 a='+r.a+' eq='+(r.eq||'?')+' color='+(r._colorInfo?r._colorInfo.colorKey:'无'));
     show(r);
     console.log('[go诊断] show()完成');
     try{bridgeAdvice(r);console.log('[go诊断] bridgeAdvice()完成');}catch(e2){console.log('[go诊断] bridgeAdvice失败: '+e2.message);}
     var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
-  }catch(e){console.log('[go诊断] ❌策略计算出错: '+e.message);document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
+  }catch(e){
+    console.log('[go诊断] ❌策略计算出错: '+e.message);
+    document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';
+    // V2.9.73: catch分支必须更新悬浮球+记录HandHistory
+    try{
+      var _errR3={a:'fold',r:'[出错]'+e.message,eq:0,c:'l',_colorInfo:{colorKey:'FOLD',color:'#FF5252',signalType:'NONE'}};
+      HandHistory.add(_errR3,false);
+      if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('弃牌|COLOR:FOLD|SIGNAL:ERROR');}
+    }catch(e3){console.log('[go诊断] catch补救也失败: '+e3.message);}
+  }
 },10);}
 // V2.9.63: 7色信号桥接 — 将颜色+信号传递给Android悬浮球
 function bridgeAdvice(r){
