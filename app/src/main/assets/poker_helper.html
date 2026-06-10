@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.59 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化</title>
+<title>青云 v2.9.59 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化·Tilt检测</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1074,7 +1074,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.59',
+    version:'2.9.60',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1191,7 +1191,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.59',
+  CURRENT_VERSION:'2.9.60',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1493,6 +1493,141 @@ var DRTA={
 };
 
 function setTrackerType(type){DRTA.setType(type);G.opp=type;setOppType(type);}
+
+// ===== V2.9.60: TiltDetector — 对手情绪检测 =====
+var TiltDetector={
+  // 检测对手tilt状态
+  // 返回: {tilt:bool, level:'none'|'low'|'medium'|'high', reason:string, adjustments:{}}
+  detectTilt:function(profile){
+    var result={tilt:false,level:'none',reason:'',adjustments:{}};
+    if(profile.hands<5)return result; // 样本不足不判断
+    
+    var type=profile.type;
+    var vpip=profile.vpip;
+    var af=profile.af;
+    var recentAgg=profile.recent_agg||0;
+    var threebet=profile.threebet||0;
+    var foldToBet=profile.fold_to_bet||50;
+    
+    // 获取该类型的基准值
+    var base=DRTA.TYPE_INIT[type]||DRTA.TYPE_INIT.unknown;
+    var baseVpip=base.vpip;
+    var baseAf=base.af;
+    
+    // === 指标1: VPIP异常飙升 ===
+    // 比自身类型基准高20%+（鱼从60→80+，紧从18→38+）
+    var vpipSpike=false;
+    if(vpip>baseVpip+20){
+      vpipSpike=true;
+    }
+    
+    // === 指标2: AF突变 ===
+    // 近期侵略指数远超基准
+    var afSpike=false;
+    if(recentAgg>1.5&&baseAf<1.5){
+      afSpike=true; // 原本被动的玩家突然激进
+    }
+    // AF绝对值飙升
+    if(af>baseAf*2.5&&af>3.0){
+      afSpike=true;
+    }
+    
+    // === 指标3: 连续激进行为 ===
+    // 近5手行动全是bet/raise
+    var actions=DRTA.tracker._street_actions||[];
+    var recentActions=actions.slice(-5);
+    var aggCount=0;
+    recentActions.forEach(function(a){
+      if(a.indexOf('raise')>=0||a.indexOf('reraise')>=0||a.indexOf('bet')>=0)aggCount++;
+    });
+    var consecutiveAgg=(aggCount>=4&&recentActions.length>=4);
+    
+    // === 指标4: 3bet频率异常 ===
+    var threebetSpike=false;
+    if(threebet>20&&type!=='maniac'&&type!=='lag'){
+      threebetSpike=true; // 非松凶型突然高3bet
+    }
+    
+    // === 指标5: 弃牌率骤降 ===
+    var foldDrop=false;
+    if(foldToBet<25&&type!=='calling_station'&&type!=='fish'){
+      foldDrop=true; // 原本会弃牌的突然什么都跟
+    }
+    
+    // === 综合判断 ===
+    var signals=0;
+    var reasons=[];
+    if(vpipSpike){signals++;reasons.push('VPIP飙升('+vpip+'%)');}
+    if(afSpike){signals++;reasons.push('AF突变('+af.toFixed(1)+')');}
+    if(consecutiveAgg){signals++;reasons.push('连续激进('+aggCount+'/5)');}
+    if(threebetSpike){signals++;reasons.push('3bet飙升('+threebet+'%)');}
+    if(foldDrop){signals++;reasons.push('弃牌率骤降('+foldToBet+'%)');}
+    
+    if(signals===0)return result;
+    
+    // Tilt等级: 1信号=low, 2=medium, 3+=high
+    result.tilt=true;
+    result.reason=reasons.join(' | ');
+    
+    if(signals>=3){
+      result.level='high';
+      // 高tilt: 对手可能变疯——紧缩+只打强牌+价值最大化
+      result.adjustments={
+        valueExpand:0.15,    // 价值范围扩大15%（tilt玩家不弃牌）
+        bluffReduce:0.8,     // 诈唬减少80%（tilt玩家什么都跟）
+        foldMoreOnWeak:0.10, // 弱牌多弃10%（tilt玩家下注不可信但不弃=风险）
+        callThreshAdj:5,     // 跟注阈值+5（更谨慎）
+        raiseThreshAdj:-3,   // 强牌加注阈值-3（快打强牌）
+        cbetAdj:0.1,         // C-bet加10%（tilt玩家弃牌更少但我们要建池）
+        sizingAdj:1.15       // 下注尺度+15%（tilt对手多付钱）
+      };
+    }else if(signals===2){
+      result.level='medium';
+      // 中tilt: 有突变但还没完全失控
+      result.adjustments={
+        valueExpand:0.10,
+        bluffReduce:0.5,
+        foldMoreOnWeak:0.05,
+        callThreshAdj:3,
+        raiseThreshAdj:-2,
+        cbetAdj:0.05,
+        sizingAdj:1.10
+      };
+    }else{
+      result.level='low';
+      // 低tilt: 轻微信号，略作调整
+      result.adjustments={
+        valueExpand:0.05,
+        bluffReduce:0.2,
+        foldMoreOnWeak:0,
+        callThreshAdj:1,
+        raiseThreshAdj:0,
+        cbetAdj:0,
+        sizingAdj:1.05
+      };
+    }
+    
+    return result;
+  },
+  
+  // 将tilt调整应用到profile
+  applyTiltAdjustments:function(profile,tiltInfo){
+    if(!tiltInfo.tilt)return profile;
+    var adj=tiltInfo.adjustments;
+    profile.tilt=tiltInfo;
+    profile.tiltLevel=tiltInfo.level;
+    return profile;
+  },
+  
+  // 获取tilt状态显示文本
+  getTiltDisplay:function(tiltInfo){
+    if(!tiltInfo.tilt)return'';
+    var icons={low:'⚠️',medium:'🔥',high:'💥'};
+    var levels={low:'轻Tilt',medium:'中Tilt',high:'重Tilt'};
+    return(icons[tiltInfo.level]||'⚠️')+(levels[tiltInfo.level]||'Tilt');
+  }
+};
+
 
 // V2.9.30: DRTA自动采集 - 从场景推导对手动作
 var _lastRecordedKey=''; // 防止同一手牌同一场景重复记录
@@ -2078,6 +2213,9 @@ var StrategicBluff={
         var bf=DRTA.BLUFF_FREQ[type]||0.10;
         // V2.9.59: SPR感知诈唬频率——短码不bluff，深码多bluff
         bf=SPRZone.bluffFreq(spr,bf,type,hClass.name);
+        // V2.9.60: Tilt对手减少bluff（tilt玩家不弃牌，bluff无效）
+        var _tiltInfo=TiltDetector.detectTilt(DRTA.getProfile());
+        if(_tiltInfo.tilt)bf*=(1-(_tiltInfo.adjustments.bluffReduce||0));
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
         if(Math.random()<bf){
@@ -2115,7 +2253,10 @@ var StrategicBluff={
       return{action:'raise',strategy:'薄价值下注('+profile.type+')',sizing:Math.round(G.pot*adjSz)};
     }
     // V2.9.58: 范围偏宽的对手+中等牌力→价值下注
-    if(wideRatio>=0.35&&eq>=50&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
+    // V2.9.60: Tilt对手降低宽范围门槛
+    var wideThresh=isTiltValue?0.25:0.35;
+    var eqThresh=isTiltValue?46:50;
+    if(wideRatio>=wideThresh&&eq>=eqThresh&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
       return{action:'raise',strategy:'宽范围价值下注(宽'+Math.round(wideRatio*100)+'%)',sizing:Math.round(G.pot*0.5)};
     }
     return{action:null};
@@ -2259,6 +2400,9 @@ function preF(k){
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);
   var profile=DRTA.getProfile();
+  // V2.9.60: Tilt检测——对手情绪状态影响策略
+  var tiltInfo=TiltDetector.detectTilt(profile);
+  profile=TiltDetector.applyTiltAdjustments(profile,tiltInfo);
   var weights=DRTA.getDRTAWeight(profile);
   var sceneLabel='';
   if(scene==='reraise'){eq-=12;sceneLabel='面对再raise';}
@@ -2435,9 +2579,13 @@ function postF(k){
   var io=null;
   if(outs>0&&bet>0)io=impliedOddsSPR(outs,spr,bet,pot);
   var exploitResult=applyExploit(eq,scene==='check'?'raise':scene==='allin'?'call':'call',G.opp,{bet:bet,pot:pot});
-  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1,hClass.name,street);
+  var _tiltSizingMod=tiltInfo.tilt?tiltInfo.adjustments.sizingAdj||1:1;
+  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1*_tiltSizingMod,hClass.name,street);
   // DRTA profile
   var profile=DRTA.getProfile();
+  // V2.9.60: Tilt检测
+  var tiltInfo=TiltDetector.detectTilt(profile);
+  profile=TiltDetector.applyTiltAdjustments(profile,tiltInfo);
   var weights=DRTA.getDRTAWeight(profile);
   if(street==='turn'){eq=Math.max(5,eq-5);}
   else if(street==='river'){eq=Math.max(5,eq-3);}
@@ -2683,7 +2831,7 @@ function postF(k){
       var exploitResult0=applyExploit(eq,'check',G.opp,{pot:pot});
       return{a:'check',r:'数据异常-过牌',eq:exploitResult0.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name);
+    var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name)+(tiltInfo.tilt?(tiltInfo.adjustments.raiseThreshAdj||0):0);
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
     if((G.opp==='maniac'||G.opp==='lag')&&bet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
     // V2.9.35: outs跟注追需看下注大小,大注(>2/3池)不追弱听牌,超池(>1x)只追组合听牌
@@ -2695,7 +2843,7 @@ function postF(k){
       var exploitResult10=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot});
       return{a:'raise',v:sizing,r:'胜率足加注',eq:exploitResult10.eq,c:'h',po:nq,sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,evs:compareEVs(eq,pot,bet,sizing),bTexture:bTexture,io:io,exploit:exploitResult10.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var sprCallThresh=SPRZone.callThreshold(spr,nq+3,ip,hClass.name,street);if(eq>=sprCallThresh){
+    var sprCallThresh=SPRZone.callThreshold(spr,nq+3,ip,hClass.name,street)+(tiltInfo.tilt?(tiltInfo.adjustments.callThreshAdj||0):0);if(eq>=sprCallThresh){
       var exploitResult11=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
       return{a:'call',r:'胜率够跟',eq:exploitResult11.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult11.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -2764,6 +2912,9 @@ function show(r){
     var confPct=Math.round((drta.conf||0)*100);
     var strategy=drta.strategy?' | '+drta.strategy:'';
     h+='<div class="r-drta">DRTA: '+typeName+' | 置信'+confPct+'%'+strategy+'</div>';
+    // V2.9.60: Tilt状态显示
+    var _tiltDisp=TiltDetector.getTiltDisplay(TiltDetector.detectTilt(profile));
+    if(_tiltDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(255,69,0,.15);color:#ff4500">'+_tiltDisp+'</div>';
   }
   if(r.hClass&&r.hClass.name!=='PRE'){
     var plan=planStreets(r.hClass,r.eq||50,r.scene,G.opp,G.spr);
