@@ -1074,7 +1074,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.60',
+    version:'2.9.61',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1191,7 +1191,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.60',
+  CURRENT_VERSION:'2.9.61',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2216,6 +2216,9 @@ var StrategicBluff={
         // V2.9.60: Tilt对手减少bluff（tilt玩家不弃牌，bluff无效）
         var _tiltInfo=TiltDetector.detectTilt(DRTA.getProfile());
         if(_tiltInfo.tilt)bf*=(1-(_tiltInfo.adjustments.bluffReduce||0));
+        // V2.9.61: 反剥削——对手过度弃牌说明知道我们bluff多→减少bluff
+        var _ceInfo=CounterExploit.detect(DRTA.getProfile());
+        if(_ceInfo.detected&&_ceInfo.adjustments.bluffReduce)bf*=(1-_ceInfo.adjustments.bluffReduce);
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
         if(Math.random()<bf){
@@ -2580,12 +2583,16 @@ function postF(k){
   if(outs>0&&bet>0)io=impliedOddsSPR(outs,spr,bet,pot);
   var exploitResult=applyExploit(eq,scene==='check'?'raise':scene==='allin'?'call':'call',G.opp,{bet:bet,pot:pot});
   var _tiltSizingMod=tiltInfo.tilt?tiltInfo.adjustments.sizingAdj||1:1;
-  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1*_tiltSizingMod,hClass.name,street);
+  var _ceSizingMod=ceResult.detected&&ceResult.adjustments.sizingAdj?ceResult.adjustments.sizingAdj:1;
+  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1*_tiltSizingMod*_ceSizingMod,hClass.name,street);
   // DRTA profile
   var profile=DRTA.getProfile();
   // V2.9.60: Tilt检测
   var tiltInfo=TiltDetector.detectTilt(profile);
   profile=TiltDetector.applyTiltAdjustments(profile,tiltInfo);
+  // V2.9.61: 反剥削检测
+  var ceResult=CounterExploit.detect(profile);
+  profile=CounterExploit.applyAdjustments(profile,ceResult);
   var weights=DRTA.getDRTAWeight(profile);
   if(street==='turn'){eq=Math.max(5,eq-5);}
   else if(street==='river'){eq=Math.max(5,eq-3);}
@@ -2831,7 +2838,7 @@ function postF(k){
       var exploitResult0=applyExploit(eq,'check',G.opp,{pot:pot});
       return{a:'check',r:'数据异常-过牌',eq:exploitResult0.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name)+(tiltInfo.tilt?(tiltInfo.adjustments.raiseThreshAdj||0):0);
+    var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name)+(tiltInfo.tilt?(tiltInfo.adjustments.raiseThreshAdj||0):0)+(ceResult.detected&&ceResult.adjustments.fourbetExpand?-5:0);
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
     if((G.opp==='maniac'||G.opp==='lag')&&bet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
     // V2.9.35: outs跟注追需看下注大小,大注(>2/3池)不追弱听牌,超池(>1x)只追组合听牌
@@ -2843,7 +2850,7 @@ function postF(k){
       var exploitResult10=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot});
       return{a:'raise',v:sizing,r:'胜率足加注',eq:exploitResult10.eq,c:'h',po:nq,sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,evs:compareEVs(eq,pot,bet,sizing),bTexture:bTexture,io:io,exploit:exploitResult10.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var sprCallThresh=SPRZone.callThreshold(spr,nq+3,ip,hClass.name,street)+(tiltInfo.tilt?(tiltInfo.adjustments.callThreshAdj||0):0);if(eq>=sprCallThresh){
+    var sprCallThresh=SPRZone.callThreshold(spr,nq+3,ip,hClass.name,street)+(tiltInfo.tilt?(tiltInfo.adjustments.callThreshAdj||0):0)+(ceResult.detected?(ceResult.adjustments.callThreshAdj||0):0);if(eq>=sprCallThresh){
       var exploitResult11=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
       return{a:'call',r:'胜率够跟',eq:exploitResult11.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult11.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -2915,6 +2922,9 @@ function show(r){
     // V2.9.60: Tilt状态显示
     var _tiltDisp=TiltDetector.getTiltDisplay(TiltDetector.detectTilt(profile));
     if(_tiltDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(255,69,0,.15);color:#ff4500">'+_tiltDisp+'</div>';
+    // V2.9.61: 反剥削状态显示
+    var _ceDisp=CounterExploit.getDisplay(CounterExploit.detect(profile));
+    if(_ceDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(0,191,255,.12);color:#00bfff">'+_ceDisp+'</div>';
   }
   if(r.hClass&&r.hClass.name!=='PRE'){
     var plan=planStreets(r.hClass,r.eq||50,r.scene,G.opp,G.spr);
