@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.64 · 7色信号系统·EV驱动决策·对手偏移·桌面节奏</title>
+<title>青云 v2.9.65 · SafetyGuard保险·数据不确定性防护·7色信号</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1085,7 +1085,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.64',
+    version:'2.9.65',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1202,7 +1202,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.64',
+  CURRENT_VERSION:'2.9.65',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1909,6 +1909,123 @@ var ColorStrategy={
     return{colorKey:shifted,color:this.COLORS[shifted],signalType:signalType,signalClass:signalClass,evBB:ev};
   }
 };
+
+
+
+// ===== V2.9.65: SafetyGuard — 数据不确定性保险 =====
+// 核心原则: equity(手牌+公共牌)是准的, EV(依赖底池)可能不准
+// 用equity给EV颜色上锁, 防止底池误读导致致命错误建议
+var SafetyGuard={
+  // 评估数据可靠性 → high/medium/low
+  dataReliability:function(potConfLevel,spr,bet,pot,stk){
+    var level='high';
+    // 底池置信度直接映射
+    if(potConfLevel==='low')level='low';
+    else if(potConfLevel==='medium')level='medium';
+    // 底池为0或异常(不可能翻后有0底池)
+    if(!pot||pot<=0)level='low';
+    // bet远大于pot(底池可能偏小, 把对手筹码读成了底池的一部分)
+    if(bet>0&&pot>0&&bet>pot*4){
+      level=level==='high'?'medium':level;
+    }
+    // SPR异常(>50或<0.1, 正常范围0.5-30)
+    if(spr>50||spr<0.1){
+      level=level==='high'?'medium':level;
+    }
+    // 筹码为0(不可能)
+    if(!stk||stk<=0)level='low';
+    return level;
+  },
+  // 保险过滤: 用equity给颜色上锁
+  // 规则: 可靠性越低, 越依赖equity而非EV; 可靠性高时也保底线
+  guard:function(colorKey,eq,reliability,potConfLevel){
+    var newColor=colorKey;
+    // CHECK永远不变(过牌是免费动作)
+    if(colorKey==='CHECK')return{colorKey:'CHECK',changed:false,reason:''};
+    // FOLD永远不会变得更激进, 只可能被放开
+    // (但如果SafetyGuard让一个FOLD变成别的, 那是危险的, 不做)
+    
+    if(reliability==='low'){
+      // === 低可靠性: 底池/筹码数据严重不确定 ===
+      // 核心策略: 只信equity, 禁止一切依赖底池精度的激进动作
+      // ALL_IN→必须eq≥80才降为RAISE, 否则CALL/FOLD
+      if(colorKey==='ALL_IN'){
+        if(eq>=80){newColor='RAISE';return{colorKey:newColor,changed:true,reason:'低可靠:ALL_IN→RAISE(eq='+eq+'≥80)'};}
+        if(eq>=50){newColor='CALL';return{colorKey:newColor,changed:true,reason:'低可靠:ALL_IN→CALL(eq='+eq+')'};}
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'低可靠:ALL_IN→FOLD(eq='+eq+'<50)'};
+      }
+      // RAISE_BIG→必须eq≥75才降为RAISE
+      if(colorKey==='RAISE_BIG'){
+        if(eq>=75){newColor='RAISE';return{colorKey:newColor,changed:true,reason:'低可靠:RAISE_BIG→RAISE(eq='+eq+'≥75)'};}
+        if(eq>=55){newColor='CALL';return{colorKey:newColor,changed:true,reason:'低可靠:RAISE_BIG→CALL(eq='+eq+')'};}
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'低可靠:RAISE_BIG→FOLD(eq='+eq+'<55)'};
+      }
+      // RAISE→eq<55禁止
+      if(colorKey==='RAISE'){
+        if(eq<55){
+          if(eq>=40){newColor='WEAK_CALL';return{colorKey:newColor,changed:true,reason:'低可靠:RAISE→WEAK_CALL(eq='+eq+'<55)'};}
+          newColor='FOLD';return{colorKey:newColor,changed:true,reason:'低可靠:RAISE→FOLD(eq='+eq+'<40)'};
+        }
+      }
+      // WEAK_CALL→底池不确定时不勉强跟
+      if(colorKey==='WEAK_CALL'){
+        if(eq>=52){newColor='CALL';return{colorKey:newColor,changed:true,reason:'低可靠:WEAK_CALL→CALL(eq='+eq+'≥52)'};}
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'低可靠:WEAK_CALL→FOLD(eq='+eq+'<52)'};
+      }
+      // CALL→eq<35太危险
+      if(colorKey==='CALL'&&eq<35){
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'低可靠:CALL→FOLD(eq='+eq+'<35)'};
+      }
+      // 底线: eq<25任何非FOLD/CHECK→FOLD
+      if(eq<25&&colorKey!=='FOLD'&&colorKey!=='CHECK'){
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'低可靠:底线FOLD(eq='+eq+'<25)'};
+      }
+    }else if(reliability==='medium'){
+      // === 中可靠性: 数据有疑虑但不是完全不可信 ===
+      // RAISE_BIG→eq≥70才保留, 否则降级
+      if(colorKey==='RAISE_BIG'){
+        if(eq<70){
+          if(eq>=55){newColor='RAISE';return{colorKey:newColor,changed:true,reason:'中可靠:RAISE_BIG→RAISE(eq='+eq+'<70)'};}
+          newColor='CALL';return{colorKey:newColor,changed:true,reason:'中可靠:RAISE_BIG→CALL(eq='+eq+'<55)'};
+        }
+      }
+      // ALL_IN→eq≥75才保留
+      if(colorKey==='ALL_IN'){
+        if(eq<75){
+          if(eq>=60){newColor='RAISE';return{colorKey:newColor,changed:true,reason:'中可靠:ALL_IN→RAISE(eq='+eq+'<75)'};}
+          if(eq>=45){newColor='CALL';return{colorKey:newColor,changed:true,reason:'中可靠:ALL_IN→CALL(eq='+eq+')'};}
+          newColor='FOLD';return{colorKey:newColor,changed:true,reason:'中可靠:ALL_IN→FOLD(eq='+eq+'<45)'};
+        }
+      }
+      // WEAK_CALL→eq<45太勉强
+      if(colorKey==='WEAK_CALL'&&eq<45){
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'中可靠:WEAK_CALL→FOLD(eq='+eq+'<45)'};
+      }
+      // RAISE→eq<40不该加注
+      if(colorKey==='RAISE'&&eq<40){
+        if(eq>=30){newColor='CALL';return{colorKey:newColor,changed:true,reason:'中可靠:RAISE→CALL(eq='+eq+'<40)'};}
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'中可靠:RAISE→FOLD(eq='+eq+'<30)'};
+      }
+      // 底线: eq<25→FOLD
+      if(eq<25&&(colorKey==='RAISE'||colorKey==='RAISE_BIG'||colorKey==='ALL_IN')){
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'中可靠:底线FOLD(eq='+eq+'<25)'};
+      }
+    }else{
+      // === 高可靠性: 数据可信, 加一条底线防极端 ===
+      // eq<30时RAISE/RAISE_BIG不靠谱(即使EV为正, 底池可能恰好读对但equity太低)
+      if(eq<30&&(colorKey==='RAISE'||colorKey==='RAISE_BIG')){
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'高可靠底线:eq='+eq+'<30→FOLD'};
+      }
+      // ALL_IN需要eq≥65
+      if(colorKey==='ALL_IN'&&eq<65){
+        if(eq>=50){newColor='CALL';return{colorKey:newColor,changed:true,reason:'高可靠:ALL_IN→CALL(eq='+eq+'<65)'};}
+        newColor='FOLD';return{colorKey:newColor,changed:true,reason:'高可靠:ALL_IN→FOLD(eq='+eq+'<50)'};
+      }
+    }
+    return{colorKey:newColor,changed:newColor!==colorKey,reason:''};
+  }
+};
+
 
 
 // V2.9.30: DRTA自动采集 - 从场景推导对手动作
@@ -2681,10 +2798,25 @@ function decide(){
     var _potConfLevel=PotConfidence.level||'high';
     // 颜色+信号决策
     var _colorResult=ColorStrategy.decide(_evBest,_eq,_oppType,_tiltInfo,_ceResult,_potConfLevel,_pulse);
+    // V2.9.65: SafetyGuard保险 — 用equity给EV颜色上锁, 防止底池误读导致致命建议
+    var _reliability=SafetyGuard.dataReliability(_potConfLevel,_spr,_bet,_pot,_stk||G.stk);
+    var _guardResult=SafetyGuard.guard(_colorResult.colorKey,_eq,_reliability,_potConfLevel);
+    if(_guardResult.changed){
+      console.log('[SafetyGuard] '+_colorResult.colorKey+'→'+_guardResult.colorKey+' '+_guardResult.reason);
+      _colorResult.colorKey=_guardResult.colorKey;
+      _colorResult.color=ColorStrategy.COLORS[_guardResult.colorKey];
+      // 同步信号: 如果SafetyGuard降级了, 且原来信号是UNCERTAIN, 保持; 否则加GUARD信号
+      if(_reliability!=='high'&&_colorResult.signalType==='NONE'){
+        _colorResult.signalType='UNCERTAIN';
+        _colorResult.signalClass='signal-uncertain';
+      }
+    }
     result._colorInfo=_colorResult;
     result._evs=_evs;
     result._evBest=_evBest;
+    result._reliability=_reliability;
     // V2.9.64: 如果颜色决策改变了动作(对手偏移),更新动作
+    // V2.9.65: SafetyGuard已经过滤, 这里只做最终动作同步
     // 防御: check场景不允许覆盖为FOLD(过牌是免费的,永远不比弃牌差)
     if(_colorResult.colorKey==='RAISE_BIG'){
       result.a='raise_big';
