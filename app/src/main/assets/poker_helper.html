@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.74 · catch必更新悬浮球+phase修正</title>
+<title>青云 v2.9.75 · 中文导出修复+位置锁定</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1107,7 +1107,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.74',
+    version:'2.9.75',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1225,7 +1225,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.74',
+  CURRENT_VERSION:'2.9.75',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4186,6 +4186,8 @@ function onVisionResult(data){
       G.phase='pre';
       // V2.9.54: 新一手牌重置底池EMA和跨街记录
       if(typeof PotConfidence!=='undefined') PotConfidence.resetForNewHand();
+      // V2.9.75: 新一手牌清空位置锁定
+      G._lastHandKey='';G._lastPos='';
     } else {
       G.phase='post';
     }
@@ -4249,7 +4251,19 @@ function onVisionResult(data){
     }else{
       posMap={btn:'btn',button:'btn',co:'co',cutoff:'co',mp:'mp',hj:'mp',hijack:'mp',mp1:'mp',utg1:'utg',utg:'utg',sb:'sb',bb:'bb'};
     }
-    G.pos=posMap[rawPos]||'btn';
+    var newPos=posMap[rawPos]||'btn';
+    // V2.9.75: 同一手牌位置锁定——相同hole cards时不允许位置变化（防止Vision间歇性识别错误导致位置跳）
+    if(typeof G._lastHandKey!=='undefined' && G._lastHandKey){
+      var curHandKey=(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'');
+      if(curHandKey===G._lastHandKey && G._lastPos && newPos!==G._lastPos){
+        console.log('[位置锁定] 同一手牌位置不变: '+G._lastPos+' (Vision报'+rawPos+'→'+newPos+'，忽略)');
+        newPos=G._lastPos;
+      }
+    }
+    G.pos=newPos;
+    // 记录当前手牌和位置供下次比对
+    G._lastHandKey=(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'');
+    G._lastPos=G.pos;
   }
   // V2.9.47: 全桌型位置修正安全网（2-9人桌）
   // 2人桌(HU): 只有BTN/SB(=BTN)和BB

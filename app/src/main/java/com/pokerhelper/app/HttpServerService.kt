@@ -123,7 +123,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.74")
+                                put("version", "2.9.75")
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
@@ -348,9 +348,8 @@ class HttpServerService : Service() {
                             try {
                                 val files = HashMap<String, String>()
                                 session.parseBody(files)
-                                val rawPostData = files["postData"] ?: ""
-                                // V2.9.47: 修复中文乱码——NanoHTTPD用ISO-8859-1解析，需转回UTF-8
-                                val postData = String(rawPostData.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8)
+                                // V2.9.75: NanoHTTPD 2.3.1默认UTF-8解码，直接用即可（旧代码ISO-8859-1→UTF-8转换反而把中文变成?）
+                                val postData = files["postData"] ?: ""
                                 // 保存到Download目录（用户容易找到，可在Coze上传）
                                 val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                                 val fileName = "poker_log_${java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())}.json"
@@ -425,7 +424,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("截屏优化 v2.9.74")
+                .setContentTitle("截屏优化 v2.9.75")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -433,7 +432,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("截屏优化 v2.9.74")
+                .setContentTitle("截屏优化 v2.9.75")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
