@@ -2787,83 +2787,126 @@ function multiPlayerEquity(eq,opponents){
 function decide(){
   var k=getHandKey();
   if(!k)return null;
-  // L1缓存: 相同场景直接返回
   var ck=cacheKey();
   if(_decisionCache[ck])return _decisionCache[ck];
   var cc=G.comm.filter(function(c){return c;}).length;
   var result=cc>0?postF(k):preF(k);
-  // V2.9.63: 7色信号决策 — 基于EV+对手偏移+桌面节奏
+  // V2.9.71: 策略引擎=唯一决策源, 颜色=纯映射
   if(result){
     var _eq=result.eq||50;
     var _pot=G.pot||1;
     var _bet=G.bet||0;
     var _spr=G.spr||10;
+    var _stk=G.stk||100000;
     var _oppType=G.opp||'unknown';
-    var _street=cc===5?'river':cc===4?'turn':cc===3?'flop':'preflop';
-    var _ip=pA(G.pos)>=0.5;
     var _profile=DRTA.getProfile();
     var _tiltInfo=TiltDetector.detectTilt(_profile);
     var _ceResult=CounterExploit.detect(_profile);
-    // 计算EV
-    var _raiseSz=result.v||Math.round(_pot*0.66);
-    var _evs=EVCalc.calc(_eq,_pot,_bet,_raiseSz,_oppType,_street,_ip,_spr);
-    var _evBest=EVCalc.best(_evs);
-    // 桌面节奏
-    var _pulse=TablePulse.analyze();
-    // 底池置信度
     var _potConfLevel=PotConfidence.level||'high';
-    // 颜色+信号决策
-    var _colorResult=ColorStrategy.decide(_evBest,_eq,_oppType,_tiltInfo,_ceResult,_potConfLevel,_pulse);
-    // V2.9.65: SafetyGuard保险 — 用equity给EV颜色上锁, 防止底池误读导致致命建议
-    var _stk=G.stk||100000;
     var _reliability=SafetyGuard.dataReliability(_potConfLevel,_spr,_bet,_pot,_stk);
-    var _guardResult=SafetyGuard.guard(_colorResult.colorKey,_eq,_reliability,_potConfLevel);
-    if(_guardResult.changed){
-      console.log('[SafetyGuard] '+_colorResult.colorKey+'→'+_guardResult.colorKey+' '+_guardResult.reason);
-      _colorResult.colorKey=_guardResult.colorKey;
-      _colorResult.color=ColorStrategy.COLORS[_guardResult.colorKey];
-      // 同步信号: 如果SafetyGuard降级了, 且原来信号是UNCERTAIN, 保持; 否则加GUARD信号
-      if(_reliability!=='high'&&_colorResult.signalType==='NONE'){
-        _colorResult.signalType='UNCERTAIN';
-        _colorResult.signalClass='signal-uncertain';
-      }
-    }
-    result._colorInfo=_colorResult;
-    result._evs=_evs;
-    result._evBest=_evBest;
+    var _pulse=TablePulse.analyze();
+    // Step1: 对手类型偏移——直接修改action(策略引擎内部调整)
+    var _origA=result.a;
+    result.a=applyOppActionShift(result.a,_eq,_oppType,_tiltInfo,_ceResult,_pulse);
+    if(result.a!==_origA)console.log('[对手偏移] '+_origA+'→'+result.a+' eq='+_eq+' opp='+_oppType);
+    // Step2: equity底线——直接修改action(保底逻辑,防止极端错误)
+    var _preGuardA=result.a;
+    result.a=applyEquityGuard(result.a,_eq,_reliability);
+    if(result.a!==_preGuardA)console.log('[Equity底线] '+_preGuardA+'→'+result.a+' eq='+_eq+' rel='+_reliability);
+    // Step3: 颜色纯映射——action决定颜色, 颜色不再反改action
+    var _colorKey=actionToColor(result.a);
+    // 信号(仅展示用,不影响决策)
+    var _signalType='NONE';
+    if(_ceResult&&_ceResult.detected)_signalType='COUNTER';
+    else if(_tiltInfo&&_tiltInfo.tilt)_signalType='TILT';
+    else if(_reliability!=='high')_signalType='UNCERTAIN';
+    result._colorInfo={colorKey:_colorKey,color:ColorStrategy.COLORS[_colorKey],signalType:_signalType,signalClass:_signalType==='TILT'?'signal-tilt':_signalType==='COUNTER'?'signal-counter':_signalType==='UNCERTAIN'?'signal-uncertain':''};
     result._reliability=_reliability;
-    // V2.9.71: action与color必须同步——悬浮球按color显示，action必须一致
-    // 防御: check场景不允许覆盖为FOLD(过牌是免费的,永远不比弃牌差)
-    if(result.a==='check'&&_colorResult.colorKey==='FOLD'){
-      _colorResult.colorKey='CHECK';
-      _colorResult.color=ColorStrategy.COLORS.CHECK;
-      result.a='check';
-    }else if(_colorResult.colorKey==='FOLD'){
-      result.a='fold';
-    }else if(_colorResult.colorKey==='WEAK_CALL'){
-      result.a='weak_call';
-    }else if(_colorResult.colorKey==='CALL'){
-      // V2.9.71: check+CALL不一致→场景可能是postflop facing bet
-      // 如果原始action=check但color=CALL，说明应该call而不是check
-      if(result.a==='check')result.a='call';
-      else result.a='call';
-    }else if(_colorResult.colorKey==='RAISE'){
-      result.a='raise';
-    }else if(_colorResult.colorKey==='RAISE_BIG'){
-      result.a='raise_big';
-      if(!result.v||result.v<_pot*0.75)result.v=Math.round(_pot*0.75);
-    }else if(_colorResult.colorKey==='ALL_IN'){
-      result.a='allin';
-    }else if(_colorResult.colorKey==='CHECK'){
-      result.a='check';
+    // 计算EV(仅展示用,不影响决策)
+    try{
+      var _raiseSz=result.v||Math.round(_pot*0.66);
+      var _evs=EVCalc.calc(_eq,_pot,_bet,_raiseSz,_oppType,cc===5?'river':cc===4?'turn':cc===3?'flop':'preflop',pA(G.pos)>=0.5,_spr);
+      result._evs=_evs;
+      result._evBest=EVCalc.best(_evs);
+    }catch(e){}
+    // 防御: check永远不变fold(过牌是免费的)
+    if(result.a==='check'){
+      result._colorInfo.colorKey='CHECK';
+      result._colorInfo.color=ColorStrategy.COLORS.CHECK;
     }
-    // 记录桌面节奏
     TablePulse.record(_profile);
     var keys=Object.keys(_decisionCache);
     if(keys.length>=_cacheMax)delete _decisionCache[keys[0]];
     _decisionCache[ck]=result;
   }
   return result;
+}
+// V2.9.71: action→颜色纯映射(策略引擎是唯一决策源)
+function actionToColor(a){
+  return{fold:'FOLD',weak_call:'WEAK_CALL',call:'CALL',raise:'RAISE',raise_big:'RAISE_BIG',allin:'ALL_IN',check:'CHECK'}[a]||'FOLD';
+}
+// V2.9.71: 对手类型偏移——直接修改action(从oppColorShift迁移)
+function applyOppActionShift(action,eq,oppType,tiltInfo,ceResult,pulse){
+  var a=action;
+  // check不变
+  if(a==='check')return a;
+  // vs鱼/跟站: 偏价值,弱牌不送
+  if(oppType==='fish'||oppType==='calling_station'){
+    if(a==='call'&&eq>=55)a='raise';
+    if(a==='raise'&&eq>=65)a='raise_big';
+    if(a==='weak_call')a='fold';
+  }
+  // vs紧: bluff效率高,但弱牌不加码
+  if(oppType==='nit'||oppType==='tight'){
+    if(a==='call'&&eq>=58)a='raise';
+  }
+  // vs疯/松凶: 控池,偏跟/过
+  if(oppType==='maniac'||oppType==='lag'){
+    if(a==='raise'&&eq<60)a='call';
+    if(a==='raise_big'&&eq<70)a='raise';
+  }
+  // Tilt对手: 偏价值加注(但弱牌不加码)
+  if(tiltInfo&&tiltInfo.tilt){
+    if(a==='raise'&&eq>=60)a='raise_big';
+    if(a==='call'&&eq>=58)a='raise';
+  }
+  // 反剥削: 收紧
+  if(ceResult&&ceResult.detected){
+    if(a==='weak_call')a='fold';
+    if(a==='raise'&&eq<55)a='call';
+  }
+  // 桌面节奏微调
+  if(pulse){
+    if(pulse.type==='tight'&&a==='call'&&eq>=50)a='raise';
+    if(pulse.type==='loose'&&a==='raise'&&eq<55)a='call';
+    if(pulse.type==='crazy'&&a==='raise'&&eq<60)a='call';
+  }
+  return a;
+}
+// V2.9.71: equity底线——直接修改action(从SafetyGuard.guard迁移)
+// 规则: 可靠性越低越依赖equity; 高可靠时只加底线防极端
+function applyEquityGuard(action,eq,reliability){
+  var a=action;
+  if(a==='check')return a;
+  if(reliability==='low'){
+    if(a==='allin'){if(eq>=80)return 'raise';if(eq>=50)return 'call';return 'fold';}
+    if(a==='raise_big'){if(eq>=75)return 'raise';if(eq>=55)return 'call';return 'fold';}
+    if(a==='raise'&&eq<55){if(eq>=40)return 'weak_call';return 'fold';}
+    if(a==='weak_call'){if(eq>=52)return 'call';return 'fold';}
+    if(a==='call'&&eq<35)return 'fold';
+    if(eq<25&&a!=='fold')return 'fold';
+  }else if(reliability==='medium'){
+    if(a==='raise_big'&&eq<70){if(eq>=55)return 'raise';return 'call';}
+    if(a==='allin'&&eq<75){if(eq>=60)return 'raise';if(eq>=45)return 'call';return 'fold';}
+    if(a==='weak_call'&&eq<45)return 'fold';
+    if(a==='raise'&&eq<40){if(eq>=30)return 'call';return 'fold';}
+    if(eq<25&&(a==='raise'||a==='raise_big'||a==='allin'))return 'fold';
+  }else{
+    // 高可靠: 只保底线
+    if(eq<40&&(a==='raise'||a==='raise_big'))return 'fold';
+    if(a==='allin'&&eq<65){if(eq>=50)return 'call';return 'fold';}
+  }
+  return a;
 }
 
 function preF(k){
@@ -2945,9 +2988,17 @@ function preF(k){
       var exploitResult2b=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
       return{a:'raise',v:stk<=rSz?stk:rSz,r:k+' 4bet诈唬!',eq:exploitResult2b.eq,c:'l',sizing:stk<=rSz?stk:rSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz),exploit:exploitResult2b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
+    // V2.9.71: 3bet跟注分两档
+    // 强牌: 范围表支持+eq>=55 → 跟注
     if(eq>=55&&(cS.indexOf(k)!==-1||tS.indexOf(k)!==-1)){
       var exploitResult3=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
       return{a:'call',r:k+' 跟3bet',eq:exploitResult3.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult3.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
+    // V2.9.71: 赔率兜底——3bet池跟注价格/底池比例合理+eq>=45即可跟
+    var po3bet=actualBet>0?actualBet/(pot+actualBet*2):0;
+    if(eq>=45&&eq>=po3bet*100&&(cS.indexOf(k)!==-1||k.indexOf('A')===0||k.indexOf('K')===0||k.indexOf('Q')===0||parseInt(k)>=99)){
+      var exploitResult3b=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      return{a:'call',r:'3bet池赔率够',eq:exploitResult3b.eq,c:'m',po:po3bet*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult3b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'fold',r:k+' 弃牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
@@ -2991,6 +3042,7 @@ function preF(k){
     }
     return{a:'fold',r:k+' 多人池需强牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
+  // V2.9.71: 范围表支持直接开池, 不额外要eq>=50(eQ()对中等牌估算偏保守)
   if(oS.indexOf(k)!==-1||eq>=50){
     // V2.9.47: 2人桌SB开池2x, 3人桌SB开池2.5x, 其他3x
     var rb=p==='bb'?2:(G.tt<=2&&p==='sb')?2:p==='sb'?2.5:3;
