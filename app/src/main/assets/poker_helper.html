@@ -435,7 +435,7 @@ function _initMCWorker(){
       if(_mcResolve){
         var resolve=_mcResolve;
         _mcResolve=null;
-        try{resolve(mcVsRange([],[],[],500));}catch(e2){resolve({eq:50,win:25,tie:0});}
+        try{resolve({eq:0,win:0,tie:0});}catch(e2){resolve({eq:0,win:0,tie:0});}
       }
       _mcWorker=null;
     };
@@ -454,7 +454,7 @@ function mcVsRangeAsync(hole,comm,oppRange,iterations){
       setTimeout(function(){
         if(_mcResolve===resolve){
           _mcResolve=null;
-          try{resolve(mcVsRange(hole,comm,oppRange,iterations));}catch(e){resolve({eq:50,win:25,tie:0});}
+          try{resolve({eq:0,win:0,tie:0});}catch(e){resolve({eq:0,win:0,tie:0});}
         }
       },5000);
     });
@@ -3548,13 +3548,16 @@ function show(r){
 var _mcSimCache=null; // V2.9.46: Worker异步MC结果缓存
 function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){
   // V2.9.30: 自动采集对手动作(在decide之前)
-  // V2.9.73: ★ phase修正——post但无公共牌→强制pre ★
+  // V2.9.73: ★ phase修正——post但公共牌数量异常→强制pre + 清空异常comm ★
   // 根因: Vision API可能误将翻前识别为翻后→走MC异步路径→decide()崩溃→悬浮球卡死
+  // 加强: 公共牌不在[3,4,5]时都不应该走postF()——1或2张公共牌的MC结果严重失真
+  // 关键: 必须同步清空comm, 否则decide()中cc>0仍走postF()
   if(G.phase==='post'){
     var _realCC=G.comm.filter(function(c){return c;}).length;
-    if(_realCC===0){
-      console.log('[phase修正] post但无公共牌→强制pre (Vision API street误识别)');
+    if(_realCC<3){
+      console.log('[phase修正] post但公共牌仅'+_realCC+'张→强制pre+清空comm (Vision API street误识别)');
       G.phase='pre';
+      G.comm=[null,null,null,null,null]; // 清空异常comm, 防止decide()走postF()
       if(G.scene==='check'){G.scene='open';}
       else if(G.scene==='bet'){G.scene='raise';}
     }
@@ -3626,6 +3629,13 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
   try{
     var _hLog=(G.hole[0]&&G.hole[1])?G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit:'null';console.log('[go诊断] 翻前同步开始 hand='+_hLog+' scene='+G.scene+' phase='+G.phase);
     var r=decide();
+    // V2.9.73: decide()返回null→手牌不足→强制推FOLD到悬浮球
+    if(!r){
+      console.log('[go诊断] decide()返回null→手牌不足,强制FOLD');
+      if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('弃牌|COLOR:FOLD|SIGNAL:NO_DATA');}
+      HandHistory.add({a:'fold',r:'[无手牌]',eq:0,c:'l',_colorInfo:{colorKey:'FOLD'}},false);
+      return;
+    }
     console.log('[go诊断] decide()返回 a='+r.a+' eq='+(r.eq||'?')+' color='+(r._colorInfo?r._colorInfo.colorKey:'无'));
     show(r);
     console.log('[go诊断] show()完成');
@@ -4136,6 +4146,8 @@ function onVisionResult(data){
         G.hole.push({rank:c.rank,suit:c.suit});
       }
     }
+    // V2.9.73: 确保G.hole始终有2个元素（防止某张牌识别失败导致G.hole[1]=undefined）
+    while(G.hole.length<2) G.hole.push(null);
   }
   
   // 2. 自动填入公共牌
@@ -4436,7 +4448,7 @@ function onVisionResult(data){
   
   // 8. 触发策略分析（唯一的go()调用，数据此时已全部就绪）
   // V2.9.13: showAdvice+脉冲动画已移到go()内部异步回调中，确保decide()完成后才执行
-  console.log('[onVisionResult诊断] 调用go() hand='+G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit+' scene='+G.scene+' phase='+G.phase+' pot='+G.pot+' bet='+G.bet);
+  var _vLog=(G.hole[0]&&G.hole[1])?G.hole[0].rank+G.hole[0].suit+G.hole[1].rank+G.hole[1].suit:'no_hand';console.log('[onVisionResult诊断] 调用go() hand='+_vLog+' scene='+G.scene+' phase='+G.phase+' pot='+G.pot+' bet='+G.bet);
   go();
   
   // 10. ★ V2.0: 显示识别结果横幅 ★
