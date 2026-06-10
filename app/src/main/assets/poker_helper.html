@@ -433,7 +433,7 @@ var HandHistory={
       if(d)this.records=JSON.parse(d);
     }catch(e){this.records=[];}
   },
-  add:function(result){
+  add:function(result,rawVision){
     var rec={
       ts:Date.now(),
       hole:G.hole.map(function(c){return c?c.rank+c.suit:'?';}),
@@ -442,7 +442,10 @@ var HandHistory={
       stk:G.stk,pot:G.pot,bet:G.bet,
       action:result.a,reason:result.r,
       eq:result.eq,hClass:result.hClass?result.hClass.name:'?',
-      opp:G.opp
+      opp:G.opp,
+      rawPot:window._lastVisionPot||0,
+      rawChips:window._lastVisionChips||0,
+      rawBB:window._lastVisionBB||0
     };
     this.records.unshift(rec);
     if(this.records.length>this.MAX_RECORDS)this.records=this.records.slice(0,this.MAX_RECORDS);
@@ -1467,7 +1470,7 @@ function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f
         try{
           var r=decide();
           show(r);
-          HandHistory.add(r); // V2.9.46: 记录手牌历史
+          HandHistory.add(r,true); // V2.9.46: 记录手牌历史（含Vision原始值）
           try{var resEl2=document.getElementById('res');if(resEl2){var aDiv=resEl2.querySelector('.r-a');var vDiv=resEl2.querySelector('.r-v');if(aDiv){var adv=aDiv.textContent.trim();var val=vDiv?vDiv.textContent.trim():'';var reason=r.r?r.r.replace(/·/g,' ').substring(0,30):'';var fullAdv=adv+(val?' '+val:'')+(reason?' ·'+reason:'');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice(fullAdv);}if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}}}}catch(e2){}
           var resEl3=document.getElementById('res');if(resEl3){resEl3.classList.remove('result-pulse','border-flash');void resEl3.offsetWidth;resEl3.classList.add('result-pulse','border-flash');}
         }catch(e){document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';}
@@ -1921,6 +1924,11 @@ function onVisionResult(data){
     bbValue=Math.max(100,Math.round((parseInt(data.my_chips)||10000)/100));
     console.log('[盲注降级] BB='+bbValue+' (从筹码推算，不精确)');
   }
+  // V2.9.48: 保存Vision原始值用于调试日志
+  window._lastVisionPot=parseInt(data.pot_size)||0;
+  window._lastVisionChips=parseInt(data.my_chips)||0;
+  window._lastVisionBB=bbValue;
+  
   if(data.pot_size>0) G.pot=Math.max(1,Math.round(parseInt(data.pot_size)/bbValue));
   if(data.to_call!==undefined) G.bet=Math.round(parseInt(data.to_call)/bbValue)||0;
   if(data.my_chips>0){
