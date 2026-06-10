@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.58 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强</title>
+<title>青云 v2.9.59 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强·SPR精细化</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -35,6 +35,10 @@ body.speed-mode .r-tip.allin-tip{color:#c77dff;background:rgba(168,85,247,.12)}
 .r-ev-sm{font-size:10px;color:#555;margin-top:3px}
 .r-spr{font-size:9px;padding:2px 6px;border-radius:3px;margin-top:2px;display:inline-block}
 .r-spr.lo{background:rgba(255,71,87,.15);color:#ff4757}
+.r-spr.us{background:rgba(200,50,50,.25);color:#e03030}
+.r-spr.ms{background:rgba(255,140,0,.15);color:#ff8c00}
+.r-spr.sd{background:rgba(46,213,115,.15);color:#2ed573}
+.r-spr.dp{background:rgba(100,149,237,.15);color:#6495ed}
 .r-spr.md{background:rgba(255,215,0,.15);color:#ffd700}
 .r-spr.hi{background:rgba(46,213,115,.15);color:#2ed573}
 .r-class{font-size:8px;padding:2px 6px;border-radius:10px;margin-top:2px;display:inline-block}
@@ -1070,7 +1074,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.58',
+    version:'2.9.59',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1187,7 +1191,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.58',
+  CURRENT_VERSION:'2.9.59',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1692,7 +1696,128 @@ function gT(p){p=_fp(p);var t=G.tt===2?TB2:G.tt===3?TB3:G.tt===4?TB4:G.tt<=5?TB5
 function gC(p){p=_fp(p);var c=G.tt===2?CB2:G.tt===3?CB3:G.tt===4?CB4:G.tt<=5?CB5:G.tt===6?CB6:G.tt===7?CB7:G.tt===8?CB8:CB9;return c[p]||c.btn||c.co||[];}
 function pA(p){var m={utg:0,utg1:0.5,mp:1,mp1:1.5,hj:2,co:3,btn:4,sb:5,bb:5.5};return m[p]!==undefined?m[p]:3;}
 function calcSPR(){var h=G.hole.filter(function(c){return c;}).length;if(h<2)return 20;var effStk=G.stk;var p=G.pot>0?G.pot:1;return effStk/p;}
-function getSPRAdvice(spr){if(spr<3)return{label:'短码区',color:'lo'};if(spr<10)return{label:'中区',color:'md'};return{label:'深码',color:'hi'};}
+function getSPRAdvice(spr){if(spr<1.5)return{label:'极短码',color:'us',zone:'ultra_short'};if(spr<3)return{label:'短码',color:'lo',zone:'short'};if(spr<6)return{label:'中短码',color:'ms',zone:'med_short'};if(spr<13)return{label:'标准码',color:'sd',zone:'standard'};return{label:'深码',color:'dp',zone:'deep'};}
+// ===== V2.9.59: SPR精细化 — 5区SPR策略引擎 =====
+var SPRZone={
+  // 5区定义: ultra_short(<1.5), short(1.5-3), med_short(3-6), standard(6-13), deep(>=13)
+  getZone:function(spr){
+    if(spr<1.5)return'ultra_short';if(spr<3)return'short';if(spr<6)return'med_short';if(spr<13)return'standard';return'deep';
+  },
+  // Equity realization按SPR区调整——深码边际手牌实现率低，短码接近100%
+  // ip=true时realization高，OOP低
+  eqRealization:function(spr,ip,hClassName){
+    var z=this.getZone(spr);
+    var base={ultra_short:1.0,short:0.95,med_short:0.88,standard:0.82,deep:0.75}[z]||0.85;
+    // 位置修正: IP +8-12%, OOP -5-8%
+    if(ip)base+=0.10;else base-=0.07;
+    // 牌力修正: 强牌/nuts实现率高，弱牌/draw在深码实现率低
+    if(hClassName==='NUTS')base=Math.min(1.0,base+0.15);
+    else if(hClassName==='STRONG')base=Math.min(1.0,base+0.08);
+    else if(hClassName==='DRAW')base-=0.05; // 听牌深码容易被打掉
+    else if(hClassName==='AIR')base-=0.10;
+    return Math.max(0.5,Math.min(1.0,base));
+  },
+  // 下注尺度按SPR区调整——核心升级
+  // 原betSizingAdv()完全不用spr，现在按区给不同尺度
+  sizing:function(eq,spr,bTexture,ip,oppType,sizingMod,hClassName,street){
+    sizingMod=sizingMod||1;
+    var z=this.getZone(spr);
+    // 基础尺度比例(占底池)
+    var base;
+    if(eq>=80)base=0.75;else if(eq>=60)base=0.50;else if(eq>=40)base=0.33;else base=0.25;
+    // === SPR区尺度策略 ===
+    if(z==='ultra_short'){
+      // 极短码: commit-or-fold，尺度=全下或0.7池
+      base=eq>=55?0.75:0; // 不够就check/fold
+    }else if(z==='short'){
+      // 短码: 2-size系统(shove或0.5池)
+      base=eq>=60?0.70:0.50;
+    }else if(z==='med_short'){
+      // 中短码: 关键区——1街commitment决策，强牌偏大
+      if(eq>=70)base=0.65; // 强牌大尺度加速commit
+      else if(eq>=55)base=0.50;
+      else base=0.40; // 边缘牌控池
+    }else if(z==='standard'){
+      // 标准码: 全尺度范围
+      if(eq>=80)base=0.75;else if(eq>=60)base=0.55;else base=0.38;
+    }else{
+      // 深码: 混合尺度，坚果可超池，薄价值小尺度
+      if(hClassName==='NUTS')base=0.88; // 坚果深码超池
+      else if(eq>=70)base=0.60;
+      else if(eq>=55)base=0.45; // 薄价值小尺度
+      else base=0.30;
+    }
+    // 牌面修正
+    if(bTexture&&bTexture.wetness>=2){
+      if(z==='standard'||z==='deep')base=Math.max(0.30,base-0.10); // 湿面降尺度
+      else base=Math.max(0.25,base-0.05);
+    }
+    // 位置修正: IP可稍大(更有效实现equity)
+    if(ip&&z!=='ultra_short')base=Math.min(0.95,base+0.08);
+    // 街道修正: 河牌更精确
+    if(street==='river'){
+      if(hClassName==='NUTS'||hClassName==='STRONG')base=Math.min(0.95,base+0.05);
+      else if(hClassName==='AIR')base=Math.min(0.60,base); // 河牌bluff不超过0.6池
+    }
+    var sizing=Math.round(G.pot*base*sizingMod);
+    return Math.max(2,sizing);
+  },
+  // 诈唬频率按SPR区调整——深码更多bluff机会，短码几乎不bluff
+  bluffFreq:function(spr,baseFreq,oppType,hClassName){
+    var z=this.getZone(spr);
+    var mult={ultra_short:0.0,short:0.2,med_short:0.6,standard:1.0,deep:1.2}[z]||1.0;
+    // 短码不诈唬(没筹码压力)，深码可多诈唬(隐含赔率高)
+    var freq=baseFreq*mult;
+    // vs nit/tight: 所有SPR区都多bluff
+    if(oppType==='nit'||oppType==='tight')freq=Math.min(0.50,freq*1.3);
+    // vs 跟站/鱼: 少bluff
+    if(oppType==='calling_station'||oppType==='fish')freq*=0.3;
+    // 短码绝对不bluff
+    if(z==='ultra_short'||z==='short')freq=0;
+    return Math.max(0,Math.min(0.50,freq));
+  },
+  // 跟注阈值按SPR区调整——短码需更高equity(犯错代价大)
+  callThreshold:function(spr,baseThresh,ip,hClassName,street){
+    var z=this.getZone(spr);
+    var adj=0;
+    if(z==='ultra_short')adj=8; // 极短码+8%(犯错=死)
+    else if(z==='short')adj=5; // 短码+5%
+    else if(z==='med_short')adj=2; // 中短码+2%
+    else if(z==='deep')adj=-3; // 深码-3%(可多看牌)
+    // 位置修正: OOP需更高阈值
+    if(!ip)adj+=2;
+    // DRAW在短码需更高(没街数实现)
+    if(hClassName==='DRAW'){
+      if(z==='ultra_short'||z==='short')adj+=10; // 短码不追听牌
+      else if(z==='med_short')adj+=4;
+    }
+    return baseThresh+adj;
+  },
+  // 隐含赔率按SPR区调整——深码隐含高，短码几乎无
+  impliedOddsMult:function(spr){
+    var z=this.getZone(spr);
+    return{ultra_short:0.3,short:0.5,med_short:0.8,standard:1.2,deep:1.6}[z]||1.0;
+  },
+  // 加注阈值按SPR区——短码需更强牌才加注(加注=commit)
+  raiseThreshold:function(spr,baseThresh,hClassName){
+    var z=this.getZone(spr);
+    var adj=0;
+    if(z==='ultra_short')adj=15; // 极短码+15%(加注=全下)
+    else if(z==='short')adj=8;
+    else if(z==='med_short')adj=3;
+    else if(z==='deep')adj=-2; // 深码可更宽
+    // 坚果/强牌不受限
+    if(hClassName==='NUTS')adj=-20;
+    else if(hClassName==='STRONG')adj=Math.min(adj,0);
+    return baseThresh+adj;
+  },
+  // C-bet频率按SPR区——短码少cbet(浪费筹码), 标准码正常, 深码可多cbet
+  cbetFreqMod:function(spr){
+    var z=this.getZone(spr);
+    return{ultra_short:0.5,short:0.7,med_short:0.9,standard:1.0,deep:1.1}[z]||1.0;
+  }
+};
+
 function getHandKey(){var h=G.hole;if(!h[0]||!h[1])return null;var r1=h[0].rank,r2=h[1].rank,s1=h[0].suit,s2=h[1].suit;if(RV[r1]<RV[r2]){var t=r1;r1=r2;r2=t;var ts=s1;s1=s2;s2=ts;}var suited=s1===s2;var k=r1+r2+(r1===r2?'':(suited?'s':'o'));return k;}
 function eH(cards){var ranks=[],suits=[];cards.forEach(function(c){if(c){ranks.push(c.rank);suits.push(c.suit);}});var values=ranks.map(function(r){return RV[r]||0;});values.sort(function(a,b){return b-a;});var isFlush=suits.length>=5&&(function(){var s={};suits.forEach(function(su){s[su]=(s[su]||0)+1;});for(var k in s)if(s[k]>=5)return true;return false;})();var isStraight=(function(){var uniq=[];values.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return b-a;});if(uniq.length>=5){for(var i=0;i<=uniq.length-5;i++){if(uniq[i]-uniq[i+4]===4)return true;}if(uniq.indexOf(12)>=0&&uniq.indexOf(3)>=0&&uniq.indexOf(2)>=0&&uniq.indexOf(1)>=0&&uniq.indexOf(0)>=0)return true;}return false;})();var pairCount=(function(){var c={};ranks.forEach(function(r){c[r]=(c[r]||0)+1;});return Object.values(c).filter(function(n){return n>=2;}).sort(function(a,b){return b-a;});})();var topPair=(function(){if(pairCount[0]>=2){for(var i=0;i<ranks.length;i++){var cnt=0;for(var j=0;j<ranks.length;j++)if(ranks[j]===ranks[i])cnt++;if(cnt>=2)return RV[ranks[i]];}}return-1;})();var madeHand='high';if(isFlush&&isStraight)madeHand='sf';else if(isFlush)madeHand='flush';else if(isStraight)madeHand='straight';else if(pairCount[0]>=4)madeHand='quads';else if(pairCount[0]>=3&&pairCount[1]>=2)madeHand='fh';else if(pairCount[0]>=3)madeHand='set';else if(pairCount[0]>=2&&pairCount[1]>=2)madeHand='twoPair';else if(pairCount[0]>=2)madeHand='pair';var kicker=Math.max.apply(null,values.slice(0,Math.min(5,values.length)));var score=(function(){var handVals={high:0,pair:100,twoPair:200,set:300,straight:400,flush:500,fh:600,quads:700,sf:800};if(madeHand==='pair'){var npv=values.filter(function(v){return v!==topPair;});var pk=npv.length>0?npv[0]:0;return handVals.pair+topPair*5+pk;}return(handVals[madeHand]||0)+(kicker||0);})();return score;}
 function eQ(key){var pairEq={AA:85,KK:82,QQ:80,JJ:77,TT:75,99:72,88:70,77:68,66:66,55:64,44:62,33:60,22:56};if(pairEq[key])return pairEq[key];var s=key.indexOf('s')>=0?1:0;var m={AK:[63,65],AQ:[59,62],AJ:[55,58],AT:[44,50],A9:[44,52],A8:[43,51],A7:[42,50],A6:[41,50],A5:[41,52],A4:[40,51],A3:[39,50],A2:[38,50],KQ:[55,58],KJ:[50,55],KT:[46,53],K9:[42,50],K8:[37,48],K7:[36,47],K6:[35,46],K5:[34,45],K4:[33,44],K3:[32,43],K2:[31,42],QJ:[48,54],QT:[45,52],Q9:[40,49],Q8:[36,47],JT:[46,53],J9:[38,48],J8:[35,46],T9:[42,52],T8:[36,48],T7:[33,46],98:[35,50],97:[32,46],87:[34,49],86:[31,45],76:[33,48],65:[31,46],54:[29,44],43:[28,42],32:[26,40]};var combo=key.slice(0,2);if(m[combo])return m[combo][s];var idx;if((idx=O6.btn.indexOf(key))!==-1)return 48;if((idx=O6.co.indexOf(key))!==-1)return 45;if((idx=O6.mp.indexOf(key))!==-1)return 42;if((idx=O6.utg.indexOf(key))!==-1)return 38;return 30;}
@@ -1881,13 +2006,28 @@ function handClassify(hole,comm){
 function boardTexture(comm){var c=comm.filter(function(card){return card;});if(c.length===0)return{wetness:0,desc:'翻前',hasMonotone:false,hasPaired:false,rangeAdv:'neutral',category:'preflop'};var ranks=c.map(function(card){return card.rank;});var suits=c.map(function(card){return card.suit;});var rankCount={};ranks.forEach(function(r){rankCount[r]=(rankCount[r]||0)+1;});var hasPaired=Object.values(rankCount).some(function(n){return n>=2;});var hasTrips=Object.values(rankCount).some(function(n){return n>=3;});var suitCount={};suits.forEach(function(s){suitCount[s]=(suitCount[s]||0)+1;});var maxSuit=Math.max.apply(null,Object.values(suitCount));var hasMonotone=maxSuit>=3;var vals=ranks.map(function(r){return RV[r]||0;}).sort(function(a,b){return a-b;});var uniq=[];vals.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return a-b;});var maxGap=0,connected=0;for(var i=1;i<uniq.length;i++){var gap=uniq[i]-uniq[i-1];if(gap<=2)connected++;if(gap>maxGap)maxGap=gap;}if(uniq.indexOf(12)!==-1&&uniq.indexOf(1)!==-1&&uniq.indexOf(0)!==-1)connected++;var category,wetness;if(hasTrips){category='paired';wetness=3;}else if(hasMonotone&&connected>=2){category='wet';wetness=4;}else if(hasMonotone){category='wet';wetness=4;}else if(hasPaired&&connected>=2){category='semi-wet';wetness=2;}else if(hasPaired){category='paired';wetness=3;}else if(maxSuit>=2&&connected>=2){category='semi-wet';wetness=2;}else if(connected>=2&&maxGap<=3){category='semi-wet';wetness=2;}else if(maxSuit>=2||connected>=1){category='dry';wetness=1;}else{category='static';wetness=0;}var street=c.length===3?'翻牌':c.length===4?'转牌':'河牌';var catNames={'static':'极干','dry':'干燥','semi-wet':'半湿','paired':'对子','wet':'湿面','preflop':'翻前'};var texture={wetness:wetness,desc:street+'('+catNames[category]+')',hasMonotone:hasMonotone,hasPaired:hasPaired,rangeAdv:'neutral',category:category};return texture;}
 function calcOuts(hole,comm){var hc=handClassify(hole.filter(function(c){return c;}),comm);return hc.outs||0;}
 function impliedOdds(outs,spr,bet,pot){if(outs===0||spr<=0)return null;var turnEq=outs/47;var riverEq=outs/46;var total=turnEq+(1-turnEq)*riverEq;var callCost=bet;var toWin=pot;var breakeven=callCost/(toWin+callCost);var io={total:total*100,breakeven:breakeven*100,advice:'隐含赔率不足'};if(total>=breakeven*1.3)io.advice='隐含赔率充足';else if(total>=breakeven)io.advice='勉强跟注';return io;}
-function betSizingAdv(eq,spr,bTexture,ip,isAllIn,oppType,sizingMod){sizingMod=sizingMod||1;var base=eq>=80?0.75:eq>=60?0.50:eq>=40?0.33:0.25;if(bTexture&&bTexture.wetness>=2)base=Math.max(0.25,base-0.15);if(ip)base=Math.min(0.75,base+0.10);var sizing=Math.round(G.pot*base*sizingMod);return Math.max(2,sizing);}
+// V2.9.59: SPR感知隐含赔率——深码隐含高，短码几乎无
+function impliedOddsSPR(outs,spr,bet,pot){var base=impliedOdds(outs,spr,bet,pot);if(!base)return null;var mult=SPRZone.impliedOddsMult(spr);base.total=base.total*mult;base.sprMult=mult;if(mult>=1.0){if(base.total>=base.breakeven*1.2)base.advice='深码隐含充足';}else{if(base.total<base.breakeven)base.advice='短码隐含不足';}return base;}
+function betSizingAdv(eq,spr,bTexture,ip,isAllIn,oppType,sizingMod,hClassName,street){return SPRZone.sizing(eq,spr,bTexture,ip,oppType,sizingMod,hClassName||"MEDIUM",street||"flop");}
 var CBET_FREQ={static:{nit:75,fish:55,lag:70,maniac:65,calling_station:50,tag:70,tight:80,unknown:65},dry:{nit:65,fish:55,lag:60,maniac:55,calling_station:45,tag:65,tight:75,unknown:60},'semi-wet':{nit:50,fish:60,lag:45,maniac:40,calling_station:55,tag:50,tight:60,unknown:50},paired:{nit:55,fish:50,lag:50,maniac:45,calling_station:45,tag:55,tight:60,unknown:50},wet:{nit:35,fish:70,lag:30,maniac:25,calling_station:65,tag:35,tight:45,unknown:40}};
 function blocker(hole,range){var h=hole.filter(function(c){return c;});if(h.length<2)return 1;var rank1=h[0].rank,rank2=h[1].rank;var blockerCount=0;range.forEach(function(key){if(key.indexOf(rank1)!==-1||key.indexOf(rank2)!==-1)blockerCount++;});return blockerCount/Math.max(range.length,1);}
 function getBlockerScore(k,oppRange){return blocker(G.hole.map(function(c){return{k:c.rank+SS[c.suit]};}).filter(function(x){return x.k;}).map(function(x){return{k:x.k[0]};}),oppRange);}
 function compareEVs(eq,pot,betToCall,raiseSz){var results={};if(betToCall>0){var callEV=eq*(pot+betToCall)/pot-(1-eq)*betToCall/pot;results.call=callEV;}if(raiseSz>0){var raiseEV=eq*(pot+raiseSz)/(pot+betToCall+raiseSz)*0.9;results.raise=raiseEV;}return results;}
 function getOppRange(phase,action,bTexture){if(phase==='preflop')return gO(G.pos);var wetness=bTexture?bTexture.wetness:0;if(action==='cbet')return gC(G.pos);return gO(G.pos);}
-function planStreets(hClass,eq,scene,opp,spr){var plans={'NUTS':{v:'河牌价值|对手check后下注'},'STRONG':{v:'翻/转价值|河牌保护'},'MEDIUM':{v:'翻牌控池|转牌决断'},'WEAK':{v:'过牌控池|弃弱保命'},'DRAW':{v:'半池追牌|控制投入'},'AIR':{v:'放弃追牌|找机会偷池'}};return plans[hClass.name]||plans['WEAK'];}
+function planStreets(hClass,eq,scene,opp,spr){
+  // V2.9.59: SPR感知街道规划——不同深度策略不同
+  var z=spr!==undefined?SPRZone.getZone(spr):'standard';
+  var plans={
+    'NUTS':{ultra_short:{v:'commit全下|无犹豫'},short:{v:'commit全下|无犹豫'},med_short:{v:'大注加速|一条街commit'},standard:{v:'河牌价值|对手check后下注'},deep:{v:'慢打建池|超池收割'}},
+    'STRONG':{ultra_short:{v:'commit|强牌快打'},short:{v:'全下/加注|快打强牌'},med_short:{v:'大注保护|控池决断'},standard:{v:'翻/转价值|河牌保护'},deep:{v:'多街价值|薄价值收割'}},
+    'MEDIUM':{ultra_short:{v:'弃牌保命|不追边际'},short:{v:'谨慎跟注|不追大池'},med_short:{v:'控池一条街|转牌决断'},standard:{v:'翻牌控池|转牌决断'},deep:{v:'控池看牌|利用位置'}},
+    'WEAK':{ultra_short:{v:'弃牌|绝不投入'},short:{v:'弃牌|筹码太贵'},med_short:{v:'过牌控池|有机会再追'},standard:{v:'过牌控池|弃弱保命'},deep:{v:'过牌看牌|找bluff机会'}},
+    'DRAW':{ultra_short:{v:'弃牌|无街数实现'},short:{v:'弃牌|筹码不够追'},med_short:{v:'小注追牌|控制投入'},standard:{v:'半池追牌|控制投入'},deep:{v:'多街追牌|隐含赔率高'}},
+    'AIR':{ultra_short:{v:'弃牌|绝不bluff'},short:{v:'弃牌|不浪费筹码'},med_short:{v:'弃牌|找机会偷池'},standard:{v:'放弃追牌|找机会偷池'},deep:{v:'选位bluff|深码可偷'}}
+  };
+  var hc=plans[hClass.name]||plans['WEAK'];
+  return hc[z]||hc['standard']||{v:'控池|看牌决断'};
+}
 function applyExploit(eq,action,oppType,ctx){ctx=ctx||{};var mod=1,exploit='',sizingMod=1;
   // V2.9.17: 7类对手多维度剥削
   var oppMods={
@@ -1936,9 +2076,8 @@ var StrategicBluff={
     if(street==='river'&&hClass.name==='AIR'&&(scene==='check'||scene==='opponent_check')){
       if(ftb>=50&&opponents<=2&&isDryBoard&&conf>=0.3){
         var bf=DRTA.BLUFF_FREQ[type]||0.10;
-        // vs nit/tight: 更高诈唬频率
-        if(type==='nit')bf=Math.min(0.6,bf*1.3);
-        if(type==='tight')bf=Math.min(0.5,bf*1.2);
+        // V2.9.59: SPR感知诈唬频率——短码不bluff，深码多bluff
+        bf=SPRZone.bluffFreq(spr,bf,type,hClass.name);
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
         if(Math.random()<bf){
@@ -1948,9 +2087,12 @@ var StrategicBluff={
       }
     }
     // 半诈唬: 8+outs+对手可逼退
+    // V2.9.59: 短码不半诈唬(筹码太珍贵)
     if((street==='flop'||street==='turn')&&hClass.name==='DRAW'&&hClass.outs>=8){
-      if(conf>=0.2&&opponents<=2){
+      var sprZone2=SPRZone.getZone(spr);
+      if(conf>=0.2&&opponents<=2&&sprZone2!=='ultra_short'&&sprZone2!=='short'){
         var bf2=DRTA.BLUFF_FREQ[type]||0.10;
+        bf2=SPRZone.bluffFreq(spr,bf2,type,hClass.name);
         if(Math.random()<bf2){
           blu.action='raise';blu.strategy='半诈唬('+hClass.outs+'outs)';
           blu.sizing=Math.round(pot*0.6);
@@ -1998,10 +2140,33 @@ var StrategicRetreat={
         }
       }
     }
-    // SPR撤退: SPR<3+全下+中等牌→弃牌
-    if(spr<3&&(scene==='allin'||scene==='raise')){
+    // V2.9.59: SPR撤退——5区精细化
+    var sprZone=SPRZone.getZone(spr);
+    // 极短码: MEDIUM及以下→弃牌(犯错=死)
+    if(sprZone==='ultra_short'&&(scene==='allin'||scene==='raise')){
+      if(hClass.name!=='NUTS'&&hClass.name!=='STRONG'){
+        ret.action='fold';ret.strategy='SPR极短码('+spr.toFixed(1)+')战略弃牌';
+        return ret;
+      }
+    }
+    // 短码: MEDIUM且eq<50→弃牌
+    if(sprZone==='short'&&(scene==='allin'||scene==='raise')){
       if(hClass.name==='MEDIUM'&&eq<50){
-        ret.action='fold';ret.strategy='SPR<'+spr.toFixed(1)+'战略弃牌';
+        ret.action='fold';ret.strategy='SPR短码('+spr.toFixed(1)+')战略弃牌';
+        return ret;
+      }
+    }
+    // 中短码: MEDIUM面对大raise→谨慎弃牌
+    if(sprZone==='med_short'&&(scene==='raise'||scene==='allin')&&bet>pot*0.7){
+      if(hClass.name==='MEDIUM'&&eq<48){
+        ret.action='fold';ret.strategy='SPR中短码大注弃牌('+spr.toFixed(1)+')';
+        return ret;
+      }
+    }
+    // 深码: WEAK/AIR面对大raise→弃牌(保留筹码打长期)
+    if(sprZone==='deep'&&(scene==='raise'||scene==='allin')&&bet>pot*0.8){
+      if((hClass.name==='WEAK'||hClass.name==='AIR')&&eq<35){
+        ret.action='fold';ret.strategy='SPR深码弃弱('+spr.toFixed(1)+')';
         return ret;
       }
     }
@@ -2105,12 +2270,16 @@ function preF(k){
   var actualBet=bet;
   if(scene==='raise'&&bet===0)actualBet=3;
   else if(scene==='reraise'&&bet===0)actualBet=9;
-  if(spr<3&&actualBet>0&&stk<=30){
-    if(eq>=50){
+  // V2.9.59: 翻前SPR精细化——5区策略
+  var sprZonePre=SPRZone.getZone(spr);
+  if((sprZonePre==='ultra_short'||sprZonePre==='short')&&actualBet>0&&stk<=30){
+    // 极短码: eq>=55才commit, 短码: eq>=50
+    var preCommitThresh=sprZonePre==='ultra_short'?55:50;
+    if(eq>=preCommitThresh){
       var exploitResult=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
-      return{a:'raise',v:stk,r:'SPR<'+spr.toFixed(1)+'短码全下',eq:exploitResult.eq,c:eq>=65?'h':'m',sizing:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,exploit:exploitResult.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      return{a:'raise',v:stk,r:'SPR '+sprZonePre+'('+spr.toFixed(1)+')全下',eq:exploitResult.eq,c:eq>=65?'h':'m',sizing:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,exploit:exploitResult.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    return{a:'fold',r:'SPR<'+spr.toFixed(1)+'短码弃牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    return{a:'fold',r:'SPR '+sprZonePre+'('+spr.toFixed(1)+')弃牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   // V2.9.35: 翻前面对allin - 只需判断call或fold
   if(scene==='allin'){
@@ -2191,7 +2360,7 @@ function preF(k){
     // V2.9.47: 2人桌SB开池2x, 3人桌SB开池2.5x, 其他3x
     var rb=p==='bb'?2:(G.tt<=2&&p==='sb')?2:p==='sb'?2.5:3;
     var exploitResult10=applyExploit(eq,'raise',G.opp,{pot:pot});
-    var sizing=betSizingAdv(eq,spr,null,pa>=0.5,G.opp,exploitResult10.sizingMod);
+    var sizing=betSizingAdv(eq,spr,null,pa>=0.5,G.opp,exploitResult10.sizingMod,hClass?hClass.name:"PRE","preflop");
     return{a:'raise',v:rb,r:oS.indexOf(k)!==-1?k+' '+pL(p)+'开池':k+' 位好',eq:exploitResult10.eq,c:eq>=55?'h':eq>=45?'m':'l',sizing:Math.max(rb,sizing),scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,0,rb),exploit:exploitResult10.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   var exploitResult11=applyExploit(eq,'fold',G.opp,{pot:pot});
@@ -2254,12 +2423,19 @@ function postF(k){
   // V2.9.30: 已用非线性衰减替代旧的线性扣减，不再额外减eq
   if(bTexture.wetness>=2)eq-=2;else if(bTexture.wetness<0)eq+=2;
   if(bTexture.rangeAdv==='hero')eq+=2;else if(bTexture.rangeAdv==='villain')eq-=2;
+  // V2.9.59: SPR equity realization——深码边际牌实现率低，短码接近100%
+  var sprRealization=SPRZone.eqRealization(spr,ip,hClass.name);
+  if(sprRealization<1.0){
+    var eqBeforeRealization=eq;
+    eq=50+(eq-50)*sprRealization; // 以50%为中心缩放
+    console.log('[SPR Realization] zone='+SPRZone.getZone(spr)+' ip='+ip+' hClass='+hClass.name+' realiz='+sprRealization.toFixed(2)+' eq '+eqBeforeRealization.toFixed(1)+'→'+eq.toFixed(1));
+  }
   var boardInfo=bTexture.desc;
   var outs=calcOuts(hole,comm);
   var io=null;
-  if(outs>0&&bet>0)io=impliedOdds(outs,spr,bet,pot);
+  if(outs>0&&bet>0)io=impliedOddsSPR(outs,spr,bet,pot);
   var exploitResult=applyExploit(eq,scene==='check'?'raise':scene==='allin'?'call':'call',G.opp,{bet:bet,pot:pot});
-  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1);
+  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1,hClass.name,street);
   // DRTA profile
   var profile=DRTA.getProfile();
   var weights=DRTA.getDRTAWeight(profile);
@@ -2459,6 +2635,8 @@ function postF(k){
     if(G.act>=5)cbetFreq=Math.round(cbetFreq*0.35);
     else if(G.act===4)cbetFreq=Math.round(cbetFreq*0.5);
     else if(G.act===3)cbetFreq=Math.round(cbetFreq*0.7);
+    // V2.9.59: SPR感知C-bet频率——短码少cbet, 深码多cbet
+    cbetFreq=Math.round(cbetFreq*SPRZone.cbetFreqMod(spr));
     var cbetThresh=55-(cbetFreq-50)*0.3; // V2.9.28: 降5点让TPTK够bet
     // V2.9.30: AIR vs nit/tight C-bet诈唬(利用高弃牌率)
     // V2.9.35: 扩展诈唬覆盖AIR+低outs DRAW(4outs卡顺不算真正听牌), 放宽湿面到<=2
@@ -2505,7 +2683,7 @@ function postF(k){
       var exploitResult0=applyExploit(eq,'check',G.opp,{pot:pot});
       return{a:'check',r:'数据异常-过牌',eq:exploitResult0.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var raiseEq=nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12);
+    var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name);
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
     if((G.opp==='maniac'||G.opp==='lag')&&bet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
     // V2.9.35: outs跟注追需看下注大小,大注(>2/3池)不追弱听牌,超池(>1x)只追组合听牌
@@ -2517,7 +2695,7 @@ function postF(k){
       var exploitResult10=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot});
       return{a:'raise',v:sizing,r:'胜率足加注',eq:exploitResult10.eq,c:'h',po:nq,sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,evs:compareEVs(eq,pot,bet,sizing),bTexture:bTexture,io:io,exploit:exploitResult10.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    if(eq>=nq+3){
+    var sprCallThresh=SPRZone.callThreshold(spr,nq+3,ip,hClass.name,street);if(eq>=sprCallThresh){
       var exploitResult11=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
       return{a:'call',r:'胜率够跟',eq:exploitResult11.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult11.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -2593,7 +2771,7 @@ function show(r){
   }
   if(r.spr!==undefined){
     var sa=r.sprAdvice||getSPRAdvice(r.spr);
-    h+='<div class="r-spr '+sa.color+'">SPR:'+r.spr.toFixed(1)+' '+sa.label+'</div>';
+    h+='<div class="r-spr '+sa.color+'">SPR:'+r.spr.toFixed(1)+' '+sa.label+(sa.zone?' ['+sa.zone+']':'')+'</div>';
   }
   if(r.evs){
     var evData=r.evs.evs||r.evs;
