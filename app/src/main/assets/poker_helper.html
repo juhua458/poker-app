@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.51 · GTO+DRTA融合版·2-9人桌全桌型·Worker异步MC</title>
+<title>青云 v2.9.52 · GTO+DRTA融合版·2-9人桌全桌型·Worker异步MC·底池容错</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -422,6 +422,331 @@ function gtoRandom(freqArr){
   return freqArr.length-1;
 }
 
+// === V2.9.52: 底池置信度评估模块 ===
+// 参考GTO Wizard离散化+CMU容错研究，三层Fallback架构
+var PotConfidence={
+  // 最近3帧底池记录(用于多帧平滑)
+  _history:[],
+  _maxHistory:3,
+  // 置信度等级: high/medium/low
+  level:'high',
+  // 底池离散档位: small/medium/large/huge
+  tier:'medium',
+  // 具体分数 0-100
+  score:100,
+  
+  // 评估底池置信度
+  evaluate:function(pot,bet,stk,bb,street,warnings){
+    var s=100; // 起始满分
+    var reasons=[];
+    
+    // 规则1: 底池与BB比例校验
+    if(pot>0&&bb>0){
+      var potBB=pot/bb;
+      if(potBB<2&&street!=='preflop'&&street!=='pre'){
+        s-=30; reasons.push('翻后pot仅'+potBB.toFixed(1)+'BB(太小)');
+      }
+      if(potBB>200){
+        s-=15; reasons.push('pot='+potBB.toFixed(0)+'BB(异常大)');
+      }
+    }
+    
+    // 规则2: 底池与筹码比例校验
+    if(pot>0&&stk>0){
+      if(pot>stk*5){
+        s-=25; reasons.push('pot>>stk(可能误读对手筹码为底池)');
+      }
+      if(pot>stk*3){
+        s-=10; reasons.push('pot>3x stk(需谨慎)');
+      }
+    }
+    
+    // 规则3: to_call与底池交叉验证
+    if(bet>0&&pot>0){
+      var betPotRatio=bet/pot;
+      if(betPotRatio>3){
+        // 跟注额远大于底池→底池可能识别偏小
+        s-=20; reasons.push('跟注/底池='+betPotRatio.toFixed(1)+'(底池可能偏小)');
+      }
+    }
+    
+    // 规则4: 多帧一致性校验
+    this._history.push({pot:pot,ts:Date.now()});
+    if(this._history.length>this._maxHistory)this._history.shift();
+    if(this._history.length>=2){
+      var prev=this._history[this._history.length-2].pot;
+      if(prev>0&&pot>0){
+        var changeRatio=Math.abs(pot-prev)/prev;
+        // 翻牌阶段底池突变正常(多人进池)，转牌/河牌突变异常
+        if(changeRatio>0.4&&street==='river'){
+          s-=15; reasons.push('河牌底池突变'+(changeRatio*100).toFixed(0)+'%(可能识别跳变)');
+        }else if(changeRatio>0.6&&street==='turn'){
+          s-=10; reasons.push('转牌底池突变'+(changeRatio*100).toFixed(0)+'%');
+        }
+      }
+    }
+    
+    // 规则5: Vision API警告
+    if(warnings&&warnings.length>0){
+      for(var i=0;i<warnings.length;i++){
+        var w=warnings[i];
+        if(w.indexOf('底池可能')>=0||w.indexOf('可能误读')>=0||w.indexOf('可能识别')>=0){
+          s-=15; reasons.push(w);
+        }else if(w.indexOf('偏小')>=0||w.indexOf('偏大')>=0){
+          s-=10; reasons.push(w);
+        }
+      }
+    }
+    
+    // 河牌特殊：对底池精度容忍度更高（参考调研结论：河牌决策主要由range分布决定）
+    if(street==='river')s=Math.min(100,s+10);
+    
+    s=Math.max(0,Math.min(100,s));
+    this.score=s;
+    
+    // 分级
+    if(s>=85)this.level='high';
+    else if(s>=60)this.level='medium';
+    else this.level='low';
+    
+    // 底池离散档位
+    var potBB2=pot/(bb||1);
+    if(potBB2<=10)this.tier='small';
+    else if(potBB2<=30)this.tier='medium';
+    else if(potBB2<=100)this.tier='large';
+    else this.tier='huge';
+    
+    if(reasons.length>0){
+      console.log('[底池置信度] score='+s+' level='+this.level+' tier='+this.tier+' | '+reasons.join('; '));
+    }else{
+      console.log('[底池置信度] score='+s+' level='+this.level+' tier='+this.tier);
+    }
+    
+    return{level:this.level,score:s,tier:this.tier,reasons:reasons};
+  },
+  
+  // 多帧平滑：用中位数替代极端值
+  getSmoothedPot:function(currentPot,bb){
+    if(this._history.length<2)return currentPot;
+    var pots=this._history.map(function(h){return h.pot;});
+    pots.sort(function(a,b){return a-b;});
+    var median=pots[Math.floor(pots.length/2)];
+    // 如果当前值与中位数偏差>40%，用中位数替代
+    if(median>0&&Math.abs(currentPot-median)/median>0.4){
+      console.log('[底池平滑] 当前pot='+currentPot+' vs 中位数='+median+'，偏差>40%，用中位数');
+      return median;
+    }
+    return currentPot;
+  },
+  
+  reset:function(){this._history=[];this.level='high';this.score=100;this.tier='medium';}
+};
+
+// === V2.9.52: 底池离散化分档策略 ===
+// 参考GTO Wizard 5档简化→我们用4档，每档预设sizing方案
+var PotBucket={
+  // 每档的默认sizing方案: [value%, thinValue%, bluff%]
+  // bluff%只在medium+置信度使用，low置信度不做bluff
+  sizing:{
+    small:{value:0.55,thinValue:0.35,bluff:0.40,minBet:2},   // 0-10BB: 小注控底池
+    medium:{value:0.55,thinValue:0.40,bluff:0.50,minBet:3},   // 10-30BB: 均衡
+    large:{value:0.66,thinValue:0.50,bluff:0.60,minBet:5},    // 30-100BB: 极化
+    huge:{value:0.75,thinValue:0.55,bluff:0.66,minBet:8}     // >100BB: 大注慎用
+  },
+  
+  // 从底池BB获取档位
+  getTier:function(pot,bb){
+    var p=bb>0?pot/bb:pot/500; // 默认BB=500
+    if(p<=10)return'small';
+    if(p<=30)return'medium';
+    if(p<=100)return'large';
+    return'huge';
+  },
+  
+  // 获取当前档位的sizing建议
+  getSizing:function(tier,action){
+    var t=this.sizing[tier]||this.sizing.medium;
+    if(action==='value')return t.value;
+    if(action==='thinValue')return t.thinValue;
+    if(action==='bluff')return t.bluff;
+    return t.value;
+  },
+  
+  // River专用: 3档sizing(参考调研: 河牌弱化底池精度依赖)
+  riverSizing:function(tier,hClass){
+    var map={
+      small:{NUTS:0.55,STRONG:0.40,MEDIUM:0.30,AIR:0},
+      medium:{NUTS:0.66,STRONG:0.50,MEDIUM:0.35,AIR:0},
+      large:{NUTS:0.75,STRONG:0.60,MEDIUM:0.40,AIR:0},
+      huge:{NUTS:0.80,STRONG:0.66,MEDIUM:0.45,AIR:0}
+    };
+    var t=map[tier]||map.medium;
+    return t[hClass]||0;
+  }
+};
+
+// === V2.9.52: 三层Fallback策略 ===
+// high: 完整GTO+MC+DRTA (现有逻辑)
+// medium: 粗粒度区间+减少诈唬+离散sizing
+// low: 纯胜率+手牌分类+位置规则兜底
+var FallbackStrategy={
+  // 中置信度策略: 粗粒度区间决策
+  // - sizing只2-3档(不用精确计算)
+  // - 诈唬频率打5折
+  // - 河牌用胜率区间替代精确值
+  medium:function(eq,hClass,street,scene,pot,bet,stk,spr,ip,opp,bTexture,profile,weights,tier){
+    var nq=bet>0?Math.round(bet/(pot+bet*2)*100):0;
+    nq=Math.max(nq,20);
+    var sizingBucket=PotBucket.getSizing(tier,'value');
+    var thinSizingBucket=PotBucket.getSizing(tier,'thinValue');
+    var bluffSizingBucket=PotBucket.getSizing(tier,'bluff');
+    
+    // 河牌专项: 用档位模板替代精确sizing
+    if(street==='river'){
+      return this._riverFallback(eq,hClass,scene,pot,bet,stk,spr,ip,opp,tier,profile,weights);
+    }
+    
+    // 面对下注: 只看胜率+赔率，不做精细剥削
+    if(scene==='bet'||scene==='allin'){
+      if(scene==='allin'){
+        if(eq>=nq+10)return{a:'call',r:'[中置信]胜率够跟全下',eq:eq,c:eq>=nq?'h':'m'};
+        return{a:'fold',r:'[中置信]胜率不够',eq:eq,c:'l'};
+      }
+      // 面对下注: 粗粒度3档判断
+      if(eq>=70){
+        var v=Math.round(pot*sizingBucket);
+        return{a:'raise',v:v,r:'[中置信]强牌加注',eq:eq,c:'h',sizing:v};
+      }
+      if(eq>=nq+5){
+        return{a:'call',r:'[中置信]胜率够跟',eq:eq,c:'m'};
+      }
+      return{a:'fold',r:'[中置信]胜率不足弃牌',eq:eq,c:'l'};
+    }
+    
+    // 主动场景(check)
+    if(scene==='check'){
+      // 强牌: 价值下注(用档位sizing)
+      if(hClass.name==='NUTS'||hClass.name==='STRONG'){
+        var v2=Math.round(pot*sizingBucket);
+        return{a:'raise',v:v2,r:'[中置信]'+hClass.desc+'价值下注',eq:eq,c:'h',sizing:v2};
+      }
+      // 中等牌: 薄价值(用thinValue sizing)
+      if(hClass.name==='MEDIUM'&&eq>=55){
+        var tv=Math.round(pot*thinSizingBucket);
+        return{a:'raise',v:tv,r:'[中置信]薄价值',eq:eq,c:'m',sizing:tv};
+      }
+      // 诈唬: 频率打5折(只在有利位置+干燥面+紧对手)
+      if((hClass.name==='AIR'||hClass.name==='DRAW')&&ip&&opp==='nit'&&bTexture.wetness<=1){
+        if(Math.random()<0.15){ // 原本~30%，打5折→15%
+          var bv=Math.round(pot*bluffSizingBucket);
+          return{a:'raise',v:bv,r:'[中置信]低频诈唬',eq:eq,c:'l',sizing:bv};
+        }
+      }
+      return{a:'check',r:'[中置信]过牌',eq:eq,c:'l'};
+    }
+    
+    return{a:'check',r:'[中置信]默认过牌',eq:eq,c:'l'};
+  },
+  
+  // 低置信度策略: 纯胜率+手牌分类+位置兜底
+  // - 不依赖底池精确值
+  // - sizing固定3档(小/中/大)
+  // - 不做任何诈唬
+  // - 只看胜率门槛+手牌强度
+  low:function(eq,hClass,street,scene,pot,bet,stk,spr,ip,opp,bTexture,profile,weights,tier){
+    // 河牌: 纯胜率决策(几乎不需要底池)
+    if(street==='river'){
+      return this._riverFallback(eq,hClass,scene,pot,bet,stk,spr,ip,opp,tier,profile,weights);
+    }
+    
+    var nq=bet>0?Math.round(bet/(pot+bet*2)*100):0;
+    nq=Math.max(nq,25); // 低置信度时提高跟注门槛
+    
+    // 面对下注: 纯胜率+赔率判断
+    if(scene==='bet'||scene==='allin'){
+      if(scene==='allin'){
+        if(eq>=nq+15)return{a:'call',r:'[低置信]强牌跟全下',eq:eq,c:'h'};
+        return{a:'fold',r:'[低置信]全下弃牌',eq:eq,c:'l'};
+      }
+      if(eq>=75){
+        return{a:'call',r:'[低置信]强牌跟注',eq:eq,c:'h'};
+      }
+      if(eq>=nq+10){
+        return{a:'call',r:'[低置信]勉强跟',eq:eq,c:'m'};
+      }
+      return{a:'fold',r:'[低置信]弃牌(底池不确定)',eq:eq,c:'l'};
+    }
+    
+    // 主动场景: 固定3档sizing
+    if(scene==='check'){
+      var sizeMap={small:0.33,medium:0.40,large:0.50,huge:0.55};
+      var baseSizing=sizeMap[tier]||0.40;
+      
+      if(hClass.name==='NUTS'||hClass.name==='STRONG'){
+        var v=Math.round(pot*baseSizing);
+        return{a:'raise',v:v,r:'[低置信]强牌下注',eq:eq,c:'h',sizing:v};
+      }
+      if(hClass.name==='MEDIUM'&&eq>=60){
+        var tv=Math.round(pot*0.33);
+        return{a:'raise',v:tv,r:'[低置信]中等牌试探',eq:eq,c:'m',sizing:tv};
+      }
+      // 低置信度: 绝不做诈唬
+      return{a:'check',r:'[低置信]过牌(不冒险)',eq:eq,c:'l'};
+    }
+    
+    return{a:'check',r:'[低置信]默认过牌',eq:eq,c:'l'};
+  },
+  
+  // 河牌Fallback: 胜率区间决策(参考调研: 河牌弱化底池精度依赖)
+  // >65%: value bet, 50-65%: 薄value/check, 35-50%: bluff-catch/fold, <35%: fold
+  _riverFallback:function(eq,hClass,scene,pot,bet,stk,spr,ip,opp,tier,profile,weights){
+    var nq=bet>0?Math.round(bet/(pot+bet*2)*100):0;
+    nq=Math.max(nq,20);
+    var potRatio=bet>0?bet/pot:0;
+    
+    // 面对下注
+    if(scene==='bet'||scene==='allin'){
+      if(eq>=65){
+        // 强牌→call(不raise,底池不确定)
+        return{a:'call',r:'[河牌容错]强牌跟注',eq:eq,c:'h'};
+      }
+      if(eq>=50){
+        // 薄价值→看赔率
+        if(potRatio<=0.5){
+          return{a:'call',r:'[河牌容错]薄价值跟',eq:eq,c:'m'};
+        }
+        return{a:'fold',r:'[河牌容错]大注弃牌',eq:eq,c:'l'};
+      }
+      if(eq>=35){
+        // bluff-catch区间→只在好赔率跟
+        if(potRatio<=0.33){
+          return{a:'call',r:'[河牌容错]bluff-catch',eq:eq,c:'m'};
+        }
+        return{a:'fold',r:'[河牌容错]弃牌',eq:eq,c:'l'};
+      }
+      return{a:'fold',r:'[河牌容错]弱牌弃牌',eq:eq,c:'l'};
+    }
+    
+    // 主动场景: 用档位sizing
+    if(scene==='check'){
+      if(eq>=65){
+        var riverPct=PotBucket.riverSizing(tier,hClass.name);
+        var v=Math.round(pot*riverPct);
+        return{a:'raise',v:v,r:'[河牌容错]价值下注',eq:eq,c:'h',sizing:v};
+      }
+      if(eq>=50){
+        // 薄价值: 中等sizing
+        var tv=Math.round(pot*0.40);
+        return{a:'raise',v:tv,r:'[河牌容错]薄价值',eq:eq,c:'m',sizing:tv};
+      }
+      // <50: check
+      return{a:'check',r:'[河牌容错]过牌',eq:eq,c:'l'};
+    }
+    
+    return{a:'check',r:'[河牌容错]默认',eq:eq,c:'l'};
+  }
+};
+
 // V2.9.46: 手牌历史记录（复盘功能）
 var HandHistory={
   STORAGE_KEY:'poker_v2948_history',
@@ -479,7 +804,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.51',
+    version:'2.9.52',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -511,7 +836,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.51',
+  CURRENT_VERSION:'2.9.52',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1336,6 +1661,31 @@ function postF(k){
   if(bet>0)po=bet/(pot+bet+bet)*100;
   var nq=po;
 
+  // ===== V2.9.52: 底池置信度评估 + Fallback路由 =====
+  // 注意: postF()中pot/bet/stk已转为BB单位，所以bb传1
+  var rawWarnings=G._warnings||[];
+  var potConf=PotConfidence.evaluate(pot,bet,stk,1,street,rawWarnings);
+  
+  // 多帧平滑: 中/低置信度时用平滑底池
+  if(potConf.level!=='high'&&potConf.score<70){
+    var smoothedPot=PotConfidence.getSmoothedPot(pot,1);
+    if(smoothedPot!==pot){
+      console.log('[底池平滑] pot '+pot+'→'+smoothedPot+' (BB)');
+      pot=smoothedPot;
+      G.pot=pot;
+    }
+  }
+  
+  // 非高置信度→走Fallback策略(不走现有复杂逻辑)
+  if(potConf.level==='medium'){
+    console.log('[Fallback] 中置信度→粗粒度区间决策 (score='+potConf.score+')');
+    return FallbackStrategy.medium(eq,hClass,street,scene,pot,bet,stk,spr,ip,G.opp,bTexture,profile,weights,potConf.tier);
+  }
+  if(potConf.level==='low'){
+    console.log('[Fallback] 低置信度→纯胜率兜底决策 (score='+potConf.score+')');
+    return FallbackStrategy.low(eq,hClass,street,scene,pot,bet,stk,spr,ip,G.opp,bTexture,profile,weights,potConf.tier);
+  }
+
   // ===== V2.9.46: 河牌专项策略 =====
   if(street==='river'){
     // 河牌GTO频率混合下注尺度
@@ -1641,6 +1991,16 @@ function show(r){
   }
   if(r.eq!==undefined){
     h+='<div class="r-ev-sm">胜率: '+r.eq.toFixed(0)+'%'+(r.po!==undefined?' | 需'+r.po.toFixed(0)+'%':'')+'</div>';
+  }
+  // V2.9.52: 底池置信度显示
+  if(PotConfidence.score<100){
+    var confColors={high:'#2ed573',medium:'#ffa502',low:'#ff4757'};
+    var confCN={high:'高',medium:'中',low:'低'};
+    var tierCN={small:'小池',medium:'中池',large:'大池',huge:'巨池'};
+    var confColor=confColors[PotConfidence.level]||'#888';
+    var confText=confCN[PotConfidence.level]||'未知';
+    var tierText=tierCN[PotConfidence.tier]||'';
+    h+='<div style="font-size:9px;padding:2px 8px;border-radius:10px;display:inline-block;background:rgba(255,255,255,.06);color:'+confColor+';margin-top:2px">🎯底池置信度:'+confText+'('+PotConfidence.score+'%) | '+tierText+'</div>';
   }
   // 极速模式退出按钮
   h+='<div class="speed-exit" onclick="exitSpeedMode()">✏️ 手动编辑</div>';
@@ -2128,6 +2488,11 @@ function onVisionResult(data){
   window._lastVisionPot=parseInt(data.pot_size)||0;
   window._lastVisionChips=parseInt(data.my_chips)||0;
   window._lastVisionBB=bbValue;
+  // V2.9.52: 保存Vision警告用于底池置信度评估
+  G._warnings=[];
+  if(data._warnings&&data._warnings.length>0){
+    try{G._warnings=JSON.parse(JSON.stringify(data._warnings));}catch(e){G._warnings=[];}
+  }
   
   if(data.pot_size>0) G.pot=Math.max(1,Math.round(parseInt(data.pot_size)/bbValue));
   if(data.to_call!==undefined) G.bet=Math.round(parseInt(data.to_call)/bbValue)||0;
