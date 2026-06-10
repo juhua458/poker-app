@@ -163,6 +163,7 @@ class MainActivity : AppCompatActivity() {
                 try {
                     tryLaunchFloatingHelper()
                 } catch (e: Exception) {
+
                     Log.e(TAG, "Helper error", e)
                     Toast.makeText(this, "启动悬浮窗失败: ${e.message}", Toast.LENGTH_LONG).show()
                 }
@@ -259,13 +260,12 @@ class MainActivity : AppCompatActivity() {
                     }
                     startActivity(intent)
                 } catch (e: Exception) {
-                    // 某些设备不支持，降级到手动设置
                     try {
                         val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                         startActivity(intent)
                         Toast.makeText(this, "请找到「青云」→选「不限制」", Toast.LENGTH_LONG).show()
                     } catch (e2: Exception) {
-                        Log.w(TAG, "Cannot open battery optimization settings", e2)
+                        Log.w(TAG, "Cannot open battery settings", e2)
                     }
                 }
             }
