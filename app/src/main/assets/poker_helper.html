@@ -401,7 +401,7 @@ var SU=['h','d','s','c'];
 var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0};
+var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null};
 var _pi=null,_ms='h';
 var _decisionCache={};var _cacheMax=200;
 function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('')+'L'+G.limpers;}
@@ -539,7 +539,8 @@ var PotConfidence={
 
     // === 规则3: to_call交叉验证 + 智能纠正（V2.9.54核心）===
     if(bet>0&&pot>0){
-      var betPotRatio=bet/pot;
+      var _ebPC=bet>0?Math.min(bet,stk||bet):bet;
+      var betPotRatio=_ebPC/pot;
       if(betPotRatio>3){
         s-=20; reasons.push('跟注/底池='+betPotRatio.toFixed(1)+'(底池可能偏小)');
         var estimatedPot=Math.round(bet/0.6);
@@ -795,12 +796,14 @@ var FallbackStrategy={
   // - 不做任何诈唬
   // - 只看胜率门槛+手牌强度
   low:function(eq,hClass,street,scene,pot,bet,stk,spr,ip,opp,bTexture,profile,weights,tier){
+    // V2.9.72: 有效下注=实际需要call的量(短码时stk<bet)
+    var _eb=bet>0?Math.min(bet,stk):0;
     // 河牌: 纯胜率决策(几乎不需要底池)
     if(street==='river'){
-      return this._riverFallback(eq,hClass,scene,pot,bet,stk,spr,ip,opp,tier,profile,weights);
+      return this._riverFallback(eq,hClass,scene,pot,_eb,stk,spr,ip,opp,tier,profile,weights);
     }
     
-    var nq=bet>0?Math.round(bet/(pot+bet*2)*100):0;
+    var nq=_eb>0?Math.round(_eb/(pot+_eb*2)*100):0;
     nq=Math.max(nq,25); // 低置信度时提高跟注门槛
     
     // 面对下注: 纯胜率+赔率判断
@@ -2742,7 +2745,8 @@ var StrategicRetreat={
     // V2.9.58: 紧范围对手的大raise更可信→降低弃牌阈值
     var foldThreshold=tightRatio>=0.50?0.45:0.6;
     if(hClass.name==='MEDIUM'&&bet>0){
-      var betPotRatio=bet/pot;
+      var _ebSB=Math.min(bet,stk||100);
+      var betPotRatio=_ebSB/pot;
       if(betPotRatio>foldThreshold&&(scene==='raise'||scene==='allin')){
         ret.action='fold';ret.strategy='大raise撤退(>' +(betPotRatio*100).toFixed(0)+'%底池'+(tightRatio>=0.50?'·紧':'')+')';
         return ret;
@@ -3301,7 +3305,7 @@ function postF(k){
   if(hClass.name==='AIR'&&bet>0){
     // V2.9.51: 底对额外防御——底对只有2outs(set)，面对>1/3池下注一律弃牌
     var isBottomPair=hClass.desc&&hClass.desc.indexOf('底对')>=0;
-    if(isBottomPair&&bet/pot>=0.33){
+    if(isBottomPair&&_effectiveBet/pot>=0.33){
       var exploitBp=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
       return{a:'fold',r:'底对不追大注',eq:exploitBp.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -3395,7 +3399,7 @@ function postF(k){
     }
     var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name)+(tiltInfo.tilt?(tiltInfo.adjustments.raiseThreshAdj||0):0)+(ceResult.detected&&ceResult.adjustments.fourbetExpand?-5:0);
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
-    if((G.opp==='maniac'||G.opp==='lag')&&bet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
+    if((G.opp==='maniac'||G.opp==='lag')&&_effectiveBet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
     // V2.9.35: outs跟注追需看下注大小,大注(>2/3池)不追弱听牌,超池(>1x)只追组合听牌
     if(outs>0&&eq<nq+5&&eq>=nq-8&&!(betLevel==='large'&&outs<8)&&!(betPotRatio>=1.0&&outs<12)&&!(G.act>=4&&outs<6)){
       var exploitResult9=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
@@ -4345,6 +4349,44 @@ function onVisionResult(data){
     G.buttons=[];
   }
   
+  // V2.9.72: ★ 对手位置信息交叉校验 ★
+  // 原则: players数据只做校验,不直接覆盖策略引擎输入,识别不准不影响决策
+  if(data.players && data.players.length>0){
+    G.players=data.players;
+    try{
+      var _pCheck={match:true,details:[]};
+      // 校验1: active人数一致性
+      var _activeFromPlayers=data.players.filter(function(p){return p.active;}).length;
+      // 自己也算active,所以Vision的active_players应该≈_activeFromPlayers+1(自己)
+      var _expectedActive=_activeFromPlayers+1;
+      if(Math.abs(_expectedActive-G.act)>1){
+        _pCheck.match=false;
+        _pCheck.details.push('active人数: players推算='+_expectedActive+' vs G.act='+G.act);
+      } else {
+        _pCheck.details.push('active人数一致: '+_expectedActive);
+      }
+      // 校验2: 下注之和 vs pot_size一致性
+      var _totalBets=data.players.reduce(function(s,p){return s+p.bet;},0);
+      // 底池≈各玩家下注之和+自己的下注(如果有的话), 容忍2BB误差
+      var _expectedPot=_totalBets+(G.bet>0?G.bet*bbValue:0);
+      if(_totalBets>0 && G.pot>0){
+        var _potRatio=_expectedPot/(G.pot*bbValue);
+        if(_potRatio>=0.5 && _potRatio<=2.0){
+          _pCheck.details.push('底池校验通过: players下注和='+_totalBets+' vs pot='+G.pot*bbValue);
+        } else if(_totalBets>0){
+          _pCheck.match=false;
+          _pCheck.details.push('底池不一致: players下注和='+_totalBets+' vs pot='+G.pot*bbValue);
+        }
+      }
+      G._playersCrossCheck=_pCheck;
+      console.log('[Players校验] '+JSON.stringify(_pCheck));
+      // 注意: 即使不一致也不修改G.pot/G.bet/G.act,只记录日志
+    }catch(e){console.log('[Players校验] 解析失败: '+e.message);}
+  } else {
+    G.players=[];
+    G._playersCrossCheck=null;
+  }
+
   // 6. 更新UI
   uCards();
   

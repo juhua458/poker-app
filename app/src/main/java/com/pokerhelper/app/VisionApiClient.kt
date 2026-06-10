@@ -42,12 +42,21 @@ object VisionApiClient {
         val blindSB: Int,                   // 小盲注（V2.9.41: 从桌面标题识别）
         val blindBB: Int,                   // 大盲注（V2.9.41: 从桌面标题识别）
         val ante: Int,                      // V2.9.43: 前注（每人需投入的前注）
+        val players: List<PlayerInfo>,      // V2.9.72: 对手位置信息（辅助校验）
         val rawResponse: String             // 原始API返回
     )
 
     data class CardInfo(
         val rank: String,  // A K Q J T 9 8 7 6 5 4 3 2
         val suit: String   // s h d c (spade/heart/diamond/club)
+    )
+
+    // V2.9.72: 对手位置信息（辅助校验，策略引擎不依赖）
+    data class PlayerInfo(
+        val position: String,   // 位置: top/left/right_top/right_bottom
+        val bet: Int,           // 下注额（绿色框里的数字），未下注=0
+        val chips: Int,         // 筹码量
+        val active: Boolean     // 是否在牌局中（头像被牌遮挡=active）
     )
 
     /**
@@ -203,8 +212,20 @@ object VisionApiClient {
 如果pot_size < my_chips 且有多张公共牌，很可能是底池和筹码搞反了！
 正确情况：翻后pot_size通常 ≥ my_chips（底池至少是盲注的几倍）
 
+【步骤6】对手位置信息识别（V2.9.72新增）：
+  从屏幕看，除你之外最多4个对手，按位置识别：
+  ① 上方(top): 屏幕上方1/3的玩家
+  ② 左侧(left): 屏幕左侧的玩家
+  ③ 右上(right_top): 屏幕右侧上方的玩家
+  ④ 右下(right_bottom): 屏幕右侧下方的玩家
+  每个对手识别：
+  - bet: 绿色圆角框里的下注金额（没有=0）
+  - chips: 头像下方的筹码数字（去掉逗号，K→×1000）
+  - active: 头像是否被两张牌遮挡→在牌局=true，头像完全可见→已弃牌=false
+  识别不准的位置可以跳过，宁可少报不可误报
+
 返回JSON：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0}
+{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"players":[{"position":"top","bet":0,"chips":13540,"active":false},{"position":"right_top","bet":200,"chips":48441,"active":true}]}
 
 只返回JSON"""
 
@@ -280,6 +301,24 @@ object VisionApiClient {
             (0 until buttonsArr.length()).map { buttonsArr.getString(it) }
         } else emptyList()
 
+        // V2.9.72: 解析对手位置信息（辅助校验，失败不影响主流程）
+        val playersArr = data.optJSONArray("players")
+        val players = if (playersArr != null) {
+            try {
+                (0 until playersArr.length()).mapNotNull { i ->
+                    val pObj = playersArr.optJSONObject(i) ?: return@mapNotNull null
+                    val pos = pObj.optString("position", "")
+                    val betVal = pObj.optInt("bet", 0)
+                    val chipsVal = pObj.optInt("chips", 0)
+                    val activeVal = pObj.optBoolean("active", true)
+                    if (pos.isNotEmpty()) PlayerInfo(pos, betVal, chipsVal, activeVal) else null
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "players解析失败: ${e.message}")
+                emptyList()
+            }
+        } else emptyList()
+
         // V2.9.10: 从按钮文字解析跟注金额（比模型直接识别更可靠）
         val callFromButtons = parseCallAmountFromButtons(buttons)
         val finalToCall = if (callFromButtons >= 0) callFromButtons else data.optInt("to_call", 0)
@@ -302,6 +341,7 @@ object VisionApiClient {
             toCall = finalToCall,
             minRaise = data.optInt("min_raise", 0),
             buttons = buttons,
+            players = players,
             blindSB = blindSB,
             blindBB = blindBB,
             ante = ante,
@@ -667,6 +707,15 @@ object VisionApiClient {
             put("blind_bb", result.blindBB)
             // V2.9.43: 输出前注
             put("ante", result.ante)
+            // V2.9.72: 输出对手位置信息
+            put("players", JSONArray(result.players.map {
+                JSONObject().apply {
+                    put("position", it.position)
+                    put("bet", it.bet)
+                    put("chips", it.chips)
+                    put("active", it.active)
+                }
+            }))
             // V2.0: 包含校验警告
             if (warnings.isNotEmpty()) {
                 put("_warnings", JSONArray(warnings))
