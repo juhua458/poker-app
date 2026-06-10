@@ -86,6 +86,9 @@ class FloatingService : Service() {
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
     private val pendingJsCalls = mutableListOf<String>()
+    // V2.9.70: 错误日志——API/截屏失败时记录，豪哥可导出反馈
+    private val errorLogs = mutableListOf<String>()
+    private var isBlinkingError = false
 
     // V2.9.38: 隐身模式通知广播接收器
     private val notificationReceiver = object : BroadcastReceiver() {
@@ -575,6 +578,8 @@ class FloatingService : Service() {
             fun showAdvice(advice: String) {
                 Log.d(TAG, "showAdvice调用: advice=" + advice)
                 handler.post {
+                    // V2.9.70: 收到正常建议→停止错误闪烁
+                    isBlinkingError = false
                     val currentText = tvRecResult?.text?.toString() ?: ""
                     if (advice.isNotEmpty()) {
                         tvRecResult?.text = advice  // V2.9.64: 只显示最新建议,不累积
@@ -608,6 +613,11 @@ class FloatingService : Service() {
                         updateAdviceNotification(title, detail)
                     }
                 }
+            }
+            // V2.9.70: JS可获取Kotlin端错误日志，导出时一并带走
+            @JavascriptInterface
+            fun getErrorLogs(): String {
+                return errorLogs.joinToString("\n")
             }
         }, "AndroidBridge")
 
@@ -1039,8 +1049,11 @@ class FloatingService : Service() {
             tvAction?.alpha = 1.0f
             executeJs("document.body.classList.remove('api-processing')")
             if (isStealthMode) updateAdviceNotification("❌ 2/4 截图为空", diag)
-            // V2.9.70: 截图失败→悬浮球变红，表示"App在工作但截屏失败"
-            updateBallAdvice("FOLD")
+            // V2.9.70: 截图失败→悬浮球闪烁红 + 记录错误日志
+            updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
+            isBlinkingError = true
+            errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} 截屏失败: $diag")
+            if (errorLogs.size > 50) errorLogs.removeAt(0)
             return
         }
         // V2.9.70: 诊断——截图成功
@@ -1069,6 +1082,8 @@ class FloatingService : Service() {
                         executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}else{console.log('[V269]onVisionResult未定义!')}")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "V2.9.70诊断: onVisionResult已调用")
+                        // V2.9.70: 正常识别→停止闪烁
+                        isBlinkingError = false
                         if (isStealthMode) updateAdviceNotification("3/4 API识别OK", "策略计算中...")
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
@@ -1105,8 +1120,11 @@ class FloatingService : Service() {
                         tvAction?.alpha = 1.0f
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
                         executeJs("document.body.classList.remove('api-processing')")
-                        // V2.9.70: API失败→悬浮球变红，表示"App在工作但识别失败"
-                        updateBallAdvice("FOLD")
+                        // V2.9.70: API失败→悬浮球闪烁红 + 记录错误日志
+                        updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
+                        isBlinkingError = true
+                        errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API失败: ${VisionApiClient.lastError.take(100)}")
+                        if (errorLogs.size > 50) errorLogs.removeAt(0)
                         Log.e(TAG, "V2.9.70诊断: API失败, error=${VisionApiClient.lastError}")
                         if (isStealthMode) updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
                     }
@@ -1116,8 +1134,11 @@ class FloatingService : Service() {
                     tvAction?.alpha = 1.0f
                     tvStatus?.text = "❌ API错误"
                     executeJs("document.body.classList.remove('api-processing')")
-                    // V2.9.70: API异常→悬浮球变红
-                    updateBallAdvice("FOLD")
+                    // V2.9.70: API异常→悬浮球闪烁红 + 记录错误日志
+                    updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
+                    isBlinkingError = true
+                    errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API异常: ${e.message?.take(100) ?: "未知"}")
+                    if (errorLogs.size > 50) errorLogs.removeAt(0)
                     if (isStealthMode) updateAdviceNotification("API错误", e.message?.take(50) ?: "")
                 }
             }

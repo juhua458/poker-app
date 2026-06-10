@@ -1088,13 +1088,17 @@ var SessionStats={
 function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
+  // V2.9.70: 获取Kotlin端错误日志（API/截屏失败等）
+  var nativeErrors='';
+  try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
     version:'2.9.70',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
     drtaType:DRTA.currentType,
-    logs:LogBuffer.getAll()
+    logs:LogBuffer.getAll(),
+    nativeErrors:nativeErrors
   };
   fetch('/api/export/history',{
     method:'POST',
