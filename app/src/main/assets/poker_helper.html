@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.65 · SafetyGuard保险·数据不确定性防护·7色信号</title>
+<title>青云 v2.9.66 · FE校准·弱牌防护·对手偏移修正</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1085,7 +1085,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.65',
+    version:'2.9.66',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1202,7 +1202,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.65',
+  CURRENT_VERSION:'2.9.66',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1335,6 +1335,8 @@ var DRTA={
     p.bluff_attempts=t.bluff_attempts;
     p.bluff_success_rate=t.bluff_attempts>0?(1-t.bluff_called/t.bluff_attempts):0.5;
     p.confidence=Math.min(t.hands/15,1);
+    // V2.9.66: 样本不足时锁定unknown, 防止2-3手就误分类→策略偏移出错
+    if(t.hands<10){p.type='unknown';p.confidence=Math.min(t.hands/30,0.3);return p;}
     // V2.9.58: 新指标计算
     p.threebet=t._threebet_opp>0?Math.round(t._threebet/t._threebet_opp*100):0;
     p.cbet=t._cbet_opp>0?Math.round(t._cbet/t._cbet_opp*100):0;
@@ -1747,15 +1749,18 @@ var EVCalc={
   },
   // Fold Equity — 基于对手类型+下注尺度+街道+位置
   foldEquity:function(oppType,raiseSize,pot,street,ip){
-    var baseFold={nit:0.50,tight:0.40,tag:0.28,lag:0.18,maniac:0.10,calling_station:0.06,fish:0.25,unknown:0.28};
-    var fe=baseFold[oppType]||0.35;
-    if(!ip)fe+=0.05; // OOP弃牌略多
-    if(street==='river')fe+=0.10;
-    else if(street==='turn')fe+=0.05;
+    // V2.9.66: FE基础值下调(unknown 0.28→0.15等) — 匹配GG松桌真实弃牌率
+    // 旧值导致unknown弱牌bluff EV虚高→乱提示加注
+    var baseFold={nit:0.45,tight:0.35,tag:0.22,lag:0.12,maniac:0.06,calling_station:0.03,fish:0.20,unknown:0.15};
+    var fe=baseFold[oppType]||0.20;
+    // V2.9.66: 叠加加成收窄 — 避免FE虚高叠加后远超真实值
+    if(!ip)fe+=0.03; // OOP弃牌略多(原0.05)
+    if(street==='river')fe+=0.06; // 河牌更可能弃(原0.10)
+    else if(street==='turn')fe+=0.03; // 转牌(原0.05)
     var raiseRatio=raiseSize/Math.max(pot,1);
-    if(raiseRatio>1.0)fe+=0.15;
-    else if(raiseRatio>0.66)fe+=0.08;
-    else if(raiseRatio<0.33)fe-=0.10;
+    if(raiseRatio>1.0)fe+=0.10; // 超池(原0.15)
+    else if(raiseRatio>0.66)fe+=0.05; // 2/3池(原0.08)
+    else if(raiseRatio<0.33)fe-=0.06; // 小注反常不弃(原-0.10)
     return Math.max(0.05,Math.min(0.95,fe));
   },
   // 各动作EV计算
@@ -1841,27 +1846,29 @@ var ColorStrategy={
     CHECK:{color:'#BDBDBD',name:'过牌',key:'check',css:'check',bg:'rgba(189,189,189,.1)'}
   },
   // 对手类型→颜色偏移
+  // V2.9.66: 弱牌(WEAK_CALL)不再因对手类型升级 — 牌力不够就是不够
   oppColorShift:function(baseColor,oppType,eq,tiltInfo,ceResult){
     // vs鱼/跟站: 偏价值,不bluff
     if(oppType==='fish'||oppType==='calling_station'){
-      if(baseColor==='CALL'&&eq>=55)return'RAISE';
-      if(baseColor==='RAISE'&&eq>=65)return'RAISE_BIG';
-      if(baseColor==='WEAK_CALL')return'FOLD';
+      if(baseColor==='CALL'&&eq>=55)return'RAISE'; // 价值加注vs鱼
+      if(baseColor==='RAISE'&&eq>=65)return'RAISE_BIG'; // 强牌重锤vs鱼
+      if(baseColor==='WEAK_CALL')return'FOLD'; // vs鱼弱跟=送钱
     }
-    // vs紧: bluff效率高,可更多加注
+    // vs紧: bluff效率高,但弱牌不加码
+    // V2.9.66: 删除 WEAK_CALL→CALL 升级(弱牌就是弱牌)
     if(oppType==='nit'||oppType==='tight'){
-      if(baseColor==='WEAK_CALL'&&eq>=48)return'CALL';
-      if(baseColor==='CALL'&&eq>=52)return'RAISE';
+      if(baseColor==='CALL'&&eq>=58)return'RAISE'; // 门槛从52→58(更谨慎)
+      // WEAK_CALL不升级 — vs紧对手弱跟仍然是弱跟
     }
     // vs疯/松凶: 控池,偏跟/过
     if(oppType==='maniac'||oppType==='lag'){
       if(baseColor==='RAISE'&&eq<60)return'CALL';
       if(baseColor==='RAISE_BIG'&&eq<70)return'RAISE';
     }
-    // Tilt对手: 偏价值加注
+    // Tilt对手: 偏价值加注(但弱牌不加码)
     if(tiltInfo&&tiltInfo.tilt){
-      if(baseColor==='RAISE'&&eq>=55)return'RAISE_BIG';
-      if(baseColor==='CALL'&&eq>=50)return'RAISE';
+      if(baseColor==='RAISE'&&eq>=60)return'RAISE_BIG'; // 门槛55→60
+      if(baseColor==='CALL'&&eq>=58)return'RAISE'; // 门槛50→58
     }
     // 反剥削触发: 收紧
     if(ceResult&&ceResult.detected){
