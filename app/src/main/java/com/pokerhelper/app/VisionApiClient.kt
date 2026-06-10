@@ -108,6 +108,8 @@ object VisionApiClient {
                     lastError = warnings.joinToString("; ")
                     Log.w(TAG, "识别结果有疑问: $lastError")
                 }
+                // V2.9.48: 调试日志 - 打印原始API返回的pot和chips
+                Log.w(TAG, "🔍RAW response: pot_size=${result.rawResponse.substringAfter("\"pot_size\":").substringBefore(",").substringBefore("}").trim()} | parsed pot=${correctedResult.potSize} chips=${correctedResult.playerChips} blindSB=${correctedResult.blindSB} blindBB=${correctedResult.blindBB}")
                 Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌/活跃${correctedResult.activePlayers}人${if(lastError.isNotEmpty()) " ⚠️$lastError" else ""}")
             }
 

@@ -561,8 +561,8 @@ class FloatingService : Service() {
                             advice.contains("弃牌") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
                             advice.contains("跟注") -> tvRecResult?.setTextColor(0xFFFFAB40.toInt())
                             advice.contains("加注") -> tvRecResult?.setTextColor(0xFF69F0AE.toInt())
-                            advice.contains("全下") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
-                            advice.contains("过牌") -> tvRecResult?.setTextColor(0xFFBDBDBD.toInt())
+                            advice.contains("全下") || advice.contains("全押") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
+                            advice.contains("过牌") || advice.contains("让牌") -> tvRecResult?.setTextColor(0xFFBDBDBD.toInt())
                         }
                         // V2.9.40: 悬浮球边框也跟着变
                         updateBallAdvice(advice)
@@ -797,10 +797,10 @@ class FloatingService : Service() {
             val density = resources.displayMetrics.density
             val stroke = (2 * density).toInt()
             when {
-                advice.contains("全下") || advice.contains("加注") -> shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                advice.contains("全下") || advice.contains("全押") || advice.contains("加注") -> shape.setStroke(stroke, 0xFF69F0AE.toInt())
                 advice.contains("跟注") -> shape.setStroke(stroke, 0xFFFFAB40.toInt())
                 advice.contains("弃牌") -> shape.setStroke(stroke, 0xFFFF5252.toInt())
-                advice.contains("过牌") -> shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                advice.contains("过牌") || advice.contains("让牌") -> shape.setStroke(stroke, 0xFFBDBDBD.toInt())
                 else -> shape.setStroke(stroke, 0xFF4ade80.toInt())
             }
         } catch (_: Exception) {}
