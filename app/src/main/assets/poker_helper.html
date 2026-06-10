@@ -734,7 +734,9 @@ var FallbackStrategy={
   // - 诈唬频率打5折
   // - 河牌用胜率区间替代精确值
   medium:function(eq,hClass,street,scene,pot,bet,stk,spr,ip,opp,bTexture,profile,weights,tier){
-    var nq=bet>0?Math.round(bet/(pot+bet*2)*100):0;
+    // V2.9.72: 有效下注=实际需要call的量(短码时stk<bet)
+    var effectiveBet=bet>0?Math.min(bet,stk):0;
+    var nq=effectiveBet>0?Math.round(effectiveBet/(pot+effectiveBet*2)*100):0;
     nq=Math.max(nq,20);
     var sizingBucket=PotBucket.getSizing(tier,'value');
     var thinSizingBucket=PotBucket.getSizing(tier,'thinValue');
@@ -841,7 +843,9 @@ var FallbackStrategy={
   _riverFallback:function(eq,hClass,scene,pot,bet,stk,spr,ip,opp,tier,profile,weights){
     var nq=bet>0?Math.round(bet/(pot+bet*2)*100):0;
     nq=Math.max(nq,20);
-    var potRatio=bet>0?bet/pot:0;
+    // V2.9.72: 有效下注=实际需要call的量(短码时stk<bet)
+    var effectiveBet=bet>0?Math.min(bet,stk):0;
+    var potRatio=effectiveBet>0?effectiveBet/pot:0;
     
     // 面对下注
     if(scene==='bet'||scene==='allin'){
@@ -3147,8 +3151,9 @@ function postF(k){
   if(street==='turn'){eq=Math.max(5,eq-5);}
   else if(street==='river'){eq=Math.max(5,eq-3);}
   eq=Math.max(5,Math.min(95,eq));
+  var _effectiveBet=bet>0?Math.min(bet,stk):0;
   var po=0;
-  if(bet>0)po=bet/(pot+bet+bet)*100;
+  if(_effectiveBet>0)po=_effectiveBet/(pot+_effectiveBet+_effectiveBet)*100;
   var nq=po;
 
   // ===== V2.9.54: 底池识别增强 + 智能纠正 + Fallback路由 =====
