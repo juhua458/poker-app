@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.57 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计</title>
+<title>青云 v2.9.58 · GTO+DRTA融合版·2-9人桌全桌型·河牌精确枚举·底池增强·翻前范围可视化·参数化范围·Session统计·DRTA增强</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -264,7 +264,11 @@ body.speed-mode .rec-label{font-size:10px}
     <div class="t-stat"><div class="t-stat-l">AF</div><div class="t-stat-v" id="tAf">--</div></div>
     <div class="t-stat"><div class="t-stat-l">弃牌率</div><div class="t-stat-v" id="tFtB">--</div></div>
     <div class="t-stat"><div class="t-stat-l">近侵</div><div class="t-stat-v" id="tRagg">--</div></div>
+    <div class="t-stat"><div class="t-stat-l">3bet</div><div class="t-stat-v" id="t3bet">--</div></div>
+    <div class="t-stat"><div class="t-stat-l">CBet</div><div class="t-stat-v" id="tCbet">--</div></div>
+    <div class="t-stat"><div class="t-stat-l">偷盲</div><div class="t-stat-v" id="tSteal">--</div></div>
   </div>
+  <div style="font-size:8px;color:#888;text-align:center;padding:1px 4px">范围推断: <span id="tRangeDist" style="color:#c77dff">--</span></div>
   <div class="t-conf"><div class="t-conf-fill" id="tConfFill" style="width:0%"></div></div>
   <div class="tracker-actions">
     <button class="t-btn" id="tBtnUnknown" onclick="setTrackerType('unknown')">❓未知</button>
@@ -1066,7 +1070,7 @@ function exportLog(){
   var btn=document.getElementById('exportBtn');
   if(btn){btn.textContent='⏳导出中...';btn.disabled=true;}
   var data={
-    version:'2.9.57',
+    version:'2.9.58',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1183,7 +1187,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.57',
+  CURRENT_VERSION:'2.9.58',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1204,14 +1208,44 @@ var DRTA={
   bluffAttempts:0,
   bluffCalled:0,
   lastHands:0,
-  STORAGE_KEY:'poker_v2948_tracker',
+  STORAGE_KEY:'poker_v2958_tracker',
   BLUFF_FREQ:{nit:0.45,tight:0.35,tag:0.20,lag:0.10,fish:0.05,calling_station:0.02,maniac:0.15,unknown:0.10},
   TYPE_INIT:{fish:{vpip:60,pfr:15,af:0.6},nit:{vpip:12,pfr:10,af:0.5},tight:{vpip:18,pfr:15,af:0.8},tag:{vpip:22,pfr:18,af:1.8},lag:{vpip:50,pfr:35,af:2.5},calling_station:{vpip:55,pfr:10,af:0.3},maniac:{vpip:70,pfr:45,af:3.5},unknown:{vpip:30,pfr:20,af:1.0}},
+  // V2.9.58: 贝叶斯先验——每种对手类型的3bet/cbet/steal/WTSD范围概率
+  TYPE_PRIORS:{
+    nit:{threebet:3,cbet:45,fold_cbet:70,steal:15,wtsd:22,wsd:55},
+    tight:{threebet:5,cbet:50,fold_cbet:60,steal:20,wtsd:25,wsd:52},
+    tag:{threebet:9,cbet:60,fold_cbet:45,steal:30,wtsd:28,wsd:54},
+    lag:{threebet:14,cbet:70,fold_cbet:35,steal:40,wtsd:35,wsd:48},
+    fish:{threebet:4,cbet:40,fold_cbet:55,steal:10,wtsd:40,wsd:42},
+    calling_station:{threebet:3,cbet:35,fold_cbet:25,steal:8,wtsd:45,wsd:38},
+    maniac:{threebet:18,cbet:75,fold_cbet:30,steal:50,wtsd:38,wsd:44},
+    unknown:{threebet:8,cbet:55,fold_cbet:45,steal:25,wtsd:30,wsd:50}
+  },
+  // V2.9.58: 贝叶斯范围推断——对手类型→范围分布(宽/中/紧概率)
+  RANGE_DIST:{
+    nit:{wide:0.05,medium:0.15,tight:0.80},
+    tight:{wide:0.10,medium:0.30,tight:0.60},
+    tag:{wide:0.15,medium:0.45,tight:0.40},
+    lag:{wide:0.40,medium:0.40,tight:0.20},
+    fish:{wide:0.35,medium:0.40,tight:0.25},
+    calling_station:{wide:0.30,medium:0.45,tight:0.25},
+    maniac:{wide:0.55,medium:0.30,tight:0.15},
+    unknown:{wide:0.20,medium:0.40,tight:0.40}
+  },
   
   init:function(){
     this.tracker={
       hands:0,vpip:0,pfr:0,bet_count:0,call_count:0,fold_count:0,check_count:0,
-      _bet_faced:0,_fold_to_bet:0,recent_agg:[],bluff_attempts:0,bluff_called:0,lastActionTime:0
+      _bet_faced:0,_fold_to_bet:0,recent_agg:[],bluff_attempts:0,bluff_called:0,lastActionTime:0,
+      // V2.9.58: 新增统计指标
+      _threebet:0,_threebet_opp:0, // 3bet次数/面对加注机会
+      _cbet:0,_cbet_opp:0, // cbet次数/flop作为PFR的机会
+      _fold_cbet:0,_face_cbet:0, // 面对cbet弃牌/面对cbet次数
+      _steal:0,_steal_opp:0, // 偷盲次数/CO/BTN/SB位机会
+      _wtsd:0,_saw_flop:0, // 摊牌次数/看到flop次数
+      _wsd:0, // 摊牌赢次数
+      _street_actions:[] // 最近10手行动序列(用于贝叶斯推断)
     };
     this.load();
     this.updateUI();
@@ -1222,23 +1256,61 @@ var DRTA={
     t.hands++;
     t.lastActionTime=Date.now();
     var agg=0;
+    // V2.9.58: 追踪行动序列
+    var actKey=street+':'+action+(isFacingBet?'*':'');
+    t._street_actions.push(actKey);
+    if(t._street_actions.length>10)t._street_actions.shift();
+    
     if(action==='bet'||action==='raise'||action==='reraise'){
       agg=2;t.bet_count++;
       if(street==='preflop'&&(action==='raise'||action==='reraise'))t.pfr++;
-    }else if(action==='call'){agg=0.5;t.call_count++;}
-    else if(action==='fold'){t.fold_count++;if(isFacingBet)t._fold_to_bet++;}
-    else if(action==='check'){agg=-0.5;t.check_count++;}
+      // V2.9.58: 3bet追踪
+      if(street==='preflop'&&action==='reraise'){t._threebet++;t._threebet_opp++;}
+      else if(street==='preflop'&&action==='raise'){t._threebet_opp++;}
+      // V2.9.58: cbet追踪(flop作为PFR下注)
+      if(street==='flop'&&t._was_pfr){t._cbet++;t._cbet_opp++;}
+      // V2.9.58: steal追踪(CO/BTN/SB位开池)
+      if(street==='preflop'&&(action==='raise')&&this._isStealPos()){t._steal++;t._steal_opp++;}
+    }else if(action==='call'){
+      agg=0.5;t.call_count++;
+      // V2.9.58: 面对3bet跟注→3bet_opp
+      if(street==='preflop')t._threebet_opp++;
+    }else if(action==='fold'){
+      t.fold_count++;if(isFacingBet)t._fold_to_bet++;
+      // V2.9.58: 面对3bet弃牌
+      if(street==='preflop')t._threebet_opp++;
+    }else if(action==='check'){
+      agg=-0.5;t.check_count++;
+      // V2.9.58: 面对cbet弃牌(用fold替代, check只是没行动)
+    }
+    // V2.9.58: 记录PFR状态(下一手flop判断cbet)
+    if(street==='preflop')t._was_pfr=(action==='raise'||action==='reraise');
+    // V2.9.58: saw_flop + wtsd追踪
+    if(street==='flop')t._saw_flop++;
     t.recent_agg.push(agg);
     if(t.recent_agg.length>5)t.recent_agg.shift();
     if(street==='preflop'&&(action==='call'||action==='bet'||action==='raise'||action==='reraise'))t.vpip++;
     if(isFacingBet)t._bet_faced++;
-    if(t.hands%3===0)this.save(); // V2.9.46: 更频繁持久化
+    if(t.hands%3===0)this.save();
     this.updateUI();
+  },
+  // V2.9.58: 判断是否偷盲位置
+  _isStealPos:function(){var p=G.pos;return p==='co'||p==='btn'||p==='sb';},
+  // V2.9.58: 记录摊牌结果
+  recordShowdown:function(won){
+    var t=this.tracker;
+    t._wtsd++;
+    if(won)t._wsd++;
   },
   
   getProfile:function(){
     var t=this.tracker;
-    var p={type:'unknown',confidence:0,hands:t.hands,vpip:0,pfr:0,af:0,fold_to_bet:50,recent_agg:0,bluff_success_rate:0.5,bluff_attempts:t.bluff_attempts};
+    var p={type:'unknown',confidence:0,hands:t.hands,vpip:0,pfr:0,af:0,fold_to_bet:50,recent_agg:0,bluff_success_rate:0.5,bluff_attempts:t.bluff_attempts,
+      // V2.9.58: 新增指标
+      threebet:0,cbet:0,fold_cbet:0,steal:0,wtsd:0,wsd:0,
+      // V2.9.58: 贝叶斯范围推断
+      rangeDist:{wide:0.20,medium:0.40,tight:0.40}
+    };
     if(t.hands<3)return p;
     p.vpip=Math.round(t.vpip/t.hands*100);
     p.pfr=Math.round(t.pfr/t.hands*100);
@@ -1248,7 +1320,16 @@ var DRTA={
     p.bluff_attempts=t.bluff_attempts;
     p.bluff_success_rate=t.bluff_attempts>0?(1-t.bluff_called/t.bluff_attempts):0.5;
     p.confidence=Math.min(t.hands/15,1);
+    // V2.9.58: 新指标计算
+    p.threebet=t._threebet_opp>0?Math.round(t._threebet/t._threebet_opp*100):0;
+    p.cbet=t._cbet_opp>0?Math.round(t._cbet/t._cbet_opp*100):0;
+    p.fold_cbet=t._face_cbet>0?Math.round(t._fold_cbet/t._face_cbet*100):0;
+    p.steal=t._steal_opp>0?Math.round(t._steal/t._steal_opp*100):0;
+    p.wtsd=t._saw_flop>0?Math.round(t._wtsd/t._saw_flop*100):0;
+    p.wsd=t._wtsd>0?Math.round(t._wsd/t._wtsd*100):0;
     p.type=this.classify(p);
+    // V2.9.58: 贝叶斯范围推断——结合先验+观测
+    p.rangeDist=this.inferRange(p);
     return p;
   },
   
@@ -1264,6 +1345,41 @@ var DRTA={
     if(vpip>=30&&ftb>=50)return'tight';
     if(vpip>=30&&af>=1.5)return'tag';
     return'unknown';
+  },
+  
+  // V2.9.58: 贝叶斯范围推断——结合对手类型先验+观测指标
+  inferRange:function(profile){
+    var type=profile.type;
+    var prior=this.RANGE_DIST[type]||this.RANGE_DIST.unknown;
+    // 无观测数据时直接返回先验
+    if(profile.hands<3)return{wide:prior.wide,medium:prior.medium,tight:prior.tight};
+    // 贝叶斯更新: 用VPIP/3bet/steal观测调整先验
+    // 观测因子: VPIP高→范围偏宽, 3bet高→偏宽, steal高→偏宽
+    var obsWide=0,obsTight=0;
+    // VPIP信号
+    if(profile.vpip>40)obsWide+=0.3;
+    else if(profile.vpip>25)obsWide+=0.1;
+    else if(profile.vpip<15)obsTight+=0.3;
+    else if(profile.vpip<25)obsTight+=0.1;
+    // 3bet信号
+    if(profile.threebet>12)obsWide+=0.2;
+    else if(profile.threebet<5)obsTight+=0.15;
+    // steal信号
+    if(profile.steal>35)obsWide+=0.15;
+    else if(profile.steal<15)obsTight+=0.15;
+    // AF信号: 高AF→范围偏两极化(medium→tight)
+    if(profile.af>2.5)obsTight+=0.1;
+    // 置信度加权: 样本少时偏向先验
+    var conf=Math.min(profile.confidence,1);
+    var wide=prior.wide*(1-conf)+Math.min(prior.wide+obsWide-obsTight*0.5,0.7)*conf;
+    var tight=prior.tight*(1-conf)+Math.min(prior.tight+obsTight-obsWide*0.5,0.7)*conf;
+    var medium=1-wide-tight;
+    // 归一化
+    medium=Math.max(medium,0.05);
+    wide=Math.max(wide,0.02);
+    tight=Math.max(tight,0.02);
+    var sum=wide+medium+tight;
+    return{wide:parseFloat((wide/sum).toFixed(2)),medium:parseFloat((medium/sum).toFixed(2)),tight:parseFloat((tight/sum).toFixed(2))};
   },
   
   getDRTAWeight:function(profile){
@@ -1321,7 +1437,8 @@ var DRTA={
   },
   
   reset:function(){
-    this.tracker={hands:0,vpip:0,pfr:0,bet_count:0,call_count:0,fold_count:0,check_count:0,_bet_faced:0,_fold_to_bet:0,recent_agg:[],bluff_attempts:0,bluff_called:0,lastActionTime:0};
+    this.tracker={hands:0,vpip:0,pfr:0,bet_count:0,call_count:0,fold_count:0,check_count:0,_bet_faced:0,_fold_to_bet:0,recent_agg:[],bluff_attempts:0,bluff_called:0,lastActionTime:0,
+      _threebet:0,_threebet_opp:0,_cbet:0,_cbet_opp:0,_fold_cbet:0,_face_cbet:0,_steal:0,_steal_opp:0,_wtsd:0,_saw_flop:0,_wsd:0,_street_actions:[]};
     this.bluffAttempts=0;this.bluffCalled=0;
     try{localStorage.removeItem(this.STORAGE_KEY);}catch(e){}
     this.updateUI();
@@ -1335,6 +1452,20 @@ var DRTA={
     document.getElementById('tAf').textContent=p.hands>=3?p.af:'--';
     document.getElementById('tFtB').textContent=p.hands>=3?p.fold_to_bet+'%':'--';
     document.getElementById('tRagg').textContent=p.hands>=3?p.recent_agg.toFixed(1):'--';
+    // V2.9.58: 新增指标显示
+    var t3b=document.getElementById('t3bet');
+    if(t3b)t3b.textContent=p.hands>=5?p.threebet+'%':'--';
+    var tCb=document.getElementById('tCbet');
+    if(tCb)tCb.textContent=p.hands>=5?p.cbet+'%':'--';
+    var tSt=document.getElementById('tSteal');
+    if(tSt)tSt.textContent=p.hands>=5?p.steal+'%':'--';
+    // V2.9.58: 范围分布显示
+    var rdEl=document.getElementById('tRangeDist');
+    if(rdEl&&p.hands>=3){
+      rdEl.innerHTML='宽'+Math.round(p.rangeDist.wide*100)+'%|中'+Math.round(p.rangeDist.medium*100)+'%|紧'+Math.round(p.rangeDist.tight*100)+'%';
+    }else if(rdEl){
+      rdEl.textContent='--';
+    }
     document.getElementById('tConfFill').style.width=(p.confidence*100)+'%';
     var tagMap={maniac:'😈疯子',calling_station:'📞跟注站',fish:'🐟鱼',nit:'🔒超紧',tight:'🎯紧被动',lag:'🔥松凶',tag:'🏆紧凶',unknown:'❓未知'};
     document.getElementById('oppTypeTag').textContent=tagMap[p.type]||'❓未知';
@@ -1830,10 +1961,20 @@ var StrategicBluff={
   },
   
   thinValue:function(eq,hClass,street,scene,profile,opponents){
-    // 薄价值下注: 鱼玩家+50%+equity
+    // V2.9.58: 用rangeDist调整下注尺度——对手范围越宽,价值下注可以更大
+    var rd=profile.rangeDist||{wide:0.20,medium:0.40,tight:0.40};
+    var wideRatio=rd.wide||0.20;
+    // 薄价值下注: 鱼玩家+45%+equity
     if((profile.type==='fish'||profile.type==='calling_station')&&eq>=45&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
-      var thinSz=profile.type==='calling_station'?Math.round(G.pot*0.4):Math.round(G.pot*0.5);
-      return{action:'raise',strategy:'薄价值下注('+profile.type+')',sizing:thinSz};
+      var baseSz=profile.type==='calling_station'?0.4:0.5;
+      // V2.9.58: 对手范围宽→多打价值,加注更大
+      var adjSz=baseSz+(wideRatio-0.20)*0.5; // 宽20%为基准,每多10%加5%
+      adjSz=Math.min(Math.max(adjSz,0.3),0.8);
+      return{action:'raise',strategy:'薄价值下注('+profile.type+')',sizing:Math.round(G.pot*adjSz)};
+    }
+    // V2.9.58: 范围偏宽的对手+中等牌力→价值下注
+    if(wideRatio>=0.35&&eq>=50&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
+      return{action:'raise',strategy:'宽范围价值下注(宽'+Math.round(wideRatio*100)+'%)',sizing:Math.round(G.pot*0.5)};
     }
     return{action:null};
   }
@@ -1843,12 +1984,16 @@ var StrategicBluff={
 var StrategicRetreat={
   check:function(eq,hClass,street,scene,profile,bTexture,spr,opponents,pot,bet){
     var type=profile.type,conf=profile.confidence,af=profile.af||1,ra=profile.recent_agg||0;
+    // V2.9.58: 用rangeDist调整弃牌阈值——对手范围越紧,越该弃牌
+    var rd=profile.rangeDist||{wide:0.20,medium:0.40,tight:0.40};
+    var tightRatio=rd.tight||0.40;
     var ret={action:null,strategy:null};
     // set/trap识别: 紧凶/紧被动在湿面raise→弃STRONG/MEDIUM
-    if((type==='tag'||type==='tight'||type==='nit')&&conf>=0.4){
+    // V2.9.58: 对手范围偏紧时更容易set trap
+    if((type==='tag'||type==='tight'||type==='nit'||tightRatio>=0.50)&&conf>=0.4){
       if(bTexture&&bTexture.wetness>=2&&(scene==='bet'||scene==='raise'||scene==='allin')){
         if(hClass.name==='STRONG'||hClass.name==='MEDIUM'){
-          ret.action='fold';ret.strategy='陷阱弃牌(set/trap识别)';
+          ret.action='fold';ret.strategy='陷阱弃牌(set/trap'+(tightRatio>=0.50?'·紧范围':'')+')';
           return ret;
         }
       }
@@ -1867,13 +2012,20 @@ var StrategicRetreat={
         return ret;
       }
     }
-    // 大raise撤退: MEDIUM面对>60%底池
+    // 大raise撤退: MEDIUM面对>底池
+    // V2.9.58: 紧范围对手的大raise更可信→降低弃牌阈值
+    var foldThreshold=tightRatio>=0.50?0.45:0.6;
     if(hClass.name==='MEDIUM'&&bet>0){
       var betPotRatio=bet/pot;
-      if(betPotRatio>0.6&&(scene==='raise'||scene==='allin')){
-        ret.action='fold';ret.strategy='大raise撤退(>'+(betPotRatio*100).toFixed(0)+'%底池)';
+      if(betPotRatio>foldThreshold&&(scene==='raise'||scene==='allin')){
+        ret.action='fold';ret.strategy='大raise撤退(>' +(betPotRatio*100).toFixed(0)+'%底池'+(tightRatio>=0.50?'·紧':'')+')';
         return ret;
       }
+    }
+    // V2.9.58: 紧范围对手面对3bet→更倾向弃牌
+    if(tightRatio>=0.55&&scene==='reraise'&&hClass.name!=='NUTS'&&eq<55){
+      ret.action='fold';ret.strategy='紧范围面对3bet弃牌';
+      return ret;
     }
     return ret;
   }
