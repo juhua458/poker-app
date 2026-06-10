@@ -62,8 +62,8 @@ object VisionApiClient {
         }
 
         return try {
-            // V2.9.48: 压缩到1080宽度+quality70，底池小文字需要足够清晰
-            val compressedJpeg = compressImage(jpegData, maxWidth = 1080)
+            // V2.9.48: 裁剪+压缩提速——裁掉上下无关区域，缩720宽+quality65
+            val compressedJpeg = compressImage(jpegData, maxWidth = 720)
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
             val dataUri = "data:image/jpeg;base64,$base64Image"
 
@@ -124,23 +124,35 @@ object VisionApiClient {
     private fun compressImage(jpegData: ByteArray, maxWidth: Int): ByteArray {
         val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
 
+        // V2.9.48: 裁剪上下无关区域——顶部5%可能含盲注标题保留，底部12%可能含按钮保留
+        // 实际只裁掉顶部2%状态栏和底部5%导航栏空白
+        val cropTop = (bitmap.height * 0.02).toInt()
+        val cropBottom = (bitmap.height * 0.95).toInt()
+        val cropped = if (cropTop > 0 || cropBottom < bitmap.height) {
+            try {
+                android.graphics.Bitmap.createBitmap(bitmap, 0, cropTop, bitmap.width, cropBottom - cropTop)
+            } catch (_: Exception) {
+                bitmap
+            }
+        } else {
+            bitmap
+        }
+        if (cropped !== bitmap) bitmap.recycle()
+
         // 计算缩放比例
-        val scale = if (bitmap.width > maxWidth) maxWidth.toFloat() / bitmap.width else 1f
-        if (scale >= 1f) {
-            // 只压缩质量
-            val stream = ByteArrayOutputStream()
-            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
-            bitmap.recycle()
-            return stream.toByteArray()
+        val scale = if (cropped.width > maxWidth) maxWidth.toFloat() / cropped.width else 1f
+        val scaled = if (scale < 1f) {
+            val newWidth = (cropped.width * scale).toInt()
+            val newHeight = (cropped.height * scale).toInt()
+            val s = android.graphics.Bitmap.createScaledBitmap(cropped, newWidth, newHeight, true)
+            cropped.recycle()
+            s
+        } else {
+            cropped
         }
 
-        val newWidth = (bitmap.width * scale).toInt()
-        val newHeight = (bitmap.height * scale).toInt()
-        val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
-        bitmap.recycle()
-
         val stream = ByteArrayOutputStream()
-        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
+        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, stream)
         scaled.recycle()
         return stream.toByteArray()
     }

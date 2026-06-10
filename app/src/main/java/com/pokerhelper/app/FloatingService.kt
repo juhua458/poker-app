@@ -560,9 +560,9 @@ class FloatingService : Service() {
                         when {
                             advice.contains("弃牌") -> tvRecResult?.setTextColor(0xFFFF5252.toInt())
                             advice.contains("跟注") -> tvRecResult?.setTextColor(0xFFFFAB40.toInt())
+                            advice.contains("全押") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
                             advice.contains("加注") -> tvRecResult?.setTextColor(0xFF69F0AE.toInt())
-                            advice.contains("全下") || advice.contains("全押") -> tvRecResult?.setTextColor(0xFFCE93D8.toInt())
-                            advice.contains("过牌") || advice.contains("让牌") -> tvRecResult?.setTextColor(0xFFBDBDBD.toInt())
+                            advice.contains("让牌") || advice.contains("过牌") -> tvRecResult?.setTextColor(0xFFBDBDBD.toInt())
                         }
                         // V2.9.40: 悬浮球边框也跟着变
                         updateBallAdvice(advice)
@@ -787,21 +787,40 @@ class FloatingService : Service() {
     }
 
     /**
-     * V2.9.40: 根据建议更新悬浮球边框颜色
-     * 绿=加注/全下 橙=跟注 红=弃牌 灰=过牌
+     * V2.9.48: 根据建议更新悬浮球颜色——背景整体变色+边框加粗
+     * 绿=加注/全押 橙=跟注 红=弃牌 灰=让牌 紫=全押
      */
     fun updateBallAdvice(advice: String) {
         try {
             val ball = floatingBall ?: return
             val shape = ball.background as? GradientDrawable ?: return
             val density = resources.displayMetrics.density
-            val stroke = (2 * density).toInt()
+            val stroke = (3 * density).toInt()
             when {
-                advice.contains("全下") || advice.contains("全押") || advice.contains("加注") -> shape.setStroke(stroke, 0xFF69F0AE.toInt())
-                advice.contains("跟注") -> shape.setStroke(stroke, 0xFFFFAB40.toInt())
-                advice.contains("弃牌") -> shape.setStroke(stroke, 0xFFFF5252.toInt())
-                advice.contains("过牌") || advice.contains("让牌") -> shape.setStroke(stroke, 0xFFBDBDBD.toInt())
-                else -> shape.setStroke(stroke, 0xFF4ade80.toInt())
+                advice.contains("全押") -> {
+                    shape.setColor(0xBBCE93D8.toInt())  // 紫色渗透
+                    shape.setStroke(stroke, 0xFFCE93D8.toInt())
+                }
+                advice.contains("加注") -> {
+                    shape.setColor(0xBB69F0AE.toInt())  // 绿色渗透
+                    shape.setStroke(stroke, 0xFF69F0AE.toInt())
+                }
+                advice.contains("跟注") -> {
+                    shape.setColor(0xBBFFAB40.toInt())  // 橙色渗透
+                    shape.setStroke(stroke, 0xFFFFAB40.toInt())
+                }
+                advice.contains("弃牌") -> {
+                    shape.setColor(0xBBFF5252.toInt())  // 红色渗透
+                    shape.setStroke(stroke, 0xFFFF5252.toInt())
+                }
+                advice.contains("让牌") || advice.contains("过牌") -> {
+                    shape.setColor(0xBBBDBDBD.toInt())  // 灰色渗透
+                    shape.setStroke(stroke, 0xFFBDBDBD.toInt())
+                }
+                else -> {
+                    shape.setColor(0xBB4ade80.toInt())
+                    shape.setStroke(stroke, 0xFF4ade80.toInt())
+                }
             }
         } catch (_: Exception) {}
     }
