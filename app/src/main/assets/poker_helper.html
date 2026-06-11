@@ -3615,6 +3615,86 @@ var OppPostFlopAction={
     return{eqAdj:-2,foldBoost:5};
   }
 };
+// V2.9.97: BvB(Blind vs Blind)专用策略
+var BvBStrategy={
+  isBvB:function(){
+    if(G.phase!=='pre')return false;
+    if(G.pos!=='sb'&&G.pos!=='bb')return false;
+    return(G.act||2)<=2;
+  },
+  heroRole:function(){
+    if(G.pos==='sb')return 'sb_bvb';
+    if(G.pos==='bb')return 'bb_bvb';
+    return '';
+  },
+  sbOpenExtra:['K7s','K6s','K5s','Q7s','Q6s','J7s','T7s','97s','96s','86s','85s','75s','74s','64s','63s','53s','43s','A7o','A6o','K8o','Q8o','J8o','T8o','98o'],
+  bbDefendWide:['44','33','22','K9s','K8s','K7s','K6s','Q9s','Q8s','Q7s','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','85s','76s','75s','65s','64s','54s','53s','43s','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','J9o','T9o','98o'],
+  bbThreebetValue:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','KQs','KJs','AKo','AQo','AJo','ATo'],
+  bbThreebetBluff:['A2s','A3s','A4s','A5s','76s','65s','54s','43s','K9s','Q9s','J9s','T8s'],
+  sbVsBB3betCall:['JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','JTs','T9s','AKo','AQo','AJo','ATo','KQo'],
+  sbVsBB3betFold:['55','44','33','22','A8s','A7s','A6s','A4s','A3s','A2s','K9s','K8s','QTs','J9s','98s','87s','76s','65s','54s','A9o','KJo','KTo','QJo','JTo','T9o'],
+  getOpenRange:function(pos){
+    var base=gO(pos);
+    if(!this.isBvB())return base;
+    if(pos==='sb'){
+      var extra=this.sbOpenExtra;
+      for(var i=0;i<extra.length;i++){
+        if(base.indexOf(extra[i])===-1)base.push(extra[i]);
+      }
+    }
+    return base;
+  },
+  getThreebetRange:function(pos){
+    if(!this.isBvB())return null;
+    if(pos==='bb')return{value:this.bbThreebetValue,bluff:this.bbThreebetBluff,call:this.bbDefendWide};
+    if(pos==='sb')return THREEBET_BY_POS.sb;
+    return null;
+  },
+  bbDefend:function(k,eq,bet,pot){
+    if(!this.isBvB()||G.pos!=='bb')return null;
+    if(this.bbThreebetValue.indexOf(k)!==-1&&eq>=50){
+      var sz=Math.round(Math.max(bet*3,pot*0.8));
+      return{action:'raise',sizing:sz,type:'value',reason:'BvB BB 3bet价值('+k+')'};
+    }
+    if(this.bbThreebetBluff.indexOf(k)!==-1&&Math.random()*100<25){
+      var sz2=Math.round(Math.max(bet*3,pot*0.75));
+      return{action:'raise',sizing:sz2,type:'bluff',reason:'BvB BB 3bet诈吼('+k+')'};
+    }
+    if(this.bbDefendWide.indexOf(k)!==-1&&eq>=35){
+      return{action:'call',reason:'BvB BB宽防守('+k+')'};
+    }
+    if(G.opp==='nit'||G.opp==='tight'){
+      if(eq>=30&&Math.random()*100<15){
+        var sz3=Math.round(Math.max(bet*2.5,pot*0.7));
+        return{action:'raise',sizing:sz3,type:'bluff',reason:'BvB vs紧牌BB偷取('+k+')'};
+      }
+    }
+    if(G.opp==='calling_station'||G.opp==='fish'){
+      if(eq>=30)return{action:'call',reason:'BvB vs跟注站BB宽跟('+k+')'};
+    }
+    return null;
+  },
+  sbDefend3bet:function(k,eq,bet,pot){
+    if(!this.isBvB()||G.pos!=='sb')return null;
+    if(this.bbThreebetValue.indexOf(k)!==-1&&eq>=55){
+      return{action:'4bet',reason:'BvB vs BB 3bet 4bet('+k+')'};
+    }
+    if(this.sbVsBB3betCall.indexOf(k)!==-1&&eq>=42){
+      return{action:'call',reason:'BvB SB跟BB 3bet('+k+')'};
+    }
+    if(this.sbVsBB3betFold.indexOf(k)!==-1){
+      return{action:'fold',reason:'BvB SB弃vs BB 3bet('+k+')'};
+    }
+    return null;
+  },
+  eqAdj:function(){
+    if(!this.isBvB())return 0;
+    if(G.pos==='bb')return 3;
+    if(G.pos==='sb')return -2;
+    return 0;
+  }
+};
+
 
 // V2.9.97: BvB(Blind vs Blind)专用策略
 var BvBStrategy={
@@ -3912,7 +3992,7 @@ function preF(k){
   var eq=eQ(k);
   var pa=pA(p);
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
-  eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
+  eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();eq+=BvBStrategy.eqAdj();
   var profile=DRTA.getProfile();
   // V2.9.60: Tilt检测——对手情绪状态影响策略
   var tiltInfo=TiltDetector.detectTilt(profile);
@@ -4004,6 +4084,22 @@ function preF(k){
       var rSz=Math.round(actualBet*2.5);
       var exploitResult2b=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
       G._heroDid4bet=true;return{a:'raise',v:stk<=rSz?stk:rSz,r:k+' 4bet诈唬!',eq:exploitResult2b.eq,c:'l',sizing:stk<=rSz?stk:rSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz),exploit:exploitResult2b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
+    // V2.9.97: BvB SB面对BB 3bet专用防守
+    var _bvbSB=BvBStrategy.sbDefend3bet(k,eq,actualBet,pot);
+    if(_bvbSB){
+      if(_bvbSB.action==='4bet'){
+        var rSzBVB=Math.round(actualBet*2.5);
+        var exploitBVSB=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
+        G._heroDid4bet=true;return{a:'raise',v:stk<=rSzBVB?stk:rSzBVB,r:_bvbSB.reason,eq:exploitBVSB.eq,c:'h',sizing:stk<=rSzBVB?stk:rSzBVB,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSzBVB),exploit:exploitBVSB.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      }
+      if(_bvbSB.action==='call'){
+        var exploitBVSBC=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+        return{a:'call',r:_bvbSB.reason,eq:exploitBVSBC.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitBVSBC.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      }
+      if(_bvbSB.action==='fold'){
+        return{a:'fold',r:_bvbSB.reason,eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      }
     }
     // V2.9.97: BvB SB面对BB 3bet专用防守
     var _bvbSB=BvBStrategy.sbDefend3bet(k,eq,actualBet,pot);
