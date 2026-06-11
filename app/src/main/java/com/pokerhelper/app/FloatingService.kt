@@ -404,7 +404,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.111"
+            text = "青云 v2.9.112"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -1190,7 +1190,8 @@ class FloatingService : Service() {
                         tvRecResult?.visibility = View.VISIBLE
                         tvRecDetail?.text = detailText
                         tvRecDetail?.visibility = View.VISIBLE
-                        updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", commStr)
+                        val notifyDetail = buildString { append("手牌:$holeStr"); if (commStr.isNotEmpty()) append(" 公牌:$commStr") }
+                        updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", notifyDetail)
                     }
                     } // V2.9.111: end of NO_TABLE else (正常牌桌才执行策略)
                 } else {
