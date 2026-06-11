@@ -5002,7 +5002,15 @@ var DBStrategy={
         return{a:'raise',v:bluffSizing,r:'vs'+G.opp+'诈唬C-bet',eq:exploitNitBluff.eq,c:'l',sizing:bluffSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
-    if(street==='river'&&hClass.name==='MEDIUM'){var exploitRiverMP=applyExploit(eq,'check',G.opp,{pot:pot});return{a:'check',r:'河牌中对过牌',eq:exploitRiverMP.eq,c:'m',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};}
+    if(street==='river'&&hClass.name==='MEDIUM'){
+      // V2.9.101: 薄价值策略替代硬编码过牌
+      var _tvResult=ThinValueStrategy.decide(eq,pot,hClass,G.opp,ip,bTexture,street,scene);
+      if(_tvResult){
+        var exploitTV=applyExploit(eq,'raise',G.opp,{pot:pot});
+        return{a:'raise',v:_tvResult.sizing,r:_tvResult.reason,eq:exploitTV.eq,c:'m',sizing:_tvResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      }
+      var exploitRiverMP=applyExploit(eq,'check',G.opp,{pot:pot});return{a:'check',r:'河牌中对过牌',eq:exploitRiverMP.eq,c:'m',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
     if(street==='river'&&(hClass.name==='AIR'||hClass.name==='WEAK')){
       if(G.opp==='tight'&&eq>=35){
         var exploitRiverBluff=applyExploit(eq,'raise',G.opp,{pot:pot});
