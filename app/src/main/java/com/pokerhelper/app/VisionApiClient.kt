@@ -157,33 +157,30 @@ object VisionApiClient {
             suitUncertain = "双通道冲突⚠️" in crossReason || "单通道" in crossReason
             Log.d(TAG, "双通道验证: $crossReason, holeCards=${holeCardsToUse.joinToString()}")
 
-            // 手牌锁定逻辑
-            val currentCardKey = holeCardsToUse.joinToString(",") { "${it.rank}${it.suit}" }
-            val lastCardKey = holeCardsLocked?.joinToString(",") { "${it.rank}${it.suit}" } ?: ""
+            // V2.9.82: 手牌锁定逻辑——只用rank判断是否新一手牌（花色波动不触发重置）
+            val currentRankKey = holeCardsToUse.joinToString(",") { it.rank }
+            val lastRankKey = holeCardsLocked?.joinToString(",") { it.rank } ?: ""
 
-            // 新一手牌→重置
-            if (lastCardKey.isNotEmpty() && currentCardKey != lastCardKey) {
-                Log.d(TAG, "手牌锁定: 新一手牌($lastCardKey→$currentCardKey)，重置")
+            // rank变了→确定是新一手牌→重置
+            if (lastRankKey.isNotEmpty() && currentRankKey != lastRankKey) {
+                Log.d(TAG, "手牌锁定: 新一手牌(rank: $lastRankKey→$currentRankKey)，重置")
                 holeCardsLocked = null; dButtonLocked = ""
             }
 
-            // 已锁定→用锁定值
+            // 已锁定→用锁定值（不管当前识别花色是否一致，锁定值优先）
             if (holeCardsLocked != null) {
-                val lockedKey = holeCardsLocked!!.joinToString(",") { "${it.rank}${it.suit}" }
-                if (currentCardKey == lockedKey) {
-                    Log.d(TAG, "手牌锁定: 已锁定=${holeCardsLocked!!.joinToString()}")
-                    lockReason = "已锁定，跳过重识"; suitUncertain = false
-                    val srcResult = plusResult ?: flashResult!!
-                    var result = srcResult.copy(holeCards = holeCardsLocked!!)
-                    val dPosInsured = applyDButtonInsurance(dButtonHolder[0] ?: "", holeCardsLocked!!)
-                    dButtonPosition = dPosInsured
-                    result = result.copy(dButtonPosition = dPosInsured)
-                    lastResult = result; lastResultTime = System.currentTimeMillis()
-                    var corrected = applyStreetCorrection(result)
-                    corrected = applyValidationCorrections(corrected); lastResult = corrected
-                    Log.d(TAG, "识别成功(锁定): ${corrected.holeCards.joinToString()} | ${corrected.communityCards.joinToString()} | 底池${corrected.potSize} | D=$dPosInsured | 花色OK")
-                    return corrected
-                }
+                Log.d(TAG, "手牌锁定: 已锁定=${holeCardsLocked!!.joinToString()}")
+                lockReason = "已锁定，跳过重识"; suitUncertain = false
+                val srcResult = plusResult ?: flashResult!!
+                var result = srcResult.copy(holeCards = holeCardsLocked!!)
+                val dPosInsured = applyDButtonInsurance(dButtonHolder[0] ?: "", holeCardsLocked!!)
+                dButtonPosition = dPosInsured
+                result = result.copy(dButtonPosition = dPosInsured)
+                lastResult = result; lastResultTime = System.currentTimeMillis()
+                var corrected = applyStreetCorrection(result)
+                corrected = applyValidationCorrections(corrected); lastResult = corrected
+                Log.d(TAG, "识别成功(锁定): ${corrected.holeCards.joinToString()} | ${corrected.communityCards.joinToString()} | 底池${corrected.potSize} | D=$dPosInsured | 花色OK")
+                return corrected
             }
 
             // 未锁定→决定是否锁定
@@ -238,12 +235,12 @@ object VisionApiClient {
      * 规则3: 新一手牌（手牌变化）时重置锁定
      */
     private fun applyDButtonInsurance(rawPos: String, currentCards: List<CardInfo>): String {
-        // 规则3: 手牌变了→新一手牌，重置锁定
-        val cardKey = currentCards.joinToString(",") { "${it.rank}${it.suit}" }
-        val lastCardKey = lastResult?.holeCards?.joinToString(",") { "${it.rank}${it.suit}" } ?: ""
-        if (cardKey != lastCardKey && lastCardKey.isNotEmpty()) {
+        // V2.9.82: 规则3: 只看rank判断是否新一手牌（花色波动不重置D按钮锁定）
+        val rankKey = currentCards.joinToString(",") { it.rank }
+        val lastRankKey = lastResult?.holeCards?.joinToString(",") { it.rank } ?: ""
+        if (rankKey != lastRankKey && lastRankKey.isNotEmpty()) {
             dButtonLocked = ""
-            Log.d(TAG, "D按钮保险: 新一手牌(${lastCardKey}→${cardKey})，重置锁定")
+            Log.d(TAG, "D按钮保险: 新一手牌(rank: $lastRankKey→$rankKey)，重置锁定")
         }
 
         if (rawPos.isEmpty() || rawPos == "not_found") {
