@@ -224,7 +224,7 @@ object VisionApiClient {
         } else result
     }
 
-        /**
+    /**
      * V2.9.78: 用qwen-vl-plus识别D按钮位置
      * 专门用更强模型识别庄家按钮的屏幕位置，flash无法准确区分左上/左下
      * 返回: bottom-center / left-bottom / left-top / top-center / right-top / right-bottom / not_found
