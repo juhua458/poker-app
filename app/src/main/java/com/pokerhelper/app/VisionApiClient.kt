@@ -29,6 +29,7 @@ object VisionApiClient {
 
     // V2.9.78: D按钮位置识别——用vl-plus并行调用
     var dButtonPosition: String = ""  // 上次识别的D按钮位置
+    var dButtonLocked: String = ""  // V2.9.80: D按钮锁定值（同一手牌内首次识别后锁定，突变时用旧值）
         private set
 
     data class VisionResult(
@@ -130,12 +131,12 @@ object VisionApiClient {
             }
 
             // 合并D按钮位置
-            val dPos = dButtonHolder[0] ?: ""
-            dButtonPosition = dPos
-            if (dButtonErrorHolder[0] != null) {
-                Log.w(TAG, "D按钮位置识别失败(不影响主流程): ${dButtonErrorHolder[0]}")
-            }
-            Log.d(TAG, "D按钮位置: $dPos (vl-plus${if(dPos.isEmpty()) "失败" else "成功"})")
+
+
+
+
+
+
 
             var correctedResult = result.copy(dButtonPosition = dPos)
 
@@ -182,6 +183,76 @@ object VisionApiClient {
      * 专门用更强模型识别庄家按钮的屏幕位置，flash无法准确区分左上/左下
      * 返回: bottom-center / left-bottom / left-top / top-center / right-top / right-bottom / not_found
      */
+    /**
+     * V2.9.80: D按钮保险层
+     * 规则1: 同一手牌内，D按钮位置不变——首次识别后锁定，突变时用旧值
+     * 规则2: 邻近位容错——left-top/left-bottom同属左侧，right-top/right-bottom同属右侧
+     * 规则3: 新一手牌（手牌变化）时重置锁定
+     */
+    private fun applyDButtonInsurance(rawPos: String, currentCards: List<CardInfo>): String {
+        // 规则3: 手牌变了→新一手牌，重置锁定
+        val cardKey = currentCards.joinToString(",") { "${it.rank}${it.suit}" }
+        val lastCardKey = lastResult?.holeCards?.joinToString(",") { "${it.rank}${it.suit}" } ?: ""
+        if (cardKey != lastCardKey && lastCardKey.isNotEmpty()) {
+            dButtonLocked = ""
+            Log.d(TAG, "D按钮保险: 新一手牌(${lastCardKey}→${cardKey})，重置锁定")
+        }
+
+        if (rawPos.isEmpty() || rawPos == "not_found") {
+            // 识别失败，用锁定值
+            if (dButtonLocked.isNotEmpty()) {
+                Log.d(TAG, "D按钮保险: 识别失败，用锁定值=$dButtonLocked")
+                return dButtonLocked
+            }
+            return rawPos
+        }
+
+        // 规则1: 首次识别→锁定
+        if (dButtonLocked.isEmpty()) {
+            dButtonLocked = rawPos
+            Log.d(TAG, "D按钮保险: 首次锁定=$rawPos")
+            return rawPos
+        }
+
+        // 规则2: 突变检测——是否和锁定值一致或邻近
+        val isSame = rawPos == dButtonLocked
+        val isNeighbor = isNeighborPosition(rawPos, dButtonLocked)
+
+        if (isSame) {
+            Log.d(TAG, "D按钮保险: 一致=$rawPos")
+            return rawPos
+        }
+        if (isNeighbor) {
+            // 邻近位，可能是同一位置的不同判断，取锁定值
+            Log.d(TAG, "D按钮保险: 邻近位(${rawPos}≈$dButtonLocked)，取锁定值=$dButtonLocked")
+            return dButtonLocked
+        }
+        // 非邻近的突变，不可信，用锁定值
+        Log.w(TAG, "D按钮保险: 突变(${dButtonLocked}→${rawPos})，不可信，保留锁定值=$dButtonLocked")
+        return dButtonLocked
+    }
+
+    /** V2.9.80: 判断两个位置是否邻近（同侧） */
+    private fun isNeighborPosition(pos1: String, pos2: String): Boolean {
+        if (pos1.isEmpty() || pos2.isEmpty()) return false
+        val side1 = when {
+            pos1.contains("left") -> "left"
+            pos1.contains("right") -> "right"
+            pos1.contains("top-center") -> "top"
+            pos1.contains("bottom-center") -> "bottom"
+            else -> pos1
+        }
+        val side2 = when {
+            pos2.contains("left") -> "left"
+            pos2.contains("right") -> "right"
+            pos2.contains("top-center") -> "top"
+            pos2.contains("bottom-center") -> "bottom"
+            else -> pos2
+        }
+        return side1 == side2
+    }
+
+
     private fun analyzeDButtonPosition(base64Image: String): String? {
         // 只有dashscope才调用vl-plus（同一个API平台，同一个key）
         if (apiProvider != "dashscope" || apiKey.isEmpty()) {
@@ -333,7 +404,7 @@ Which position has the "D" dealer button? Answer with ONLY one of these exact wo
 
 ★★★ 关键规则 ★★★：
 - rank: A K Q J T 9 8 7 6 5 4 3 2（T=10）
-- suit: s=黑桃 h=红心 d=方块 c=梅花
+- suit: s=黑桃♠ h=红桃♥ d=方块♦ c=梅花♣（⚠️黑桃s是实心箭头形，梅花c是三瓣圆弧形，严禁把黑桃误认为梅花！）
 - K/M后缀转换：10K=10000 1.5M=1500000
 - street：0张=preflop 3=flop 4=turn 5=river
 
@@ -857,7 +928,7 @@ Which position has the "D" dealer button? Answer with ONLY one of these exact wo
             }
             "dashscope" -> {
                 apiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-                modelName = "qwen3-vl-flash"
+                modelName = "qwen-vl-plus"
             }
             "deepseek" -> {
                 apiUrl = "https://api.deepseek.com/v1/chat/completions"
