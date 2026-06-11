@@ -12,7 +12,7 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 94
-        versionName "2.9.98"
+        versionName "2.9.99"
     }
 
     buildTypes {
