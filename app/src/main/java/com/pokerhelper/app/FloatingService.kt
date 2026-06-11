@@ -544,9 +544,20 @@ class FloatingService : Service() {
                 Log.e(TAG, "WebView加载失败: code=$errorCode desc=$description url=$failingUrl")
                 errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} WebView错误: $errorCode $description")
                 if (errorLogs.size > 50) errorLogs.removeAt(0)
-                // V2.9.112: 确保HttpServerService活着，3秒后重试
+                // V2.9.112: 确保HttpServerService活着，等端口就绪后重试
                 try { startService(Intent(this@FloatingService, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
-                wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }, 3000)
+                Thread {
+                    var retries = 0
+                    while (retries < 50) {
+                        try {
+                            val socket = java.net.Socket()
+                            socket.connect(java.net.InetSocketAddress("127.0.0.1", 8666), 100)
+                            socket.close()
+                            break
+                        } catch (_: Exception) { retries++; Thread.sleep(100) }
+                    }
+                    handler.post { wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }
+                }.start()
             }
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -652,7 +663,26 @@ class FloatingService : Service() {
 
         // V2.9.112: 确保HttpServerService已启动再加载WebView
         try { startService(Intent(this, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
-        wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}")
+        // V2.9.112: 等HTTP端口可用再加载WebView（解决startService异步+loadUrl竞态条件）
+        Thread {
+            var retries = 0
+            while (retries < 50) { // 最多等5秒
+                try {
+                    val socket = java.net.Socket()
+                    socket.connect(java.net.InetSocketAddress("127.0.0.1", 8666), 100)
+                    socket.close()
+                    Log.d(TAG, "★ HTTP服务端口8666已就绪，重试${retries}次")
+                    break
+                } catch (_: Exception) {
+                    retries++
+                    Thread.sleep(100)
+                }
+            }
+            handler.post {
+                wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}")
+                Log.d(TAG, "★ WebView loadUrl已执行，等待了${retries * 100}ms")
+            }
+        }.start()
 
         floatingView = container
 
