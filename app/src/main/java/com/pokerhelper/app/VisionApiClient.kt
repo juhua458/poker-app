@@ -138,7 +138,7 @@ object VisionApiClient {
 
 
 
-            var correctedResult = result.copy(dButtonPosition = dPos)
+            var correctedResult = result.copy(dButtonPosition = dPosInsured)
 
             lastResult = correctedResult
             lastResultTime = System.currentTimeMillis()
@@ -167,8 +167,8 @@ object VisionApiClient {
                 Log.w(TAG, "识别结果有疑问: $lastError")
             }
             // V2.9.48: 调试日志 - 打印原始API返回的pot和chips
-            Log.w(TAG, "🔍RAW response: pot_size=${correctedResult.rawResponse.substringAfter("\"pot_size\":").substringBefore(",").substringBefore("}").trim()} | parsed pot=${correctedResult.potSize} chips=${correctedResult.playerChips} blindSB=${correctedResult.blindSB} blindBB=${correctedResult.blindBB} | D=${dPos}")
-            Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌/活跃${correctedResult.activePlayers}人 | D=$dPos${if(lastError.isNotEmpty()) " ⚠️$lastError" else ""}")
+            Log.w(TAG, "🔍RAW response: pot_size=${correctedResult.rawResponse.substringAfter("\"pot_size\":").substringBefore(",").substringBefore("}").trim()} | parsed pot=${correctedResult.potSize} chips=${correctedResult.playerChips} blindSB=${correctedResult.blindSB} blindBB=${correctedResult.blindBB} | D=${dPosInsured}")
+            Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌/活跃${correctedResult.activePlayers}人 | D=$dPosInsured${if(lastError.isNotEmpty()) " ⚠️$lastError" else ""}")
 
             correctedResult
         } catch (e: Exception) {
