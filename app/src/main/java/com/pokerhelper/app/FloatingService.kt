@@ -595,15 +595,10 @@ class FloatingService : Service() {
                 handler.post {
                     // V2.9.70: 收到正常建议→停止错误闪烁
                     isBlinkingError = false
-                    // V2.9.112: 策略结果也更新通知栏（不管隐身模式）
+                    // V2.9.112: 标记策略已回调
                     _lastStrategyAdvice = advice
                     _strategyReceived = true
                     if (advice.isNotEmpty()) {
-                        // V2.9.112: 通知栏显示策略结果
-                        val advShort = advice.split("|").firstOrNull()?.take(20) ?: advice.take(20)
-                        val eqMatch = Regex("\\|EQ:(\\d+)").find(advice)
-                        val eqStr = eqMatch?.groupValues?.get(1)?.let { " ${it}%" } ?: ""
-                        updateAdviceNotification("🎯 $advShort$eqStr", advice.take(60))
                         tvRecResult?.text = advice  // V2.9.64: 只显示最新建议,不累积
                         tvRecResult?.visibility = View.VISIBLE
                         when {
@@ -1173,15 +1168,13 @@ class FloatingService : Service() {
                     _strategyReceived = false
                     handler.postDelayed({
                         if (!_strategyReceived) {
-                            Log.w(TAG, "★ 策略引擎3s未回调，通知栏提示")
-                            updateAdviceNotification("⏳ 策略计算中...", "等待策略引擎响应")
+                            Log.w(TAG, "★ 策略引擎3s未回调")
                         }
                     }, 3000)
                     handler.postDelayed({
                         if (floatingBall?.text == "⏳" || !_strategyReceived) {
                             Log.w(TAG, "★ 策略引擎超时5s，强制恢复悬浮球")
                             updateBallAdvice("COLOR:FOLD|SIGNAL:ERROR")
-                            updateAdviceNotification("❌ 策略超时", "策略引擎5s未响应，请检查日志")
                         }
                     }, 5000)
                     handler.post {
