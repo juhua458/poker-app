@@ -38,7 +38,7 @@ class HttpServerService : Service() {
 
     private fun loadPokerHelperHtml(): String {
         if (pokerHelperHtml == null) {
-            // V2.9.112: 先从assets加载当前版本号
+            // V2.9.113: 先从assets加载当前版本号
             var assetsVer = ""
             try {
                 val is_ = assets.open("poker_helper.html")
@@ -48,7 +48,7 @@ class HttpServerService : Service() {
                 assetsVer = verMatch?.groupValues?.get(1) ?: ""
             } catch (_: Exception) {}
             // v2.9.35: 优先加载热更新文件（持久化的远程版本）
-            // V2.9.112: 但如果热更新版本比assets旧，删除热更新文件
+            // V2.9.113: 但如果热更新版本比assets旧，删除热更新文件
             try {
                 val hotFile = File(filesDir, HOTLOAD_FILE)
                 if (hotFile.exists()) {
@@ -93,7 +93,7 @@ class HttpServerService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        // V2.9.112: 清空HTML缓存，强制重新加载（防止升级后仍用旧版HTML）
+        // V2.9.113: 清空HTML缓存，强制重新加载（防止升级后仍用旧版HTML）
         pokerHelperHtml = null
 
         val notification = createNotification()
@@ -146,7 +146,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.112")
+                                put("version", "2.9.113")
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
@@ -452,7 +452,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("截屏优化 v2.9.112")
+                .setContentTitle("截屏优化 v2.9.113")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -460,7 +460,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("截屏优化 v2.9.112")
+                .setContentTitle("截屏优化 v2.9.113")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

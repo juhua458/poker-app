@@ -87,8 +87,8 @@ class FloatingService : Service() {
 
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
-    private var _strategyReceived = false  // V2.9.112: 策略引擎是否已回调
-    private var _lastStrategyAdvice = ""   // V2.9.112: 最后策略结果
+    private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
+    private var _lastStrategyAdvice = ""   // V2.9.113: 最后策略结果
     private val pendingJsCalls = mutableListOf<String>()
     // V2.9.70: 错误日志——API/截屏失败时记录，豪哥可导出反馈
     private val errorLogs = mutableListOf<String>()
@@ -410,7 +410,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.112"
+            text = "青云 v2.9.113"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -544,7 +544,7 @@ class FloatingService : Service() {
                 Log.e(TAG, "WebView加载失败: code=$errorCode desc=$description url=$failingUrl")
                 errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} WebView错误: $errorCode $description")
                 if (errorLogs.size > 50) errorLogs.removeAt(0)
-                // V2.9.112: 确保HttpServerService活着，等端口就绪后重试
+                // V2.9.113: 确保HttpServerService活着，等端口就绪后重试
                 try { startService(Intent(this@FloatingService, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
                 Thread {
                     var retries = 0
@@ -570,8 +570,8 @@ class FloatingService : Service() {
                         view?.evaluateJavascript(js, null)
                     }
                 }
-                // V2.9.112: 验证策略引擎是否真的加载了
-                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.112] ✅策略引擎就绪')}else{console.log('[V2.9.112] ❌策略引擎未加载！')}", null)
+                // V2.9.113: 验证策略引擎是否真的加载了
+                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.113] ✅策略引擎就绪')}else{console.log('[V2.9.113] ❌策略引擎未加载！')}", null)
             }
         }
         wv.webChromeClient = WebChromeClient()
@@ -613,7 +613,7 @@ class FloatingService : Service() {
                 handler.post {
                     // V2.9.70: 收到正常建议→停止错误闪烁
                     isBlinkingError = false
-                    // V2.9.112: 标记策略已回调
+                    // V2.9.113: 标记策略已回调
                     _lastStrategyAdvice = advice
                     _strategyReceived = true
                     if (advice.isNotEmpty()) {
@@ -649,7 +649,7 @@ class FloatingService : Service() {
                     }
                 }
             }
-            // V2.9.112: onVisionResult执行成功回调
+            // V2.9.113: onVisionResult执行成功回调
             @JavascriptInterface
             fun confirmVisionReceived() {
                 Log.d(TAG, "✅ onVisionResult已执行")
@@ -661,9 +661,9 @@ class FloatingService : Service() {
             }
         }, "AndroidBridge")
 
-        // V2.9.112: 确保HttpServerService已启动再加载WebView
+        // V2.9.113: 确保HttpServerService已启动再加载WebView
         try { startService(Intent(this, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
-        // V2.9.112: 等HTTP端口可用再加载WebView（解决startService异步+loadUrl竞态条件）
+        // V2.9.113: 等HTTP端口可用再加载WebView（解决startService异步+loadUrl竞态条件）
         Thread {
             var retries = 0
             while (retries < 50) { // 最多等5秒
@@ -1203,7 +1203,7 @@ class FloatingService : Service() {
                     } else {
                     val resultJson = VisionApiClient.toJson(result)
                     Log.d(TAG, "★ resultJson长度=${resultJson.length}, webViewReady=$webViewReady")
-                    // V2.9.112: 超时保险——3秒检查策略是否已回调，5秒强制恢复
+                    // V2.9.113: 超时保险——3秒检查策略是否已回调，5秒强制恢复
                     _strategyReceived = false
                     handler.postDelayed({
                         if (!_strategyReceived) {
@@ -1217,8 +1217,8 @@ class FloatingService : Service() {
                         }
                     }, 5000)
                     handler.post {
-                        // V2.9.112: 先检测WebView是否就绪，再调onVisionResult
-                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.112] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.112] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
+                        // V2.9.113: 先检测WebView是否就绪，再调onVisionResult
+                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.113] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.113] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
@@ -1361,11 +1361,11 @@ class FloatingService : Service() {
         }
     }
 
-    // V2.9.112: 纯Kotlin端导出日志，不依赖WebView
+    // V2.9.113: 纯Kotlin端导出日志，不依赖WebView
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.112\"")
+                append("{\"version\":\"2.9.113\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")
