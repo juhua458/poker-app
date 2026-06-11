@@ -544,20 +544,16 @@ class FloatingService : Service() {
                 Log.e(TAG, "WebView加载失败: code=$errorCode desc=$description url=$failingUrl")
                 errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} WebView错误: $errorCode $description")
                 if (errorLogs.size > 50) errorLogs.removeAt(0)
-                // V2.9.113: 确保HttpServerService活着，等端口就绪后重试
+                // V2.9.113: 直接重载HTML内容（不依赖HTTP服务器）
                 try { startService(Intent(this@FloatingService, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
-                Thread {
-                    var retries = 0
-                    while (retries < 50) {
-                        try {
-                            val socket = java.net.Socket()
-                            socket.connect(java.net.InetSocketAddress("127.0.0.1", 8666), 100)
-                            socket.close()
-                            break
-                        } catch (_: Exception) { retries++; Thread.sleep(100) }
-                    }
-                    handler.post { wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }
-                }.start()
+                try {
+                    val htmlIs = assets.open("poker_helper.html")
+                    val htmlContent = java.io.InputStreamReader(htmlIs, "UTF-8").readText()
+                    htmlIs.close()
+                    wv.post { wv.loadDataWithBaseURL("http://127.0.0.1:8666", htmlContent, "text/html; charset=utf-8", "UTF-8", null) }
+                } catch (_: Exception) {
+                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }, 3000)
+                }
             }
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -661,28 +657,20 @@ class FloatingService : Service() {
             }
         }, "AndroidBridge")
 
-        // V2.9.113: 确保HttpServerService已启动再加载WebView
+        // V2.9.113: 直接加载HTML内容到WebView（不依赖HTTP服务器，彻底解决加载失败问题）
         try { startService(Intent(this, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
-        // V2.9.113: 等HTTP端口可用再加载WebView（解决startService异步+loadUrl竞态条件）
-        Thread {
-            var retries = 0
-            while (retries < 50) { // 最多等5秒
-                try {
-                    val socket = java.net.Socket()
-                    socket.connect(java.net.InetSocketAddress("127.0.0.1", 8666), 100)
-                    socket.close()
-                    Log.d(TAG, "★ HTTP服务端口8666已就绪，重试${retries}次")
-                    break
-                } catch (_: Exception) {
-                    retries++
-                    Thread.sleep(100)
-                }
-            }
-            handler.post {
-                wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}")
-                Log.d(TAG, "★ WebView loadUrl已执行，等待了${retries * 100}ms")
-            }
-        }.start()
+        try {
+            val htmlIs = assets.open("poker_helper.html")
+            val htmlContent = java.io.InputStreamReader(htmlIs, "UTF-8").readText()
+            htmlIs.close()
+            // loadDataWithBaseURL: baseURL设为HTTP服务地址，JS如需fetch /api可用
+            wv.loadDataWithBaseURL("http://127.0.0.1:8666", htmlContent, "text/html; charset=utf-8", "UTF-8", null)
+            Log.d(TAG, "★ WebView直接加载HTML内容，长度=${htmlContent.length}")
+        } catch (e: Exception) {
+            Log.e(TAG, "★ WebView加载HTML失败: ${e.message}")
+            // 兜底：回退到HTTP服务器方式
+            wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}")
+        }
 
         floatingView = container
 
