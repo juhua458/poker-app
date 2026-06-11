@@ -34,6 +34,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewAssetLoader
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.os.Bundle
@@ -90,6 +91,8 @@ class FloatingService : Service() {
     private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
     private var _lastStrategyAdvice = ""   // V2.9.113: 最后策略结果
     private val pendingJsCalls = mutableListOf<String>()
+    // V2.9.114: WebViewAssetLoader——Google官方推荐的本地HTML加载方案
+    private lateinit var assetLoader: WebViewAssetLoader
     // V2.9.70: 错误日志——API/截屏失败时记录，豪哥可导出反馈
     private val errorLogs = mutableListOf<String>()
     private var isBlinkingError = false
@@ -410,7 +413,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.113"
+            text = "青云 v2.9.114"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -537,23 +540,25 @@ class FloatingService : Service() {
             builtInZoomControls = false
         }
 
-        // V2.9.109: 清除WebView缓存，防止加载旧版HTML（V2.9.68曾因此导致悬浮球无反应）
+        // V2.9.114: WebViewAssetLoader——Google官方推荐方案，无竞态、JS完整保留
+        assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .setDomain("appassets.androidplatform.net")
+            .build()
+
+        // V2.9.109: 清除WebView缓存，防止加载旧版HTML
         wv.clearCache(true)
         wv.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
+                // V2.9.114: 用WebViewAssetLoader拦截本地资源请求
+                return assetLoader.shouldInterceptRequest(request?.url) ?: super.shouldInterceptRequest(view, request)
+            }
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
                 Log.e(TAG, "WebView加载失败: code=$errorCode desc=$description url=$failingUrl")
                 errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} WebView错误: $errorCode $description")
                 if (errorLogs.size > 50) errorLogs.removeAt(0)
-                // V2.9.113: 直接重载HTML内容（不依赖HTTP服务器）
-                try { startService(Intent(this@FloatingService, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
-                try {
-                    val htmlIs = assets.open("poker_helper.html")
-                    val htmlContent = java.io.InputStreamReader(htmlIs, "UTF-8").readText()
-                    htmlIs.close()
-                    wv.post { wv.loadDataWithBaseURL("http://127.0.0.1:8666", htmlContent, "text/html; charset=utf-8", "UTF-8", null) }
-                } catch (_: Exception) {
-                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }, 3000)
-                }
+                // V2.9.114: 用AssetLoader URL重载（不依赖HTTP服务器）
+                wv.postDelayed({ wv.loadUrl("https://appassets.androidplatform.net/assets/poker_helper.html") }, 1000)
             }
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -566,8 +571,8 @@ class FloatingService : Service() {
                         view?.evaluateJavascript(js, null)
                     }
                 }
-                // V2.9.113: 验证策略引擎是否真的加载了
-                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.113] ✅策略引擎就绪')}else{console.log('[V2.9.113] ❌策略引擎未加载！')}", null)
+                // V2.9.114: 验证策略引擎是否真的加载了
+                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.114] ✅策略引擎就绪')}else{console.log('[V2.9.114] ❌策略引擎未加载！')}", null)
             }
         }
         wv.webChromeClient = WebChromeClient()
@@ -657,20 +662,11 @@ class FloatingService : Service() {
             }
         }, "AndroidBridge")
 
-        // V2.9.113: 直接加载HTML内容到WebView（不依赖HTTP服务器，彻底解决加载失败问题）
+        // V2.9.114: WebViewAssetLoader加载——Google官方推荐，零竞态风险
+        // 仍需启动HttpServerService：JS端fetch /api/请求走NanoHTTPD动态接口
         try { startService(Intent(this, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
-        try {
-            val htmlIs = assets.open("poker_helper.html")
-            val htmlContent = java.io.InputStreamReader(htmlIs, "UTF-8").readText()
-            htmlIs.close()
-            // loadDataWithBaseURL: baseURL设为HTTP服务地址，JS如需fetch /api可用
-            wv.loadDataWithBaseURL("http://127.0.0.1:8666", htmlContent, "text/html; charset=utf-8", "UTF-8", null)
-            Log.d(TAG, "★ WebView直接加载HTML内容，长度=${htmlContent.length}")
-        } catch (e: Exception) {
-            Log.e(TAG, "★ WebView加载HTML失败: ${e.message}")
-            // 兜底：回退到HTTP服务器方式
-            wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}")
-        }
+        wv.loadUrl("https://appassets.androidplatform.net/assets/poker_helper.html")
+        Log.d(TAG, "★ WebView通过AssetLoader加载poker_helper.html")
 
         floatingView = container
 
@@ -1206,7 +1202,7 @@ class FloatingService : Service() {
                     }, 5000)
                     handler.post {
                         // V2.9.113: 先检测WebView是否就绪，再调onVisionResult
-                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.113] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.113] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
+                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.114] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.114] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
@@ -1353,7 +1349,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.113\"")
+                append("{\"version\":\"2.9.114\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")

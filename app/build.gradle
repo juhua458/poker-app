@@ -12,7 +12,7 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 100
-        versionName "2.9.113"
+        versionName "2.9.114"
     }
 
     buildTypes {
@@ -60,4 +60,5 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
     implementation 'com.google.mlkit:text-recognition:16.0.1'
+    implementation 'androidx.webkit:webkit:1.11.0'
 }

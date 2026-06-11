@@ -106,6 +106,15 @@ class HttpServerService : Service() {
         if (server == null) {
             server = object : NanoHTTPD(8666) {
                 override fun serve(session: IHTTPSession): Response {
+                    // V2.9.114: CORS preflight——WebViewAssetLoader跨域请求需OPTIONS预检
+                    if (session.method == Method.OPTIONS) {
+                        return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "").apply {
+                            addHeader("Access-Control-Allow-Origin", "*")
+                            addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                            addHeader("Access-Control-Allow-Headers", "Content-Type")
+                            addHeader("Access-Control-Max-Age", "86400")
+                        }
+                    }
                     return when {
                         session.uri == "/" || session.uri == "/poker" || session.uri == "/helper" || session.uri == "/index.html" -> {
                             // V2.9.15: 不再每次请求清空缓存！pokerHelperHtml只加载一次到内存
@@ -146,7 +155,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.113")
+                                put("version", "2.9.114")
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
@@ -452,7 +461,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("截屏优化 v2.9.113")
+                .setContentTitle("截屏优化 v2.9.114")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -460,7 +469,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("截屏优化 v2.9.113")
+                .setContentTitle("截屏优化 v2.9.114")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

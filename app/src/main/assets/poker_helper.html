@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.113 · NO_TABLE增强检测</title>
+<title>青云 v2.9.114 · NO_TABLE增强检测</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1108,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.113',
+    version:'2.9.114',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1116,7 +1117,7 @@ function exportLog(){
     logs:LogBuffer.getAll(),
     nativeErrors:nativeErrors
   };
-  fetch('/api/export/history',{
+  fetch(API_BASE+'/api/export/history',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(data)
@@ -1226,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.113',
+  CURRENT_VERSION:'2.9.114',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -6208,7 +6209,7 @@ function testKey(){
 
 // V1.3: 按需截屏回调 - 从Android端截屏完成后调用（无API Key时的降级方案）
 function onActionCapture(){
-  fetch('/api/chips')
+  fetch(API_BASE+'/api/chips')
     .then(function(r){return r.json();})
     .then(function(data){
       if(data && data.tablePlayerCount){
@@ -6918,7 +6919,7 @@ function hotUpdate(){
   var btn=document.getElementById('hotBtn');
   if(!btn)return;
   btn.textContent='⏳下载中...';btn.disabled=true;
-  fetch('/api/hotload').then(function(r){return r.json()}).then(function(d){
+  fetch(API_BASE+'/api/hotload').then(function(r){return r.json()}).then(function(d){
     if(d.ok){
       btn.textContent='✅V'+d.version;
       var rv=document.getElementById('revertBtn');
@@ -6935,7 +6936,7 @@ function hotUpdate(){
   });
 }
 function revertLocal(){
-  fetch('/api/hotload/revert').then(function(r){return r.json()}).then(function(d){
+  fetch(API_BASE+'/api/hotload/revert').then(function(r){return r.json()}).then(function(d){
     if(d.ok){
       var rv=document.getElementById('revertBtn');
       if(rv)rv.style.display='none';
@@ -6947,7 +6948,7 @@ function revertLocal(){
 }
 // 启动时检查是否为远程版本，显示恢复按钮
 (function(){
-  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+  fetch(API_BASE+'/api/status').then(function(r){return r.json()}).then(function(d){
     if(d.htmlSource==='remote'){
       var rv=document.getElementById('revertBtn');
       if(rv)rv.style.display='inline-block';
