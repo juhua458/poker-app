@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.91
-        name: "V2.9.91 Squeeze挤压策略"
-        body: "V2.9.91: 多人池策略模块(Multiway)——范围收紧/c-bet频率降低/bluff频率衰减/draw只追强听/3bet不诈唬/iso-raise加大/跟注阈值提高"
+        tag_name: v2.9.92
+        name: "V2.9.92 对手3bet频率追踪"
+        body: "V2.9.92: 多人池策略模块(Multiway)——范围收紧/c-bet频率降低/bluff频率衰减/draw只追强听/3bet不诈唬/iso-raise加大/跟注阈值提高"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
