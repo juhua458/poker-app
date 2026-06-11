@@ -41,8 +41,8 @@ jobs:
       if: success()
       with:
         tag_name: v2.9.89
-        name: "V2.9.89 策略引擎3bet+深度"
-        body: "V2.9.53: 河牌完全枚举精确胜率+底池置信度评估(PotConfidence)+底池离散化4档(PotBucket)+三层Fallback策略(高/中/低置信度→精确GTO/粗粒度区间/纯胜率兜底)+多帧平滑校验+River容错策略(胜率区间决策)+UI显示置信度"
+        name: "V2.9.89 多人池策略"
+        body: "V2.9.89: 多人池策略模块(Multiway)——范围收紧/c-bet频率降低/bluff频率衰减/draw只追强听/3bet不诈唬/iso-raise加大/跟注阈值提高"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
