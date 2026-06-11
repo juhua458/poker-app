@@ -4179,8 +4179,15 @@ function onVisionResult(data){
   }
   
   // 3. V2.9.12: 从按钮文字自动推导场景（不调setScene，避免覆盖pot/bet和重复go）
+  // V2.9.77: street保险——以公共牌数为准，纠正Vision返回的错误street
   if(data.street){
     var street=(data.street||'').toLowerCase();
+    var commCount=G.comm.filter(function(c){return c!==null;}).length;
+    var correctStreet=commCount===0?'preflop':commCount===3?'flop':commCount===4?'turn':commCount===5?'river':null;
+    if(correctStreet && street!==correctStreet && street!=='pre'){
+      console.log('[street保险] Vision报'+street+'但公共牌'+commCount+'张→纠正为'+correctStreet);
+      street=correctStreet;
+    }
     var activeP=parseInt(data.active_players)||2;
     if(street==='preflop'||street==='pre'){
       G.phase='pre';
@@ -4196,16 +4203,40 @@ function onVisionResult(data){
   }
   
   // 4. 自动设定桌型和位置
-  // V2.9.15: active_players必须用API返回值，不能用total_players覆盖
+  // V2.9.77: total_players保险——同一桌人数不变，突变用旧值
   if(data.total_players){
-    G.tt=parseInt(data.total_players)||6;
+    var visionTT=parseInt(data.total_players)||0;
+    if(visionTT>=2 && visionTT<=9){
+      if(!G._lockedTT){
+        G._lockedTT=visionTT;
+      }else if(G._lockedTT && visionTT!==G._lockedTT){
+        // 同一桌人数不应该变，变了大概率识别错
+        console.log('[桌型保险] Vision报'+visionTT+'人→锁定'+G._lockedTT+'人');
+        visionTT=G._lockedTT;
+      }
+      G.tt=visionTT;
+    }else if(G._lockedTT){
+      // Vision返回不合理值(<2或>9)→用锁定值
+      console.log('[桌型保险] Vision报'+visionTT+'人异常→锁定'+G._lockedTT+'人');
+      G.tt=G._lockedTT;
+    }
   }
   // V2.9.43: 自动同步人桌UI（防止手动选被覆盖）
   if(data.total_players && typeof sTT==='function'){sTT(G.tt);}
   // V2.9.43: Ante修正——保存到全局变量供策略引擎使用
+  // V2.9.77: ante保险——同一桌ante不变，突变用旧值
   if(data.ante > 0){
-    G.ante=parseInt(data.ante)||0;
-    console.log('[Ante识别] Ante='+G.ante+' (影响位置价值和初始底池)');
+    var visionAnte=parseInt(data.ante)||0;
+    if(!G._lockedAnte && visionAnte>0){
+      G._lockedAnte=visionAnte;
+      G.ante=visionAnte;
+      console.log('[Ante保险] 锁定Ante='+G.ante);
+    }else if(G._lockedAnte && visionAnte!==G._lockedAnte){
+      console.log('[Ante保险] Vision报'+visionAnte+'→锁定'+G._lockedAnte);
+      G.ante=G._lockedAnte;
+    }else{
+      G.ante=visionAnte;
+    }
   } else {
     G.ante=0;
   }
