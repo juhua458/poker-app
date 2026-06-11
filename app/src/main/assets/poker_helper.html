@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.80 · vl-plus升级+D按钮保险</title>
+<title>青云 v2.9.81 · 双通道+花色保险+手牌锁定</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1107,7 +1107,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.80',
+    version:'2.9.81',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1225,7 +1225,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.80',
+  CURRENT_VERSION:'2.9.81',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2037,6 +2037,10 @@ var SafetyGuard={
     }
     // 筹码为0(不可能)
     if(!stk||stk<=0)level='low';
+    // V2.9.81: 花色不确定→降级可靠性
+    if(typeof G._suitUncertain!=='undefined'&&G._suitUncertain){
+      if(level==='high')level='medium';
+    }
     return level;
   },
   // 保险过滤: 用equity给颜色上锁
@@ -4358,20 +4362,40 @@ function onVisionResult(data){
     return;
   }
   
-  // V2.9: 先重置所有牌面，防止残留上一局数据
-  G.hole=[null,null];G.comm=[null,null,null,null,null];
+  // V2.9.81: 手牌锁定逻辑——锁定后不再重置手牌，只更新公共牌/底池等
+  var _handLocked = data.hole_cards_locked === true;
+  var _suitUncertain = data.suit_uncertain === true;
+  var _lockReason = data.lock_reason || '';
+  var _newHandKey = '';
+  if(data.hole_cards && data.hole_cards.length >= 2){
+    _newHandKey = data.hole_cards[0].rank + data.hole_cards[0].suit + data.hole_cards[1].rank + data.hole_cards[1].suit;
+  }
+  var _isSameHand = (typeof G._handLockKey !== 'undefined' && G._handLockKey && _newHandKey === G._handLockKey);
+  if(_handLocked && _isSameHand && G.hole[0] && G.hole[1]) {
+    console.log('[手牌锁定] 已锁定('+_lockReason+')，手牌='+_newHandKey+'，只更新公共牌/底池');
+    G.comm = [null,null,null,null,null];
+  } else {
+    G._handLockKey = _newHandKey;
+    G.hole=[null,null];G.comm=[null,null,null,null,null];
+  }
   
-  // 1. 自动填入手牌
-  if(data.hole_cards && data.hole_cards.length>=2){
+  // 1. V2.9.81: 手牌填入——锁定时不覆盖
+  if(_handLocked && _isSameHand && G.hole[0] && G.hole[1]) {
+    console.log('[手牌锁定] 保持锁定手牌: '+G.hole[0].rank+G.hole[0].suit+' '+G.hole[1].rank+G.hole[1].suit);
+  } else if(data.hole_cards && data.hole_cards.length>=2){
     G.hole=[];
     for(var i=0;i<data.hole_cards.length && i<2;i++){
       var c=data.hole_cards[i];
-      if(c.rank && c.suit){
-        G.hole.push({rank:c.rank,suit:c.suit});
-      }
+      if(c.rank && c.suit){ G.hole.push({rank:c.rank,suit:c.suit}); }
     }
-    // V2.9.73: 确保G.hole始终有2个元素（防止某张牌识别失败导致G.hole[1]=undefined）
     while(G.hole.length<2) G.hole.push(null);
+    // V2.9.81: 花色保险
+    G._suitUncertain = _suitUncertain;
+    if(_suitUncertain){
+      console.log('[花色保险] ⚠️花色不确定('+_lockReason+')，策略引擎降级处理');
+    } else {
+      if(typeof G._suitUncertain!=='undefined') delete G._suitUncertain;
+    }
   }
   
   // 2. 自动填入公共牌
@@ -4408,6 +4432,9 @@ function onVisionResult(data){
       // V2.9.79: 新一手牌→重置行动线
       var _newHandId=(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'');
       ActionLine.startHand(_newHandId);
+      // V2.9.81: 新一手牌→重置花色不确定和锁定
+      if(typeof G._suitUncertain!=='undefined') delete G._suitUncertain;
+      G._handLockKey='';
     } else {
       G.phase='post';
     }
