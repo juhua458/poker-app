@@ -811,22 +811,21 @@ class FloatingService : Service() {
                         // 点击 → 截屏识别
                         Log.d(TAG, "★ 悬浮球点击触发")
                         // V2.9.111: 按压动画——缩放反馈+变色
-                        try {
-                            val b = floatingBall ?: return@compareTo true
+                        floatingBall?.let { b ->
                             b.animate().scaleX(0.85f).scaleY(0.85f).setDuration(80).withEndAction {
                                 b.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
                             }.start()
-                        } catch(_: Exception) {}
+                        }
                         // V2.9.111: 变黄+改边框（同时改背景和边框）
-                        try {
-                            val b = floatingBall ?: return@compareTo true
-                            val shape = b.background as? GradientDrawable
-                            shape?.setColor(0xDDFFD600.toInt())
-                            val density = resources.displayMetrics.density
-                            val stroke = (3 * density).toInt()
-                            shape?.setStroke(stroke, 0xFFD600.toInt())
+                        floatingBall?.let { b ->
+                            (b.background as? GradientDrawable)?.let { shape ->
+                                shape.setColor(0xDDFFD600.toInt())
+                                val density = resources.displayMetrics.density
+                                val stroke = (3 * density).toInt()
+                                shape.setStroke(stroke, 0xFFD600.toInt())
+                            }
                             b.text = "⏳"; b.textSize = 16f
-                        } catch(_: Exception) {}
+                        }
                         updateAdviceNotification("⏳ 点击已触发", "正在截屏...")
                         triggerCapture()
                     }
