@@ -282,29 +282,10 @@ object VisionApiClient {
     }
 
     private fun buildRequest(base64Image: String, model: String? = null): String {
-        val prompt = """识别德州扑克截图，只认牌面rank不认花色：
-
-1. 底池pot_size：牌桌中央"底池XXX"的数字，去逗号，10K=10000
-2. 筹码my_chips：左下角你头像下数字
-3. 手牌hole_cards：底部2张正面牌，只要rank（A K Q J T 9 8 7 6 5 4 3 2，T=10）
-4. 公共牌community_cards：桌面中央0/3/4/5张，只要rank
-5. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
-6. 操作按钮buttons：底部按钮原样输出
-7. total_players总座位数，active_players活跃人数
-8. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
-9. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
-10. 对手座位opp_seats：每个对手座位（不含你自己bottom-center），识别：
-   - pos: 座位位置(left-bottom/left-top/top-center/right-top/right-bottom)
-   - chips: 头像下方筹码数字
-   - status: active=红色牌背遮挡头像还在牌局 / folded=头像没被遮挡已弃牌
-   - nickname: 头像旁的昵称文字
-   - bet: 当前轮下注额（桌面该座位前绿色框数字，没下注=0）
-
-❌ pot_size不是你头像下数字（那是my_chips）
-
-返回JSON：
-{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top","opp_seats":[{"pos":"left-bottom","chips":3810,"status":"folded","nickname":"Player1","bet":0},{"pos":"left-top","chips":7981,"status":"active","nickname":"Player2","bet":500},{"pos":"top-center","chips":20000,"status":"active","nickname":"Player3","bet":500},{"pos":"right-top","chips":58485,"status":"active","nickname":"Player4","bet":0},{"pos":"right-bottom","chips":13463,"status":"active","nickname":"Player5","bet":0}]}
-
+        val prompt = """识别德州扑克截图(只认rank不认花色):
+pot_size=底池数字 my_chips=左下头像下筹码 hole_cards=底部2张rank(AKQJT98765432) community_cards=中央0/3/4/5张rank d_button_pos=D按钮座位(bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found) buttons=底部按钮文字 total_players=总座数 active_players=活跃数 blind_sb/blind_bb=标题盲注 to_call=跟注额 opp_seats=对手[{pos,chips,status(active/folded),nickname,bet}]
+❌pot_size≠my_chips
+JSON:{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":5,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top","opp_seats":[{"pos":"left-bottom","chips":3810,"status":"folded","nickname":"P1","bet":0}]}
 只返回JSON"""
 
         val json = JSONObject().apply {
@@ -357,7 +338,7 @@ object VisionApiClient {
             val err = conn.errorStream?.bufferedReader()?.readText() ?: "HTTP $responseCode"
             throw Exception("HTTP $responseCode: $err")
         }
-        conn.disconnect()
+        // V2.9.107: 不主动disconnect，复用HTTP Keep-Alive连接省~100-200ms
         return responseBody
     }
 

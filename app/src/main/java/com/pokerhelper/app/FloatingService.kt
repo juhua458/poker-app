@@ -76,7 +76,7 @@ class FloatingService : Service() {
     // V2.9.40: 悬浮球 — 一键截屏
     private var floatingBall: TextView? = null
     private var ballParams: WindowManager.LayoutParams? = null
-    private val BALL_SIZE_DP = 64  // V2.9.106: 加大显示equity
+    private val BALL_SIZE_DP = 64  // V2.9.107: 死代码清理+HTTP复用
     private val KEY_BALL_X = "ball_x"
     private val KEY_BALL_Y = "ball_y"
 
@@ -396,7 +396,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.106"
+            text = "青云 v2.9.107"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -840,7 +840,7 @@ class FloatingService : Service() {
             val shape = ball.background as? GradientDrawable ?: return
             val density = resources.displayMetrics.density
             val stroke = (3 * density).toInt()
-            // V2.9.106: 解析equity数值显示在悬浮球
+            // V2.9.107: 解析equity数值显示在悬浮球
             var eqText = ""
             val eqMatch = Regex("\\|EQ:(\\d+)").find(advice)
             if (eqMatch != null) {

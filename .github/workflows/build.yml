@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.106
-        name: "V2.9.106 River极化诈唬+fold追踪修复"
-        body: "V2.9.106: RiverPolarStrategy极化诈唬模块+_onNewHand fold追踪bug修复"
+        tag_name: v2.9.107
+        name: "V2.9.107 死代码修复+HTTP连接复用"
+        body: "V2.9.107: 删除DBStrategy残留死代码(ReferenceError)+HTTP Keep-Alive连接复用"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.106 · C-bet策略引擎</title>
+<title>青云 v2.9.107 · C-bet策略引擎</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -5397,9 +5397,6 @@ var DBStrategy={
         return{a:'raise',v:_dbResult.v,r:_dbResult.r,eq:exploitDB.eq,c:_dbResult.c,sizing:_dbResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       // check: DB策略决定不barrel，继续走后面c-bet/通用逻辑
-    }
-        return{a:'raise',v:dbSizing,r:_dbReason,eq:exploitDB.eq,c:hClass.name==='AIR'?'l':'m',sizing:dbSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights},sizingOptions:getSizingOptions(eq,hClass.name,street,ip,G.opp,spr,bTexture,pot,bet)};
-      }
     }
     // V2.9.105: C-bet策略——统一模块替代旧GTO频率+CBET_FREQ双系统
     // 优先使用CBetStrategy(含PFR检测+牌面感知+对手适配+尺度优化)
