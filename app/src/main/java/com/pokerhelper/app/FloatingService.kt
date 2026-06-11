@@ -396,7 +396,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.108"
+            text = "青云 v2.9.109"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -523,10 +523,12 @@ class FloatingService : Service() {
             builtInZoomControls = false
         }
 
+        // V2.9.109: 清除WebView缓存，防止加载旧版HTML（V2.9.68曾因此导致悬浮球无反应）
+        wv.clearCache(true)
         wv.webViewClient = object : WebViewClient() {
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
                 if (errorCode == -2 || errorCode == -6) {
-                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666") }, 2000)
+                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }, 2000)
                 }
             }
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -621,7 +623,7 @@ class FloatingService : Service() {
             }
         }, "AndroidBridge")
 
-        wv.loadUrl("http://127.0.0.1:8666")
+        wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}")
 
         floatingView = container
 
