@@ -143,7 +143,7 @@ object VisionApiClient {
             lastResult = correctedResult; lastResultTime = System.currentTimeMillis(); lastError = ""
             correctedResult = applyStreetCorrection(correctedResult)
             correctedResult = applyValidationCorrections(correctedResult); lastResult = correctedResult
-            Log.d(TAG, "识别成功($lastPromptMode): ${correctedResult.holeCards.joinToString()} | comm=${correctedResult.communityCards.map{it.rank}.joinToString()} | 底池${corrected.potSize} | ${corrected.totalPlayers}桌 | D=$dPosInsured")
+            Log.d(TAG, "识别成功($lastPromptMode): ${correctedResult.holeCards.joinToString()} | comm=${correctedResult.communityCards.map{it.rank}.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌 | D=$dPosInsured")
             correctedResult
         } catch (e: Exception) { lastError = "API错误: ${e.message}"; Log.e(TAG, "analyzeScreenshot failed", e); null }
     }
@@ -240,7 +240,7 @@ rank=A/2-10/J/Q/K,phase=preflop/flop/turn/river,action=fold/check/call/raise/all
         val street = if (isCompact) data.optString("phase", "preflop") else data.optString("street", "preflop")
         val potSize = if (isCompact) parseChipValue(data, "pot") else parsePotSize(data, "pot_size")
         val insuredPot = if (potSize == 0 && data.has("pot_size")) { val v = parsePotSize(data, "pot_size"); if (v > 0) v else potSize } else potSize
-        return VisionResult(parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, players, blindSB, blindBB, parseChipValue(data, "ante"), data.optString("d_button_pos", ""), content)
+        return VisionResult(parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content)
     }
 
     private fun parseOppSeats(arr: JSONArray?): List<PlayerInfo> {
