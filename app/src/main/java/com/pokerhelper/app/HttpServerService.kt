@@ -12,11 +12,13 @@ import android.os.Looper
 import android.content.pm.ServiceInfo
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
+import android.util.Log
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.net.URL
 
 class HttpServerService : Service() {
+    private val TAG = "HttpServerService"
 
     companion object {
         private const val CHANNEL_ID = "poker_http"

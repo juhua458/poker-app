@@ -1376,7 +1376,7 @@ class FloatingService : Service() {
                 append("]")
                 append(",\"lastVisionResult\":\"${VisionApiClient.lastError.take(100).replace("\"", "\\\"")}\"")
                 append("}")
-
+            }
             val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             val fileName = "poker_log_${java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())}.json"
             val exportFile = File(downloadDir, fileName)
