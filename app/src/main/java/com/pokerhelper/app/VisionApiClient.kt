@@ -58,6 +58,7 @@ object VisionApiClient {
         val ante: Int,                      // V2.9.43: 前注（每人需投入的前注）
         val players: List<PlayerInfo>,      // V2.9.72: 对手位置信息（辅助校验）
         val dButtonPosition: String,        // V2.9.78: D按钮位置(bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found)
+        val oppSeats: List<OppSeatInfo>,    // V2.9.85: 对手座位信息（画像追踪）
         val rawResponse: String             // 原始API返回
     )
 
@@ -72,6 +73,13 @@ object VisionApiClient {
         val bet: Int,           // 下注额（绿色框里的数字），未下注=0
         val chips: Int,         // 筹码量
         val active: Boolean     // 是否在牌局中（头像被牌遮挡=active）
+    )
+
+    // V2.9.85: 对手座位信息（用于画像追踪）
+    data class OppSeatInfo(
+        val pos: String,        // 座位位置: left-bottom/left-top/top-center/right-top/right-bottom
+        val chips: Int,         // 筹码数字
+        val status: String      // active=还在牌局 / folded=已弃牌
     )
 
     /**
@@ -283,17 +291,18 @@ object VisionApiClient {
 7. total_players总座位数，active_players活跃人数
 8. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
 9. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
+10. 对手座位opp_seats：每个对手座位（不含你自己bottom-center），识别pos(座位位置)/chips(筹码数字)/status(active=红色牌背遮挡头像还在牌局/folded=头像没被遮挡或已弃牌)
 
 ❌ pot_size不是你头像下数字（那是my_chips）
 
 返回JSON：
-{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top"}
+{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top","opp_seats":[{"pos":"left-bottom","chips":3810,"status":"folded"},{"pos":"left-top","chips":7981,"status":"active"},{"pos":"top-center","chips":20000,"status":"active"},{"pos":"right-top","chips":58485,"status":"active"},{"pos":"right-bottom","chips":13463,"status":"active"}]}
 
 只返回JSON"""
 
         val json = JSONObject().apply {
             put("model", model ?: modelName)
-            put("max_tokens", 500)
+            put("max_tokens", 800)
             put("temperature", 0.1)
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
@@ -408,6 +417,7 @@ object VisionApiClient {
             blindBB = blindBB,
             ante = ante,
             dButtonPosition = data.optString("d_button_pos", ""),  // V2.9.83: 从主调用解析，不再并行
+            oppSeats = parseOppSeats(data.optJSONArray("opp_seats")),  // V2.9.85: 对手座位
             rawResponse = content
         )
     }
@@ -480,6 +490,23 @@ object VisionApiClient {
             }
         }
         return cards
+    }
+
+    // V2.9.85: 解析对手座位信息
+    private fun parseOppSeats(arr: JSONArray?): List<OppSeatInfo> {
+        if (arr == null) return emptyList()
+        return try {
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+                val pos = obj.optString("pos", "")
+                val chips = obj.optInt("chips", 0)
+                val status = obj.optString("status", "active")
+                if (pos.isNotEmpty()) OppSeatInfo(pos, chips, status) else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "opp_seats解析失败: ${e.message}")
+            emptyList()
+        }
     }
 
     /**
@@ -781,6 +808,14 @@ object VisionApiClient {
             }))
             // V2.9.78: 输出D按钮位置
             put("d_button_position", result.dButtonPosition)
+            // V2.9.85: 输出对手座位信息
+            put("opp_seats", JSONArray(result.oppSeats.map {
+                JSONObject().apply {
+                    put("pos", it.pos)
+                    put("chips", it.chips)
+                    put("status", it.status)
+                }
+            }))
             // V2.9.81: 手牌锁定和花色保险
             put("suit_uncertain", suitUncertain)
             put("hole_cards_locked", holeCardsLocked != null)

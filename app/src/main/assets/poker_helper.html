@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.84 · Worker适配suit空值</title>
+<title>青云 v2.9.85 · 对手画像+花色概率</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -272,6 +272,7 @@ body.speed-mode .rec-label{font-size:10px}
 <div class="res" id="res"><div style="color:#555;font-size:14px">📷 截图即可开始分析</div></div>
 <div class="tracker-wrap" id="trackerWrap">
   <div class="tracker-title"><span class="t-icon">🎯</span>对手追踪 <span id="oppTypeTag" style="font-size:9px;padding:1px 5px;background:rgba(199,125,255,.2);border-radius:3px;color:#c77dff">unknown</span></div>
+  <div id="oppProfileInfo" style="padding:2px 8px;"><div style="font-size:9px;color:#555">等待数据...</div></div>
   <div class="tracker-stats" id="trackerStats">
     <div class="t-stat"><div class="t-stat-l">手数</div><div class="t-stat-v" id="tHands">0</div></div>
     <div class="t-stat"><div class="t-stat-l">VPIP</div><div class="t-stat-v" id="tVpip">--</div></div>
@@ -401,7 +402,7 @@ var SU=['h','d','s','c'];
 var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null};
+var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{}};
 var _pi=null,_ms='h';
 var _decisionCache={};var _cacheMax=200;
 function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('')+'L'+G.limpers;}
@@ -1107,7 +1108,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.84',
+    version:'2.9.85',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1225,7 +1226,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.84',
+  CURRENT_VERSION:'2.9.85',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1312,6 +1313,195 @@ var ActionLine={
   },
   
   reset:function(){this._lines=[];this._handId='';this._prevStreet='';}
+};
+
+// ===== V2.9.85: 对手画像追踪器 =====
+var OppProfiler={
+  // 每个座位的画像数据: {pos, hands, entered, folded, chipsHistory, type}
+  _profiles:{},
+  
+  // 更新画像：每次Vision结果调用
+  update:function(oppSeats,myChips,street){
+    if(!oppSeats||!oppSeats.length)return;
+    
+    var prevSeats=G.oppSeats||[];
+    var isHandStart=(street==='preflop'&&(G.phase==='pre'||G.phase!=='preflop'));
+    
+    // 检测新一手牌：手牌变了 或 street从非preflop跳回preflop
+    var handChanged=this._detectNewHand(oppSeats,street);
+    if(handChanged){
+      this._onNewHand();
+    }
+    
+    for(var i=0;i<oppSeats.length;i++){
+      var s=oppSeats[i];
+      var pos=s.pos;
+      if(!this._profiles[pos]){
+        this._profiles[pos]={pos:pos,hands:0,entered:0,folded:0,chipsHistory:[],type:'unknown',_lastChips:0,_enteredThisHand:false};
+      }
+      var p=this._profiles[pos];
+      
+      // 筹码变化检测
+      var prevChips=p._lastChips;
+      if(prevChips>0&&s.chips>0){
+        var diff=prevChips-s.chips;
+        // 筹码减少了→入池了（下注/跟注）
+        if(diff>0&&!p._enteredThisHand){
+          p._enteredThisHand=true;
+          p.entered++;
+        }
+      }
+      
+      // 弃牌状态检测
+      if(s.status==='folded'){
+        if(!p._foldedThisHand&&p._enteredThisHand){
+          p._foldedThisHand=true;
+          p.folded++;
+        }
+      }
+      
+      // 记录筹码历史（最近10条）
+      p.chipsHistory.push(s.chips);
+      if(p.chipsHistory.length>10)p.chipsHistory.shift();
+      p._lastChips=s.chips;
+    }
+    
+    // 保存当前快照
+    G.oppSeats=oppSeats;
+    
+    // 每3手更新一次类型判断
+    this._updateTypes();
+  },
+  
+  _detectNewHand:function(oppSeats,street){
+    // 简单判断：street回到preflop且G.phase不是preflop
+    return street==='preflop'&&G.phase!=='preflop';
+  },
+  
+  _onNewHand:function(){
+    for(var pos in this._profiles){
+      var p=this._profiles[pos];
+      if(p._enteredThisHand){
+        p.hands++;
+      }
+      p._enteredThisHand=false;
+      p._foldedThisHand=false;
+    }
+  },
+  
+  _updateTypes:function(){
+    for(var pos in this._profiles){
+      var p=this._profiles[pos];
+      if(p.hands<2)continue; // 至少2手数据才判断
+      
+      var vpip=p.entered/p.hands;
+      var foldRate=p.folded/Math.max(p.entered,1);
+      
+      // 分类逻辑
+      if(vpip>=0.7){
+        p.type='fish'; // 70%+入池→鱼
+      }else if(vpip>=0.5){
+        p.type='calling_station'; // 50-70%入池→跟注站
+      }else if(vpip>=0.35){
+        p.type='lag'; // 35-50%入池→LAG
+      }else if(vpip>=0.25){
+        p.type='tag'; // 25-35%入池→TAG
+      }else if(vpip>=0.15){
+        p.type='tight'; // 15-25%入池→紧
+      }else{
+        p.type='nit'; // <15%入池→超紧
+      }
+      
+      // 弃牌率修正：入池后经常弃牌→弱/tight
+      if(vpip>=0.4&&foldRate>=0.5){
+        p.type='tight'; // 入池多但经常弃→其实是tight
+      }
+    }
+    G._oppProfiles=this._profiles;
+  },
+  
+  // 获取某个位置对手的类型
+  getType:function(pos){
+    if(this._profiles[pos])return this._profiles[pos].type;
+    return 'unknown';
+  },
+  
+  // 获取整体对手类型（加权平均，用于G.opp）
+  getOverallType:function(){
+    var counts={};
+    var total=0;
+    for(var pos in this._profiles){
+      var t=this._profiles[pos].type;
+      if(t!=='unknown'){
+        counts[t]=(counts[t]||0)+1;
+        total++;
+      }
+    }
+    if(total===0)return 'unknown';
+    // 返回最常见的类型
+    var maxType='unknown',maxCount=0;
+    for(var t in counts){
+      if(counts[t]>maxCount){maxCount=counts[t];maxType=t;}
+    }
+    return maxType;
+  },
+  
+  // UI更新
+  updateUI:function(){
+    var el=document.getElementById('oppProfileInfo');
+    if(!el)return;
+    var html='';
+    for(var pos in this._profiles){
+      var p=this._profiles[pos];
+      var vpip=p.hands>0?Math.round(p.entered/p.hands*100):0;
+      html+='<div style="font-size:9px;color:#aaa">'+pos+': '+p.type+' ('+p.hands+'手 VPIP:'+vpip+'%)</div>';
+    }
+    el.innerHTML=html||'<div style="font-size:9px;color:#555">等待数据...</div>';
+  }
+};
+
+// ===== V2.9.85: 花色概率推断 =====
+var SuitProb={
+  // 计算同花听牌概率（纯数学，不依赖视觉识别）
+  // 返回0-1之间的概率值
+  flushDrawProb:function(holeCards,communityCards){
+    if(!communityCards||communityCards.length===0)return 0;
+    var numComm=communityCards.filter(function(c){return c&&c.rank;}).length;
+    if(numComm<3)return 0; // 翻前无同花听牌
+    
+    // 策略：不知道花色时，同花概率计算
+    // 翻牌(flop=3): 对手有同花听牌概率 ≈ 3*对手牌组合中同花比例
+    // 简化模型：每张未知牌有1/4概率是某花色
+    // 3张公共牌全是同一花色的概率 = 4*(12/51)*(11/50) ≈ 5.2%
+    // 2张同花+1张不同 = 对手有同花听牌的概率更高
+    
+    // 最实用的指标：对手可能有同花的概率
+    var numUsed=holeCards.length+numComm;
+    var numUnknown=52-numUsed;
+    
+    // 对手两张牌同花的概率 = 4*C(12,2)/C(numUnknown,2) ≈ 23.5% (理论值)
+    // 但考虑已用rank后调整
+    if(numUnknown<2)return 0;
+    var flushProb=4*12/(numUnknown)*11/(numUnknown-1);
+    
+    // 翻牌3同花→对手4同花听牌概率极高(≈35%)
+    // 翻牌2同花→对手同花听牌概率中等(≈15%)  
+    // 这里简化：用数学期望值
+    return Math.min(flushProb,0.4); // 上限40%
+  },
+  
+  // 计算我们可能有同花听牌的概率
+  ourFlushDrawProb:function(holeCards,communityCards){
+    if(!holeCards||holeCards.length<2||!communityCards)return 0;
+    var numComm=communityCards.filter(function(c){return c&&c.rank;}).length;
+    if(numComm<3)return 0;
+    // 我们两张手牌同花的概率 = 1/4 (25%)
+    // 如果同花，flop上3张中有2+张同花→听牌
+    var baseProb=0.25; // 手牌同花概率
+    // flop上有2张与我们同花→9张outs→同花概率≈35%
+    // 简化：期望概率
+    return baseProb*0.35; // ≈8.75%
+  }
 };
 
 var DRTA={
@@ -2945,6 +3135,16 @@ function decide(){
     var _spr=G.spr||10;
     var _stk=G.stk||100000;
     var _oppType=G.opp||'unknown';
+    // V2.9.85: 花色概率修正——对手同花概率→保守equity调整
+    var _flushPenalty=0;
+    var _numComm=G.comm.filter(function(c){return c&&c.rank;}).length;
+    if(_numComm>=3){
+      _flushPenalty=SuitProb.flushDrawProb(G.hole,G.comm);
+      if(_flushPenalty>0.15){
+        _eq=Math.max(_eq-_flushPenalty*8,5);
+        console.log('[花色概率] 同花概率='+Math.round(_flushPenalty*100)+'% → equity调整-='+Math.round(_flushPenalty*800)+'%');
+      }
+    }
     var _profile=DRTA.getProfile();
     var _tiltInfo=TiltDetector.detectTilt(_profile);
     var _ceResult=CounterExploit.detect(_profile);
@@ -4853,6 +5053,21 @@ function onVisionResult(data){
   } else {
     G.players=[];
     G._playersCrossCheck=null;
+  }
+
+  // V2.9.85: 对手画像追踪——从opp_seats自动追踪VPIP/弃牌率
+  if(data.opp_seats&&data.opp_seats.length>0){
+    G.oppSeats=data.opp_seats;
+    OppProfiler.update(data.opp_seats,G.stk,data.street||G.phase);
+    // 自动更新G.opp为整体对手类型
+    var _autoType=OppProfiler.getOverallType();
+    if(_autoType!=='unknown'&&_autoType!==G.opp){
+      G.opp=_autoType;
+      DRTA.setType(_autoType);
+      setOppType(_autoType);
+      console.log('[OppProfiler] 自动设置对手类型: '+_autoType);
+    }
+    OppProfiler.updateUI();
   }
 
   // 6. 更新UI
