@@ -1113,15 +1113,17 @@ class FloatingService : Service() {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
                 Log.d(TAG, "★ VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
                 if (result != null) {
-                    // V2.9.111: NO_TABLE检测——3信号(无手牌/无D按钮/无操作按钮)满足2个→不在牌桌
+                    // V2.9.111: NO_TABLE检测——优先看isPokerTable，其次3信号联合判断
+                    val modelSaysNoTable = !result.isPokerTable
                     val noHoleCards = result.holeCards.size < 2
                     val noDButton = result.dButtonPosition.isEmpty() || result.dButtonPosition == "not_found"
                     val noPokerButtons = result.buttons.isEmpty() || result.buttons.none { b ->
                         b.contains("弃牌") || b.contains("跟注") || b.contains("加注") || b.contains("过牌") || b.contains("让牌") || b.contains("下注") || b.contains("全下") || b.contains("全押")
                     }
                     val noTableSignals = (if(noHoleCards) 1 else 0) + (if(noDButton) 1 else 0) + (if(noPokerButtons) 1 else 0)
-                    Log.d(TAG, "★ NO_TABLE检测: noHole=$noHoleCards noD=$noDButton noBtn=$noPokerButtons signals=$noTableSignals")
-                    if (noTableSignals >= 2) {
+                    val isNoTable = modelSaysNoTable || noTableSignals >= 2
+                    Log.d(TAG, "★ NO_TABLE检测: isPokerTable=${result.isPokerTable} noHole=$noHoleCards noD=$noDButton noBtn=$noPokerButtons signals=$noTableSignals result=$isNoTable")
+                    if (isNoTable) {
                         Log.w(TAG, "★ NO_TABLE判定: 不在牌桌(signals=$noTableSignals), dButton=${result.dButtonPosition}, buttons=${result.buttons}")
                         handler.post {
                             updateBallAdvice("COLOR:FOLD|SIGNAL:NO_TABLE|EQ:0|REASON:未检测到牌桌")

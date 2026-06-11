@@ -6262,15 +6262,17 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
 
 // V1.3: API视觉识别结果回调 - 自动填入牌面+策略分析
 function onVisionResult(data){
-  // V2.9.111: NO_TABLE增强检测——3信号(无手牌/无D按钮/无操作按钮)满足2个→不在牌桌
+  // V2.9.111: NO_TABLE增强检测——优先is_poker_table，其次3信号联合判断
+  var _modelNoTable = data && data.is_poker_table === false;
   var _noHole = !data || !data.hole_cards || data.hole_cards.length<2;
   var _noD = !data || !data.d_button_position || data.d_button_position==='not_found' || data.d_button_position==='';
   var _noBtn = !data || !data.buttons || data.buttons.length===0 || !data.buttons.some(function(b){
     return b.indexOf('弃牌')>=0||b.indexOf('跟注')>=0||b.indexOf('加注')>=0||b.indexOf('过牌')>=0||b.indexOf('让牌')>=0||b.indexOf('下注')>=0||b.indexOf('全下')>=0||b.indexOf('全押')>=0;
   });
   var _noTableSignals = (_noHole?1:0)+(_noD?1:0)+(_noBtn?1:0);
-  if(_noTableSignals>=2){
-    console.log('[NO_TABLE] signals='+_noTableSignals+' noHole='+_noHole+' noD='+_noD+' noBtn='+_noBtn);
+  var _isNoTable = _modelNoTable || _noTableSignals>=2;
+  if(_isNoTable){
+    console.log('[NO_TABLE] isPokerTable='+(data?data.is_poker_table:'nodata')+' signals='+_noTableSignals+' noHole='+_noHole+' noD='+_noD+' noBtn='+_noBtn);
     try{
       if(typeof AndroidBridge!=='undefined' && AndroidBridge.showAdvice){
         AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:NO_TABLE|EQ:0|REASON:未检测到牌桌');

@@ -53,6 +53,7 @@ object VisionApiClient {
         private set
 
     data class VisionResult(
+        val isPokerTable: Boolean,
         val holeCards: List<CardInfo>,
         val communityCards: List<CardInfo>,
         val potSize: Int,
@@ -185,28 +186,31 @@ object VisionApiClient {
 
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
         val prompt = if (compact) {
-            """识别扑克截图，返回单行JSON(禁止换行禁止markdown)。格式:
-{"hole_cards":[{"rank":"A"},{"rank":"K"}],"community_cards":[{"rank":"Q"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3}
-rank=A/2-10/J/Q/K,phase=preflop/flop/turn/river,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。从截图识别真实数据,无公共牌community_cards填[]"""
+            """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)，返回单行JSON(禁止换行禁止markdown)。格式:
+{"is_poker_table":true,"hole_cards":[{"rank":"A"},{"rank":"K"}],"community_cards":[{"rank":"Q"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3}
+is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K,phase=preflop/flop/turn/river,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]"""
         } else {
-            """识别德州扑克截图，只认牌面rank不认花色：
+            """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)。
 
-1. 底池pot_size：牌桌中央"底池XXX"的数字，去逗号，10K=10000
-2. 筹码my_chips：左下角你头像下数字
-3. 手牌hole_cards：底部2张正面牌，只要rank（A K Q J T 9 8 7 6 5 4 3 2，T=10）
-4. 公共牌community_cards：桌面中央0/3/4/5张，只要rank
-5. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
-6. 操作按钮buttons：底部按钮原样输出
-7. total_players总座位数，active_players活跃人数
-8. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
-9. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
+识别德州扑克截图，只认牌面rank不认花色：
+
+1. is_poker_table：是否为扑克桌面(不是必须false)
+2. 底池pot_size：牌桌中央"底池XXX"的数字，去逗号，10K=10000
+3. 筹码my_chips：左下角你头像下数字
+4. 手牌hole_cards：底部2张正面牌，只要rank（A K Q J T 9 8 7 6 5 4 3 2，T=10）
+5. 公共牌community_cards：桌面中央0/3/4/5张，只要rank
+6. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
+7. 操作按钮buttons：底部按钮原样输出
+8. total_players总座位数，active_players活跃人数
+9. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
+10. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
 
 ❌ pot_size不是你头像下数字（那是my_chips）
 
 返回JSON：
-{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top"}
+{"is_poker_table":true,"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top"}
 
-只返回JSON"""
+不是扑克桌面时is_poker_table必须false，其余字段填默认值。只返回JSON"""
         }
         return JSONObject().apply {
             put("model", model ?: modelName); put("max_tokens", 500); put("temperature", 0.1)
@@ -240,7 +244,8 @@ rank=A/2-10/J/Q/K,phase=preflop/flop/turn/river,action=fold/check/call/raise/all
         val street = if (isCompact) data.optString("phase", "preflop") else data.optString("street", "preflop")
         val potSize = if (isCompact) parseChipValue(data, "pot") else parsePotSize(data, "pot_size")
         val insuredPot = if (potSize == 0 && data.has("pot_size")) { val v = parsePotSize(data, "pot_size"); if (v > 0) v else potSize } else potSize
-        return VisionResult(parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content)
+        val isPokerTable = data.optBoolean("is_poker_table", true) // V2.9.111: 默认true兼容旧格式
+return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content)
     }
 
     private fun parseOppSeats(arr: JSONArray?): List<PlayerInfo> {
@@ -325,7 +330,7 @@ rank=A/2-10/J/Q/K,phase=preflop/flop/turn/river,action=fold/check/call/raise/all
             put("my_position", result.myPosition); put("street", result.street); put("to_call", result.toCall); put("min_raise", result.minRaise)
             put("buttons", JSONArray(result.buttons)); put("blind_sb", result.blindSB); put("blind_bb", result.blindBB); put("ante", result.ante)
             put("players", JSONArray(result.players.map { JSONObject().apply { put("position", it.position); put("bet", it.bet); put("chips", it.chips); put("active", it.active) } }))
-            put("d_button_position", result.dButtonPosition); put("suit_uncertain", suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("lock_reason", lockReason)
+            put("is_poker_table", result.isPokerTable); put("d_button_position", result.dButtonPosition); put("suit_uncertain", suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("lock_reason", lockReason)
             put("prompt_mode", lastPromptMode)
             if (warnings.isNotEmpty()) put("_warnings", JSONArray(warnings))
         }.toString()
