@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.85 · 对手画像+花色概率</title>
+<title>青云 v2.9.86 · 对手画像+花色概率</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1108,7 +1108,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.85',
+    version:'2.9.86',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1226,7 +1226,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.85',
+  CURRENT_VERSION:'2.9.86',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1315,37 +1315,56 @@ var ActionLine={
   reset:function(){this._lines=[];this._handId='';this._prevStreet='';}
 };
 
-// ===== V2.9.85: 对手画像追踪器 =====
+// ===== V2.9.86: 对手画像追踪器 =====
 var OppProfiler={
-  // 每个座位的画像数据: {pos, hands, entered, folded, chipsHistory, type}
+  // V2.9.86: 用nickname做主键，跨座跨桌追踪
+  // _profiles key = nickname, value = {nickname, pos, hands, entered, folded, chipsHistory, betHistory, type, _lastChips, _enteredThisHand, _foldedThisHand, _lastBet, _raiseCount}
   _profiles:{},
+  // pos→nickname映射，用于按位置查询
+  _posMap:{},
   
   // 更新画像：每次Vision结果调用
   update:function(oppSeats,myChips,street){
     if(!oppSeats||!oppSeats.length)return;
     
-    var prevSeats=G.oppSeats||[];
-    var isHandStart=(street==='preflop'&&(G.phase==='pre'||G.phase!=='preflop'));
-    
-    // 检测新一手牌：手牌变了 或 street从非preflop跳回preflop
+    // 检测新一手牌
     var handChanged=this._detectNewHand(oppSeats,street);
     if(handChanged){
       this._onNewHand();
     }
     
+    // 更新pos→nickname映射
+    this._posMap={};
     for(var i=0;i<oppSeats.length;i++){
       var s=oppSeats[i];
-      var pos=s.pos;
-      if(!this._profiles[pos]){
-        this._profiles[pos]={pos:pos,hands:0,entered:0,folded:0,chipsHistory:[],type:'unknown',_lastChips:0,_enteredThisHand:false};
+      var nk=s.nickname||s.pos;
+      this._posMap[s.pos]=nk;
+    }
+    
+    for(var i=0;i<oppSeats.length;i++){
+      var s=oppSeats[i];
+      var nk=s.nickname||s.pos;
+      if(!this._profiles[nk]){
+        this._profiles[nk]={nickname:nk,pos:s.pos,hands:0,entered:0,folded:0,chipsHistory:[],betHistory:[],type:'unknown',_lastChips:0,_enteredThisHand:false,_foldedThisHand:false,_lastBet:0,_raiseCount:0};
       }
-      var p=this._profiles[pos];
+      var p=this._profiles[nk];
+      p.pos=s.pos;
       
-      // 筹码变化检测
+      // V2.9.86: 用bet字段直接检测行动
+      if(s.bet>0&&!p._enteredThisHand){
+        p._enteredThisHand=true;
+        p.entered++;
+      }
+      // bet增加→加注
+      if(s.bet>0&&p._lastBet>0&&s.bet>p._lastBet){
+        p._raiseCount++;
+      }
+      p._lastBet=s.bet;
+      
+      // 筹码变化检测（兜底）
       var prevChips=p._lastChips;
       if(prevChips>0&&s.chips>0){
         var diff=prevChips-s.chips;
-        // 筹码减少了→入池了（下注/跟注）
         if(diff>0&&!p._enteredThisHand){
           p._enteredThisHand=true;
           p.entered++;
@@ -1360,85 +1379,85 @@ var OppProfiler={
         }
       }
       
-      // 记录筹码历史（最近10条）
+      // 记录历史
       p.chipsHistory.push(s.chips);
       if(p.chipsHistory.length>10)p.chipsHistory.shift();
+      p.betHistory.push(s.bet);
+      if(p.betHistory.length>20)p.betHistory.shift();
       p._lastChips=s.chips;
     }
     
-    // 保存当前快照
     G.oppSeats=oppSeats;
-    
-    // 每3手更新一次类型判断
     this._updateTypes();
   },
   
   _detectNewHand:function(oppSeats,street){
-    // 简单判断：street回到preflop且G.phase不是preflop
     return street==='preflop'&&G.phase!=='preflop';
   },
   
   _onNewHand:function(){
-    for(var pos in this._profiles){
-      var p=this._profiles[pos];
+    for(var nk in this._profiles){
+      var p=this._profiles[nk];
       if(p._enteredThisHand){
         p.hands++;
       }
       p._enteredThisHand=false;
       p._foldedThisHand=false;
+      p._lastBet=0;
+      p._raiseCount=0;
     }
   },
   
   _updateTypes:function(){
-    for(var pos in this._profiles){
-      var p=this._profiles[pos];
-      if(p.hands<2)continue; // 至少2手数据才判断
+    for(var nk in this._profiles){
+      var p=this._profiles[nk];
+      if(p.hands<2)continue;
       
       var vpip=p.entered/p.hands;
       var foldRate=p.folded/Math.max(p.entered,1);
       
-      // 分类逻辑
       if(vpip>=0.7){
-        p.type='fish'; // 70%+入池→鱼
+        p.type='fish';
       }else if(vpip>=0.5){
-        p.type='calling_station'; // 50-70%入池→跟注站
+        p.type='calling_station';
       }else if(vpip>=0.35){
-        p.type='lag'; // 35-50%入池→LAG
+        p.type='lag';
       }else if(vpip>=0.25){
-        p.type='tag'; // 25-35%入池→TAG
+        p.type='tag';
       }else if(vpip>=0.15){
-        p.type='tight'; // 15-25%入池→紧
+        p.type='tight';
       }else{
-        p.type='nit'; // <15%入池→超紧
+        p.type='nit';
       }
       
-      // 弃牌率修正：入池后经常弃牌→弱/tight
       if(vpip>=0.4&&foldRate>=0.5){
-        p.type='tight'; // 入池多但经常弃→其实是tight
+        p.type='tight';
       }
     }
     G._oppProfiles=this._profiles;
   },
   
-  // 获取某个位置对手的类型
   getType:function(pos){
-    if(this._profiles[pos])return this._profiles[pos].type;
+    var nk=this._posMap[pos];
+    if(nk&&this._profiles[nk])return this._profiles[nk].type;
     return 'unknown';
   },
   
-  // 获取整体对手类型（加权平均，用于G.opp）
+  getProfile:function(nickname){
+    return this._profiles[nickname]||null;
+  },
+  
   getOverallType:function(){
     var counts={};
     var total=0;
-    for(var pos in this._profiles){
-      var t=this._profiles[pos].type;
+    for(var nk in this._profiles){
+      var t=this._profiles[nk].type;
       if(t!=='unknown'){
         counts[t]=(counts[t]||0)+1;
         total++;
       }
     }
     if(total===0)return 'unknown';
-    // 返回最常见的类型
     var maxType='unknown',maxCount=0;
     for(var t in counts){
       if(counts[t]>maxCount){maxCount=counts[t];maxType=t;}
@@ -1446,21 +1465,22 @@ var OppProfiler={
     return maxType;
   },
   
-  // UI更新
   updateUI:function(){
     var el=document.getElementById('oppProfileInfo');
     if(!el)return;
     var html='';
-    for(var pos in this._profiles){
-      var p=this._profiles[pos];
+    for(var nk in this._profiles){
+      var p=this._profiles[nk];
       var vpip=p.hands>0?Math.round(p.entered/p.hands*100):0;
-      html+='<div style="font-size:9px;color:#aaa">'+pos+': '+p.type+' ('+p.hands+'手 VPIP:'+vpip+'%)</div>';
+      var displayName=nk.length>10?nk.substring(0,10)+'..':nk;
+      var betStr=p._lastBet>0?' <span style="color:#4CAF50">bet:'+p._lastBet+'</span>':'';
+      html+='<div style="font-size:9px;color:#aaa">'+displayName+'('+p.pos+'): '+p.type+' ('+p.hands+'手 VPIP:'+vpip+'%)'+betStr+'</div>';
     }
     el.innerHTML=html||'<div style="font-size:9px;color:#555">等待数据...</div>';
   }
 };
 
-// ===== V2.9.85: 花色概率推断 =====
+// ===== V2.9.86: 花色概率推断 =====
 var SuitProb={
   // 计算同花听牌概率（纯数学，不依赖视觉识别）
   // 返回0-1之间的概率值
@@ -3135,7 +3155,7 @@ function decide(){
     var _spr=G.spr||10;
     var _stk=G.stk||100000;
     var _oppType=G.opp||'unknown';
-    // V2.9.85: 花色概率修正——对手同花概率→保守equity调整
+    // V2.9.86: 花色概率修正——对手同花概率→保守equity调整
     var _flushPenalty=0;
     var _numComm=G.comm.filter(function(c){return c&&c.rank;}).length;
     if(_numComm>=3){
@@ -5055,7 +5075,7 @@ function onVisionResult(data){
     G._playersCrossCheck=null;
   }
 
-  // V2.9.85: 对手画像追踪——从opp_seats自动追踪VPIP/弃牌率
+  // V2.9.86: 对手画像追踪——nickname跨座追踪+bet行动线+VPIP/弃牌率
   if(data.opp_seats&&data.opp_seats.length>0){
     G.oppSeats=data.opp_seats;
     OppProfiler.update(data.opp_seats,G.stk,data.street||G.phase);

@@ -78,8 +78,10 @@ object VisionApiClient {
     // V2.9.85: 对手座位信息（用于画像追踪）
     data class OppSeatInfo(
         val pos: String,        // 座位位置: left-bottom/left-top/top-center/right-top/right-bottom
-        val chips: Int,         // 筹码数字
-        val status: String      // active=还在牌局 / folded=已弃牌
+        val chips: Int,         // 筹码数字（头像下方的总筹码）
+        val status: String,     // active=还在牌局 / folded=已弃牌
+        val nickname: String,   // V2.9.86: 对手昵称（跨座跨桌追踪）
+        val bet: Int            // V2.9.86: 当前轮下注额（桌面绿色框数字，没下注=0）
     )
 
     /**
@@ -291,12 +293,17 @@ object VisionApiClient {
 7. total_players总座位数，active_players活跃人数
 8. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
 9. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
-10. 对手座位opp_seats：每个对手座位（不含你自己bottom-center），识别pos(座位位置)/chips(筹码数字)/status(active=红色牌背遮挡头像还在牌局/folded=头像没被遮挡或已弃牌)
+10. 对手座位opp_seats：每个对手座位（不含你自己bottom-center），识别：
+   - pos: 座位位置(left-bottom/left-top/top-center/right-top/right-bottom)
+   - chips: 头像下方筹码数字
+   - status: active=红色牌背遮挡头像还在牌局 / folded=头像没被遮挡已弃牌
+   - nickname: 头像旁的昵称文字
+   - bet: 当前轮下注额（桌面该座位前绿色框数字，没下注=0）
 
 ❌ pot_size不是你头像下数字（那是my_chips）
 
 返回JSON：
-{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top","opp_seats":[{"pos":"left-bottom","chips":3810,"status":"folded"},{"pos":"left-top","chips":7981,"status":"active"},{"pos":"top-center","chips":20000,"status":"active"},{"pos":"right-top","chips":58485,"status":"active"},{"pos":"right-bottom","chips":13463,"status":"active"}]}
+{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top","opp_seats":[{"pos":"left-bottom","chips":3810,"status":"folded","nickname":"Player1","bet":0},{"pos":"left-top","chips":7981,"status":"active","nickname":"Player2","bet":500},{"pos":"top-center","chips":20000,"status":"active","nickname":"Player3","bet":500},{"pos":"right-top","chips":58485,"status":"active","nickname":"Player4","bet":0},{"pos":"right-bottom","chips":13463,"status":"active","nickname":"Player5","bet":0}]}
 
 只返回JSON"""
 
@@ -492,7 +499,7 @@ object VisionApiClient {
         return cards
     }
 
-    // V2.9.85: 解析对手座位信息
+    // V2.9.86: 解析对手座位信息（含nickname+bet）
     private fun parseOppSeats(arr: JSONArray?): List<OppSeatInfo> {
         if (arr == null) return emptyList()
         return try {
@@ -501,7 +508,9 @@ object VisionApiClient {
                 val pos = obj.optString("pos", "")
                 val chips = obj.optInt("chips", 0)
                 val status = obj.optString("status", "active")
-                if (pos.isNotEmpty()) OppSeatInfo(pos, chips, status) else null
+                val nickname = obj.optString("nickname", "")
+                val bet = obj.optInt("bet", 0)
+                if (pos.isNotEmpty()) OppSeatInfo(pos, chips, status, nickname, bet) else null
             }
         } catch (e: Exception) {
             Log.w(TAG, "opp_seats解析失败: ${e.message}")
@@ -808,12 +817,14 @@ object VisionApiClient {
             }))
             // V2.9.78: 输出D按钮位置
             put("d_button_position", result.dButtonPosition)
-            // V2.9.85: 输出对手座位信息
+            // V2.9.86: 输出对手座位信息（含nickname+bet）
             put("opp_seats", JSONArray(result.oppSeats.map {
                 JSONObject().apply {
                     put("pos", it.pos)
                     put("chips", it.chips)
                     put("status", it.status)
+                    put("nickname", it.nickname)
+                    put("bet", it.bet)
                 }
             }))
             // V2.9.81: 手牌锁定和花色保险
