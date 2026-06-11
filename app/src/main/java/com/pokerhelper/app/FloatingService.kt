@@ -54,6 +54,7 @@ class FloatingService : Service() {
         const val ACTION_CAPTURE = "com.pokerhelper.app.CAPTURE"
         const val ACTION_VOICE = "com.pokerhelper.app.VOICE"
         const val ACTION_OPEN = "com.pokerhelper.app.OPEN"
+        const val ACTION_EXPORT = "com.pokerhelper.app.EXPORT"
     }
 
     private var windowManager: WindowManager? = null
@@ -85,6 +86,8 @@ class FloatingService : Service() {
 
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
+    private var _strategyReceived = false  // V2.9.112: 策略引擎是否已回调
+    private var _lastStrategyAdvice = ""   // V2.9.112: 最后策略结果
     private val pendingJsCalls = mutableListOf<String>()
     // V2.9.70: 错误日志——API/截屏失败时记录，豪哥可导出反馈
     private val errorLogs = mutableListOf<String>()
@@ -101,6 +104,7 @@ class FloatingService : Service() {
                     openIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(openIntent)
                 }
+                ACTION_EXPORT -> exportLogFromNotification()
             }
         }
     }
@@ -143,6 +147,7 @@ class FloatingService : Service() {
             addAction(ACTION_CAPTURE)
             addAction(ACTION_VOICE)
             addAction(ACTION_OPEN)
+            addAction(ACTION_EXPORT)
         }
         // V2.9.38: Android 14+必须指定RECEIVER_EXPORTED/RECEIVER_NOT_EXPORTED
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -590,8 +595,15 @@ class FloatingService : Service() {
                 handler.post {
                     // V2.9.70: 收到正常建议→停止错误闪烁
                     isBlinkingError = false
-                    val currentText = tvRecResult?.text?.toString() ?: ""
+                    // V2.9.112: 策略结果也更新通知栏（不管隐身模式）
+                    _lastStrategyAdvice = advice
+                    _strategyReceived = true
                     if (advice.isNotEmpty()) {
+                        // V2.9.112: 通知栏显示策略结果
+                        val advShort = advice.split("|").firstOrNull()?.take(20) ?: advice.take(20)
+                        val eqMatch = Regex("\\|EQ:(\\d+)").find(advice)
+                        val eqStr = eqMatch?.groupValues?.get(1)?.let { " ${it}%" } ?: ""
+                        updateAdviceNotification("🎯 $advShort$eqStr", advice.take(60))
                         tvRecResult?.text = advice  // V2.9.64: 只显示最新建议,不累积
                         tvRecResult?.visibility = View.VISIBLE
                         when {
@@ -623,6 +635,11 @@ class FloatingService : Service() {
                         updateAdviceNotification(title, detail)
                     }
                 }
+            }
+            // V2.9.112: onVisionResult执行成功回调
+            @JavascriptInterface
+            fun confirmVisionReceived() {
+                Log.d(TAG, "✅ onVisionResult已执行")
             }
             // V2.9.70: JS可获取Kotlin端错误日志，导出时一并带走
             @JavascriptInterface
@@ -1152,15 +1169,23 @@ class FloatingService : Service() {
                     } else {
                     val resultJson = VisionApiClient.toJson(result)
                     Log.d(TAG, "★ resultJson长度=${resultJson.length}, webViewReady=$webViewReady")
-                    // V2.9.111: 超时保险——如果5秒内策略引擎没回调showAdvice，强制恢复悬浮球
+                    // V2.9.112: 超时保险——3秒检查策略是否已回调，5秒强制恢复
+                    _strategyReceived = false
                     handler.postDelayed({
-                        if (floatingBall?.text == "⏳") {
+                        if (!_strategyReceived) {
+                            Log.w(TAG, "★ 策略引擎3s未回调，通知栏提示")
+                            updateAdviceNotification("⏳ 策略计算中...", "等待策略引擎响应")
+                        }
+                    }, 3000)
+                    handler.postDelayed({
+                        if (floatingBall?.text == "⏳" || !_strategyReceived) {
                             Log.w(TAG, "★ 策略引擎超时5s，强制恢复悬浮球")
                             updateBallAdvice("COLOR:FOLD|SIGNAL:ERROR")
+                            updateAdviceNotification("❌ 策略超时", "策略引擎5s未响应，请检查日志")
                         }
                     }, 5000)
                     handler.post {
-                        executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}else{console.log('[V29109]onVisionResult未定义!')}")
+                        executeJs("try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:WebView未加载');}}}catch(e){if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message);}}")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
@@ -1284,6 +1309,12 @@ class FloatingService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             builder.addAction(android.R.drawable.ic_menu_view, "打开App", openPending)
 
+            val exportIntent = Intent(ACTION_EXPORT)
+            exportIntent.setPackage(packageName)
+            val exportPending = PendingIntent.getBroadcast(this, 4, exportIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(android.R.drawable.ic_menu_save, "导出", exportPending)
+
             builder.build()
         } else {
             @Suppress("DEPRECATION")
@@ -1297,8 +1328,18 @@ class FloatingService : Service() {
         }
     }
 
+    // V2.9.112: 从通知栏直接导出日志
+    private fun exportLogFromNotification() {
+        try {
+            executeJs("if(typeof exportLog==='function'){exportLog()}else{console.log('exportLog未定义')}")
+            updateAdviceNotification("📤 导出中...", "正在收集日志")
+        } catch (e: Exception) {
+            updateAdviceNotification("❌ 导出失败", e.message?.take(30) ?: "")
+        }
+    }
+
     /**
-     * V2.9.38: 更新通知栏显示建议内容（隐身模式专用）
+     * V2.9.38: 更新通知栏显示建议内容
      */
     fun updateAdviceNotification(title: String, detail: String) {
         try {
@@ -1329,6 +1370,12 @@ class FloatingService : Service() {
                 val openPending = PendingIntent.getBroadcast(this, 3, openIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 builder.addAction(android.R.drawable.ic_menu_view, "打开App", openPending)
+
+            val exportIntent = Intent(ACTION_EXPORT)
+            exportIntent.setPackage(packageName)
+            val exportPending = PendingIntent.getBroadcast(this, 4, exportIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(android.R.drawable.ic_menu_save, "导出", exportPending)
 
                 builder.setStyle(Notification.BigTextStyle()
                     .setBigContentTitle(title)

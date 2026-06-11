@@ -5684,7 +5684,7 @@ function show(r){
 }
 
 var _mcSimCache=null; // V2.9.46: Worker异步MC结果缓存
-function go(){document.getElementById('res').innerHTML='<div style="color:#4fc3f7;font-size:18px;text-align:center;padding:20px">🧠 思考中...</div>';setTimeout(function(){
+function go(){var resEl=document.getElementById('res');if(resEl)resEl.innerHTML='<div style="color:#4fc3f7;font-size:14px;text-align:center;padding:8px">⏳</div>';setTimeout(function(){
   // V2.9.30: 自动采集对手动作(在decide之前)
   // V2.9.73: ★ phase修正——post但公共牌数量异常→强制pre + 清空异常comm ★
   // 根因: Vision API可能误将翻前识别为翻后→走MC异步路径→decide()崩溃→悬浮球卡死
