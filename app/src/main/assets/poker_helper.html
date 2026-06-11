@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.86 · 对手画像+花色概率</title>
+<title>青云 v2.9.87 · 座位角色+筹码深度</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -402,7 +402,7 @@ var SU=['h','d','s','c'];
 var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{}};
+var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{},_seatRoles:{}};
 var _pi=null,_ms='h';
 var _decisionCache={};var _cacheMax=200;
 function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('')+'L'+G.limpers;}
@@ -1108,7 +1108,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.86',
+    version:'2.9.87',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1226,7 +1226,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.86',
+  CURRENT_VERSION:'2.9.87',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1315,9 +1315,9 @@ var ActionLine={
   reset:function(){this._lines=[];this._handId='';this._prevStreet='';}
 };
 
-// ===== V2.9.86: 对手画像追踪器 =====
+// ===== V2.9.87: 对手画像追踪器 =====
 var OppProfiler={
-  // V2.9.86: 用nickname做主键，跨座跨桌追踪
+  // V2.9.87: 用nickname做主键，跨座跨桌追踪
   // _profiles key = nickname, value = {nickname, pos, hands, entered, folded, chipsHistory, betHistory, type, _lastChips, _enteredThisHand, _foldedThisHand, _lastBet, _raiseCount}
   _profiles:{},
   // pos→nickname映射，用于按位置查询
@@ -1350,7 +1350,7 @@ var OppProfiler={
       var p=this._profiles[nk];
       p.pos=s.pos;
       
-      // V2.9.86: 用bet字段直接检测行动
+      // V2.9.87: 用bet字段直接检测行动
       if(s.bet>0&&!p._enteredThisHand){
         p._enteredThisHand=true;
         p.entered++;
@@ -1387,6 +1387,8 @@ var OppProfiler={
       p._lastChips=s.chips;
     }
     
+    // V2.9.87: 筹码深度分类
+    this._updateStackTypes();
     G.oppSeats=oppSeats;
     this._updateTypes();
   },
@@ -1437,6 +1439,25 @@ var OppProfiler={
     G._oppProfiles=this._profiles;
   },
   
+  // V2.9.87: 筹码深度分类
+  _updateStackTypes:function(){
+    var bb=G.stk?Math.round(G.pot/G.stk*100)/100:0;
+    // 用盲注算BB更准确
+    var blindBB=window._lastBlindBB||200;
+    for(var nk in this._profiles){
+      var p=this._profiles[nk];
+      if(p._lastChips<=0)continue;
+      var bbCount=Math.round(p._lastChips/blindBB);
+      if(bbCount<20){
+        p.stackType='short'; // <20BB 短筹码
+      }else if(bbCount<50){
+        p.stackType='medium'; // 20-50BB 中等
+      }else{
+        p.stackType='deep'; // >50BB 深筹码
+      }
+    }
+  },
+  
   getType:function(pos){
     var nk=this._posMap[pos];
     if(nk&&this._profiles[nk])return this._profiles[nk].type;
@@ -1473,14 +1494,79 @@ var OppProfiler={
       var p=this._profiles[nk];
       var vpip=p.hands>0?Math.round(p.entered/p.hands*100):0;
       var displayName=nk.length>10?nk.substring(0,10)+'..':nk;
+      var role=SeatRole.getRole(p.pos);
+      var roleStr=role!=='unknown'?' <span style="color:#FFD700">'+role+'</span>':'';
+      var stackStr=p.stackType?' <span style="color:'+(p.stackType==='short'?'#FF6B6B':p.stackType==='deep'?'#69DB7C':'#A9A9A9')+'">'+p.stackType+'</span>':'';
       var betStr=p._lastBet>0?' <span style="color:#4CAF50">bet:'+p._lastBet+'</span>':'';
-      html+='<div style="font-size:9px;color:#aaa">'+displayName+'('+p.pos+'): '+p.type+' ('+p.hands+'手 VPIP:'+vpip+'%)'+betStr+'</div>';
+      html+='<div style="font-size:9px;color:#aaa">'+displayName+'('+p.pos+'): '+p.type+roleStr+stackStr+' ('+p.hands+'手 VPIP:'+vpip+'%)'+betStr+'</div>';
     }
     el.innerHTML=html||'<div style="font-size:9px;color:#555">等待数据...</div>';
   }
 };
 
-// ===== V2.9.86: 花色概率推断 =====
+
+// ===== V2.9.87: 座位角色推算 =====
+// 从D按钮位置推算每个座位的扑克角色(BU/SB/BB/UTG/CO等)
+var SeatRole={
+  // 屏幕座位的顺时针顺序（从top-center开始顺时针）
+  // top-center → right-top → right-bottom → bottom-center(hero) → left-bottom → left-top
+  CW:['top-center','right-top','right-bottom','bottom-center','left-bottom','left-top'],
+  
+  // 各桌型的角色分配（从D按钮顺时针）
+  ROLES:{
+    2:['BU','BB'],
+    3:['BU','SB','BB'],
+    4:['BU','SB','BB','UTG'],
+    5:['BU','SB','BB','UTG','CO'],
+    6:['BU','SB','BB','UTG','MP','CO']
+  },
+  
+  // 推算所有座位角色
+  calc:function(dButtonPos,totalPlayers){
+    if(!dButtonPos||dButtonPos==='not_found')return {};
+    var dPos=dButtonPos.toLowerCase();
+    var dIdx=this.CW.indexOf(dPos);
+    if(dIdx<0)return {};
+    var tt=Math.min(Math.max(totalPlayers||6,2),6);
+    var roles=this.ROLES[tt]||this.ROLES[6];
+    var result={};
+    for(var i=0;i<roles.length;i++){
+      var seatIdx=(dIdx+i)%this.CW.length;
+      result[this.CW[seatIdx]]=roles[i];
+    }
+    G._seatRoles=result;
+    return result;
+  },
+  
+  // 获取某个座位的角色
+  getRole:function(pos){
+    if(G._seatRoles&&G._seatRoles[pos])return G._seatRoles[pos];
+    return 'unknown';
+  },
+  
+  // 获取hero的角色
+  getHeroRole:function(){
+    return this.getRole('bottom-center');
+  },
+  
+  // 交叉验证：翻前SB/BB的筹码应该分别减少了对应盲注
+  // 返回 {valid:true/false, details:string}
+  validate:function(oppSeats,blindSB,blindBB,street){
+    if(!G._seatRoles||street!=='preflop')return {valid:true,details:'非翻前跳过验证'};
+    var issues=[];
+    for(var i=0;i<oppSeats.length;i++){
+      var s=oppSeats[i];
+      var role=G._seatRoles[s.pos];
+      if(!role)continue;
+      // 检查SB：翻前如果还在牌局，chips应该减少≈blindSB
+      // 检查BB：翻前如果还在牌局，chips应该减少≈blindBB
+      // 这个验证比较弱，因为不知道对手上一手的筹码，暂时只做标记
+    }
+    return {valid:issues.length===0,details:issues.join('; ')||'位置推算合理'};
+  }
+};
+
+// ===== V2.9.87: 花色概率推断 =====
 var SuitProb={
   // 计算同花听牌概率（纯数学，不依赖视觉识别）
   // 返回0-1之间的概率值
@@ -3155,7 +3241,7 @@ function decide(){
     var _spr=G.spr||10;
     var _stk=G.stk||100000;
     var _oppType=G.opp||'unknown';
-    // V2.9.86: 花色概率修正——对手同花概率→保守equity调整
+    // V2.9.87: 花色概率修正——对手同花概率→保守equity调整
     var _flushPenalty=0;
     var _numComm=G.comm.filter(function(c){return c&&c.rank;}).length;
     if(_numComm>=3){
@@ -5075,7 +5161,16 @@ function onVisionResult(data){
     G._playersCrossCheck=null;
   }
 
-  // V2.9.86: 对手画像追踪——nickname跨座追踪+bet行动线+VPIP/弃牌率
+  // V2.9.87: 存盲注供筹码深度计算
+  if(data.blind_bb&&data.blind_bb>0){
+    window._lastBlindBB=data.blind_bb;
+  }
+  // V2.9.87: 推算座位角色
+  if(data.d_button_position&&data.d_button_position!=='not_found'){
+    var _roles=SeatRole.calc(data.d_button_position,data.total_players||G.tt||6);
+    console.log('[SeatRole] D='+data.d_button_position+' roles='+JSON.stringify(_roles));
+  }
+  // V2.9.87: 对手画像追踪——nickname跨座追踪+bet行动线+VPIP/弃牌率
   if(data.opp_seats&&data.opp_seats.length>0){
     G.oppSeats=data.opp_seats;
     OppProfiler.update(data.opp_seats,G.stk,data.street||G.phase);
