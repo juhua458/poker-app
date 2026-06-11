@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.107 · 策略引擎3bet+深度"
+        android:text="V2.9.108 · 单行格式提速+双prompt保险"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />

@@ -40,8 +40,8 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.107
-        name: "V2.9.107 死代码修复+HTTP连接复用"
+        tag_name: v2.9.108
+        name: "V2.9.108 单行格式提速+双prompt保险"
         body: "V2.9.107: 删除DBStrategy残留死代码(ReferenceError)+HTTP Keep-Alive连接复用"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:

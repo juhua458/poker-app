@@ -123,7 +123,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.107")
+                                put("version", "2.9.108")
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                             }.toString()
@@ -304,6 +304,11 @@ class HttpServerService : Service() {
                                         put("apiUrl", VisionApiClient.apiUrl)
                                         put("model", VisionApiClient.modelName)
                                         put("hasKey", VisionApiClient.apiKey.isNotEmpty())
+                                        put("compact_prompt", VisionApiClient.useCompactPrompt)
+                                        put("prompt_mode", VisionApiClient.lastPromptMode)
+                                        put("compact_success", VisionApiClient.compactSuccessCount)
+                                        put("compact_fail", VisionApiClient.compactFailCount)
+                                        put("fallback_success", VisionApiClient.fallbackSuccessCount)
                                     }.toString()
                                     newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
                                         addHeader("Access-Control-Allow-Origin", "*")
@@ -424,7 +429,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("截屏优化 v2.9.107")
+                .setContentTitle("截屏优化 v2.9.108")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -432,7 +437,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("截屏优化 v2.9.107")
+                .setContentTitle("截屏优化 v2.9.108")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
