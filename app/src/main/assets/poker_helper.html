@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.77 · Prompt回退修复识别</title>
+<title>青云 v2.9.78 · 双模型并行D按钮位置识别</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1107,7 +1107,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.77',
+    version:'2.9.78',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1225,7 +1225,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.77',
+  CURRENT_VERSION:'2.9.78',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4179,7 +4179,7 @@ function onVisionResult(data){
   }
   
   // 3. V2.9.12: 从按钮文字自动推导场景（不调setScene，避免覆盖pot/bet和重复go）
-  // V2.9.77: street保险——以公共牌数为准，纠正Vision返回的错误street
+  // V2.9.78: street保险——以公共牌数为准，纠正Vision返回的错误street
   if(data.street){
     var street=(data.street||'').toLowerCase();
     var commCount=G.comm.filter(function(c){return c!==null;}).length;
@@ -4203,7 +4203,7 @@ function onVisionResult(data){
   }
   
   // 4. 自动设定桌型和位置
-  // V2.9.77: total_players保险——同一桌人数不变，突变用旧值
+  // V2.9.78: total_players保险——同一桌人数不变，突变用旧值
   if(data.total_players){
     var visionTT=parseInt(data.total_players)||0;
     if(visionTT>=2 && visionTT<=9){
@@ -4224,7 +4224,7 @@ function onVisionResult(data){
   // V2.9.43: 自动同步人桌UI（防止手动选被覆盖）
   if(data.total_players && typeof sTT==='function'){sTT(G.tt);}
   // V2.9.43: Ante修正——保存到全局变量供策略引擎使用
-  // V2.9.77: ante保险——同一桌ante不变，突变用旧值
+  // V2.9.78: ante保险——同一桌ante不变，突变用旧值
   if(data.ante > 0){
     var visionAnte=parseInt(data.ante)||0;
     if(!G._lockedAnte && visionAnte>0){
@@ -4261,7 +4261,39 @@ function onVisionResult(data){
     if(holeCount!==2){corrections.push('手牌'+holeCount+'张≠2');}
     if(corrections.length>0){console.log('[校验纠错] '+corrections.join('; '));}
   })();
-  if(data.my_position){
+  // V2.9.78: D按钮位置识别（vl-plus）→ 精准位置推断
+  // d_button_position来自vl-plus并行识别，比flash直接识别my_position准确得多
+  if(data.d_button_position && data.d_button_position!=='not_found' && data.d_button_position!==''){
+    var dPos=data.d_button_position.toLowerCase();
+    var seatMap={'bottom-center':0,'right-bottom':1,'right-top':2,'top-center':3,'left-top':4,'left-bottom':5};
+    var dSeat=seatMap[dPos];
+    if(dSeat!==undefined){
+      // CW距离：从D按钮顺时针数几格到我们(seat 0)
+      var dist=(6-dSeat)%6;
+      var positions;
+      if(G.tt<=2){positions=['btn','bb'];dist=dist===0?0:1;}
+      else if(G.tt===3){positions=['btn','sb','bb'];}
+      else if(G.tt===4){positions=['btn','sb','bb','utg'];}
+      else if(G.tt===5){positions=['btn','sb','bb','utg','co'];}
+      else{positions=['btn','sb','bb','utg','mp','co'];}
+      var dButtonPosName=dist<positions.length?positions[dist]:positions[positions.length-1];
+      // V2.9.78: D按钮位置优先于Vision直接识别的my_position
+      // 同一手牌位置锁定（同V2.9.75逻辑）
+      var curHandKey=(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'');
+      if(typeof G._lastHandKey!=='undefined'&&G._lastHandKey&&curHandKey===G._lastHandKey&&G._lastPos&&dButtonPosName!==G._lastPos){
+        console.log('[D按钮位置锁定] 同一手牌位置不变: '+G._lastPos+' (D按钮推算'+dPos+'→'+dButtonPosName+'，忽略)');
+        dButtonPosName=G._lastPos;
+      }else{
+        console.log('[D按钮位置] D='+dPos+'(seat'+dSeat+') dist='+dist+' → '+dButtonPosName);
+      }
+      G.pos=dButtonPosName;
+      G._lastHandKey=curHandKey;
+      G._lastPos=G.pos;
+      // 跳过下面的my_position处理
+      data=Object.assign({},data,{my_position:'_d_button_override',_dButtonPosName:dButtonPosName});
+    }
+  }
+  if(data.my_position&&data.my_position!=='_d_button_override'){
     // V2.9.47: 桌型感知posMap——2-9人桌全覆盖
     var rawPos=(data.my_position||'').toLowerCase();
     // V2.9.76: unknown不更新位置，保持旧值

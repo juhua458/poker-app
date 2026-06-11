@@ -9,8 +9,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * V1.3: 视觉API客户端 - 截屏→GPT-4o-mini识别牌面
- * 支持OpenAI兼容API（GPT-4o-mini / 通义千问VL / DeepSeek等）
+ * V2.9.78: 视觉API客户端 - 双模型并行：flash负责手牌/公共牌 + vl-plus负责D按钮位置
+ * 支持OpenAI兼容API（通义千问VL / DeepSeek等）
  */
 object VisionApiClient {
 
@@ -25,6 +25,10 @@ object VisionApiClient {
     var lastResult: VisionResult? = null
         private set
     var lastResultTime: Long = 0
+        private set
+
+    // V2.9.78: D按钮位置识别——用vl-plus并行调用
+    var dButtonPosition: String = ""  // 上次识别的D按钮位置
         private set
 
     data class VisionResult(
@@ -43,6 +47,7 @@ object VisionApiClient {
         val blindBB: Int,                   // 大盲注（V2.9.41: 从桌面标题识别）
         val ante: Int,                      // V2.9.43: 前注（每人需投入的前注）
         val players: List<PlayerInfo>,      // V2.9.72: 对手位置信息（辅助校验）
+        val dButtonPosition: String,        // V2.9.78: D按钮位置(bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found)
         val rawResponse: String             // 原始API返回
     )
 
@@ -79,55 +84,177 @@ object VisionApiClient {
 
             Log.d(TAG, "Image compressed: ${jpegData.size / 1024}KB -> ${compressedJpeg.size / 1024}KB")
 
-            // 2. 构建API请求
-            val requestJson = buildRequest(dataUri)
+            // V2.9.78: 双模型并行——flash主识别 + vl-plus D按钮位置识别
+            val flashResultHolder = arrayOf<VisionResult?>(null)
+            val dButtonHolder = arrayOf<String?>(null)
+            val flashErrorHolder = arrayOf<String?>(null)
+            val dButtonErrorHolder = arrayOf<String?>(null)
 
-            // 3. 发送请求
-            val response = sendRequest(requestJson)
-
-            // 4. 解析响应
-            val result = parseResponse(response)
-
-            var correctedResult: VisionResult? = null
-
-            if (result != null) {
-                lastResult = result
-                lastResultTime = System.currentTimeMillis()
-                lastError = ""
-                // V2.2: 校验识别结果合理性，并自动纠正street
-                val warnings = validateResult(result)
-                // V2.2: street和公共牌数矛盾时，以公共牌数为准纠正street
-                correctedResult = result
-                val commCount = result.communityCards.size
-                val correctStreet = when {
-                    commCount == 0 -> "preflop"
-                    commCount == 3 -> "flop"
-                    commCount == 4 -> "turn"
-                    commCount == 5 -> "river"
-                    else -> null // 1,2张公共牌不合理，不纠正
+            val flashThread = Thread {
+                try {
+                    val requestJson = buildRequest(dataUri)
+                    val response = sendRequest(requestJson)
+                    flashResultHolder[0] = parseResponse(response)
+                } catch (e: Exception) {
+                    flashErrorHolder[0] = e.message
                 }
-                if (correctStreet != null && result.street.lowercase() != correctStreet) {
-                    Log.w(TAG, "street纠正: ${result.street}→$correctStreet (公共牌数=$commCount)")
-                    correctedResult = result.copy(street = correctStreet)
-                    lastResult = correctedResult
-                }
-                // V2.9.16: 校验纠错层 - 纠正API返回的矛盾数据
-                correctedResult = applyValidationCorrections(correctedResult)
-                lastResult = correctedResult
-                if (warnings.isNotEmpty()) {
-                    lastError = warnings.joinToString("; ")
-                    Log.w(TAG, "识别结果有疑问: $lastError")
-                }
-                // V2.9.48: 调试日志 - 打印原始API返回的pot和chips
-                Log.w(TAG, "🔍RAW response: pot_size=${result.rawResponse.substringAfter("\"pot_size\":").substringBefore(",").substringBefore("}").trim()} | parsed pot=${correctedResult.potSize} chips=${correctedResult.playerChips} blindSB=${correctedResult.blindSB} blindBB=${correctedResult.blindBB}")
-                Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌/活跃${correctedResult.activePlayers}人${if(lastError.isNotEmpty()) " ⚠️$lastError" else ""}")
             }
+
+            val dButtonThread = Thread {
+                try {
+                    dButtonHolder[0] = analyzeDButtonPosition(dataUri)
+                } catch (e: Exception) {
+                    dButtonErrorHolder[0] = e.message
+                }
+            }
+
+            // 并行启动两个API调用
+            flashThread.start()
+            dButtonThread.start()
+
+            // 等待两个调用完成（各5秒超时）
+            flashThread.join(5000)
+            dButtonThread.join(5000)
+
+            // 如果flash出错，直接返回null
+            if (flashErrorHolder[0] != null) {
+                lastError = "API错误: ${flashErrorHolder[0]}"
+                Log.e(TAG, "analyzeScreenshot flash failed: ${flashErrorHolder[0]}")
+                return null
+            }
+
+            val result = flashResultHolder[0]
+            if (result == null) {
+                lastError = "API返回空结果"
+                return null
+            }
+
+            // 合并D按钮位置
+            val dPos = dButtonHolder[0] ?: ""
+            dButtonPosition = dPos
+            if (dButtonErrorHolder[0] != null) {
+                Log.w(TAG, "D按钮位置识别失败(不影响主流程): ${dButtonErrorHolder[0]}")
+            }
+            Log.d(TAG, "D按钮位置: $dPos (vl-plus${if(dPos.isEmpty()) "失败" else "成功"})")
+
+            var correctedResult = result.copy(dButtonPosition = dPos)
+
+            lastResult = correctedResult
+            lastResultTime = System.currentTimeMillis()
+            lastError = ""
+            // V2.2: 校验识别结果合理性，并自动纠正street
+            val warnings = validateResult(correctedResult)
+            // V2.2: street和公共牌数矛盾时，以公共牌数为准纠正street
+            val commCount = correctedResult.communityCards.size
+            val correctStreet = when {
+                commCount == 0 -> "preflop"
+                commCount == 3 -> "flop"
+                commCount == 4 -> "turn"
+                commCount == 5 -> "river"
+                else -> null // 1,2张公共牌不合理，不纠正
+            }
+            if (correctStreet != null && correctedResult.street.lowercase() != correctStreet) {
+                Log.w(TAG, "street纠正: ${correctedResult.street}→$correctStreet (公共牌数=$commCount)")
+                correctedResult = correctedResult.copy(street = correctStreet)
+                lastResult = correctedResult
+            }
+            // V2.9.16: 校验纠错层 - 纠正API返回的矛盾数据
+            correctedResult = applyValidationCorrections(correctedResult)
+            lastResult = correctedResult
+            if (warnings.isNotEmpty()) {
+                lastError = warnings.joinToString("; ")
+                Log.w(TAG, "识别结果有疑问: $lastError")
+            }
+            // V2.9.48: 调试日志 - 打印原始API返回的pot和chips
+            Log.w(TAG, "🔍RAW response: pot_size=${correctedResult.rawResponse.substringAfter("\"pot_size\":").substringBefore(",").substringBefore("}").trim()} | parsed pot=${correctedResult.potSize} chips=${correctedResult.playerChips} blindSB=${correctedResult.blindSB} blindBB=${correctedResult.blindBB} | D=${dPos}")
+            Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌/活跃${correctedResult.activePlayers}人 | D=$dPos${if(lastError.isNotEmpty()) " ⚠️$lastError" else ""}")
 
             correctedResult
         } catch (e: Exception) {
             lastError = "API错误: ${e.message}"
             Log.e(TAG, "analyzeScreenshot failed", e)
             null
+        }
+    }
+
+    /**
+     * V2.9.78: 用qwen-vl-plus识别D按钮位置
+     * 专门用更强模型识别庄家按钮的屏幕位置，flash无法准确区分左上/左下
+     * 返回: bottom-center / left-bottom / left-top / top-center / right-top / right-bottom / not_found
+     */
+    private fun analyzeDButtonPosition(base64Image: String): String? {
+        // 只有dashscope才调用vl-plus（同一个API平台，同一个key）
+        if (apiProvider != "dashscope" || apiKey.isEmpty()) {
+            Log.d(TAG, "D按钮识别跳过: 非dashscope平台或无API Key")
+            return null
+        }
+
+        val prompt = """Look at this poker table screenshot. There is a small YELLOW circle with the letter "D" on it - this is the dealer button. It sits near one of the player seats around the table.
+
+The table has 6 possible seat positions arranged in an ellipse:
+- bottom-center: YOUR seat (always has your face-up cards below)
+- left-bottom: seat between you and the top, on the LEFT side
+- left-top: seat on the LEFT side near the top
+- top-center: seat directly across from you at the top
+- right-top: seat on the RIGHT side near the top
+- right-bottom: seat between you and the top, on the RIGHT side
+
+Which position has the "D" dealer button? Answer with ONLY one of these exact words: bottom-center, left-bottom, left-top, top-center, right-top, right-bottom, or not_found"""
+
+        try {
+            val requestJson = JSONObject().apply {
+                put("model", "qwen-vl-plus")
+                put("max_tokens", 50)
+                put("temperature", 0.0)
+                put("messages", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("type", "text")
+                                put("text", prompt)
+                            })
+                            put(JSONObject().apply {
+                                put("type", "image_url")
+                                put("image_url", JSONObject().apply {
+                                    put("url", base64Image)
+                                    put("detail", "high")
+                                })
+                            })
+                        })
+                    })
+                })
+            }
+
+            val response = sendRequest(requestJson.toString())
+            val responseJson = JSONObject(response)
+            val content = responseJson
+                .getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content")
+                .trim()
+                .lowercase()
+
+            // 验证返回值是否合法
+            val validPositions = setOf("bottom-center", "left-bottom", "left-top", "top-center", "right-top", "right-bottom", "not_found")
+            return if (content in validPositions) {
+                Log.d(TAG, "D按钮识别成功: $content")
+                content
+            } else {
+                // 尝试模糊匹配
+                val matched = validPositions.find { content.contains(it) }
+                if (matched != null) {
+                    Log.d(TAG, "D按钮识别(模糊匹配): $content → $matched")
+                    matched
+                } else {
+                    Log.w(TAG, "D按钮识别返回无效值: $content")
+                    "not_found"
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "D按钮位置识别异常: ${e.message}")
+            return null
         }
     }
 
@@ -335,6 +462,7 @@ object VisionApiClient {
             blindSB = blindSB,
             blindBB = blindBB,
             ante = ante,
+            dButtonPosition = "",  // V2.9.78: 由并行vl-plus调用填充，此处为空默认值
             rawResponse = content
         )
     }
@@ -706,6 +834,8 @@ object VisionApiClient {
                     put("active", it.active)
                 }
             }))
+            // V2.9.78: 输出D按钮位置
+            put("d_button_position", result.dButtonPosition)
             // V2.0: 包含校验警告
             if (warnings.isNotEmpty()) {
                 put("_warnings", JSONArray(warnings))
