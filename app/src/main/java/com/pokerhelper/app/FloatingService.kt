@@ -540,12 +540,16 @@ class FloatingService : Service() {
         wv.clearCache(true)
         wv.webViewClient = object : WebViewClient() {
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                if (errorCode == -2 || errorCode == -6) {
-                    wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }, 2000)
-                }
+                Log.e(TAG, "WebView加载失败: code=$errorCode desc=$description url=$failingUrl")
+                errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} WebView错误: $errorCode $description")
+                if (errorLogs.size > 50) errorLogs.removeAt(0)
+                // V2.9.112: 确保HttpServerService活着，3秒后重试
+                try { startService(Intent(this@FloatingService, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
+                wv.postDelayed({ wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}") }, 3000)
             }
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                Log.d(TAG, "★ WebView加载完成: url=$url")
                 if (!webViewReady) {
                     webViewReady = true
                     val calls = ArrayList(pendingJsCalls)
@@ -554,6 +558,8 @@ class FloatingService : Service() {
                         view?.evaluateJavascript(js, null)
                     }
                 }
+                // V2.9.112: 验证策略引擎是否真的加载了
+                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.112] ✅策略引擎就绪')}else{console.log('[V2.9.112] ❌策略引擎未加载！')}", null)
             }
         }
         wv.webChromeClient = WebChromeClient()
@@ -643,6 +649,8 @@ class FloatingService : Service() {
             }
         }, "AndroidBridge")
 
+        // V2.9.112: 确保HttpServerService已启动再加载WebView
+        try { startService(Intent(this, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
         wv.loadUrl("http://127.0.0.1:8666?t=${System.currentTimeMillis()}")
 
         floatingView = container
@@ -1178,7 +1186,8 @@ class FloatingService : Service() {
                         }
                     }, 5000)
                     handler.post {
-                        executeJs("try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:WebView未加载');}}}catch(e){if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message);}}")
+                        // V2.9.112: 先检测WebView是否就绪，再调onVisionResult
+                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.112] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.112] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
