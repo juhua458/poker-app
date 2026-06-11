@@ -9,9 +9,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * V2.9.81: 视觉API客户端 - 三重保障：双通道并行+花色保险+手牌锁定
- * flash + vl-plus双通道识别手牌，一致时100%锁定；不一致时标记花色不确定
- * 手牌锁定后只刷新公共牌/底池/D按钮，不重新识别手牌
+ * V2.9.83: 视觉API客户端 - 单通道vl-plus提速+公共牌去花色+手牌锁定
+ * 核心改动：
+ * 1. 去掉flash通道，只用vl-plus（实测vl-plus更准，省一半API时间）
+ * 2. D按钮识别合并到主调用（一个prompt搞定，不再并行3路）
+ * 3. 公共牌只传rank不传suit（花色不准不如不传）
+ * 4. 手牌锁定：rank比较，花色波动不触发重置
  */
 object VisionApiClient {
 
@@ -76,24 +79,6 @@ object VisionApiClient {
      * @param jpegData JPEG截图数据
      * @return VisionResult? 识别结果，失败返回null
      */
-    /**
-     * V2.9.81: 双通道交叉验证 - flash + vl-plus
-     * 一致→100%可信，锁定；不一致→不锁定，标记花色不确定
-     */
-    private fun crossValidateHoleCards(flashCards: List<CardInfo>, plusCards: List<CardInfo>): Pair<List<CardInfo>, String> {
-        if (flashCards.size != 2 || plusCards.size != 2) {
-            return Pair(plusCards, "数量异常")
-        }
-        val isConsistent = flashCards.joinToString(",") { "${it.rank}${it.suit}" } ==
-                             plusCards.joinToString(",") { "${it.rank}${it.suit}" }
-        return if (isConsistent) {
-            Pair(flashCards, "双通道一致✅")
-        } else {
-            Log.w(TAG, "双通道冲突: flash=${flashCards.joinToString()} vs vl-plus=${plusCards.joinToString()}")
-            Pair(plusCards, "双通道冲突⚠️")
-        }
-    }
-
     fun analyzeScreenshot(jpegData: ByteArray): VisionResult? {
         if (apiKey.isEmpty()) { lastError = "未设置API Key"; return null }
 
@@ -103,62 +88,21 @@ object VisionApiClient {
             val dataUri = "data:image/jpeg;base64,$base64Image"
             Log.d(TAG, "Image compressed: ${jpegData.size / 1024}KB -> ${compressedJpeg.size / 1024}KB")
 
-            // V2.9.81: 三路并行——flash + vl-plus + D按钮
-            val flashResultHolder = arrayOf<VisionResult?>(null)
-            val plusResultHolder = arrayOf<VisionResult?>(null)
-            val dButtonHolder = arrayOf<String?>(null)
-            val flashErrorHolder = arrayOf<String?>(null)
-            val plusErrorHolder = arrayOf<String?>(null)
-            val dButtonErrorHolder = arrayOf<String?>(null)
-
-            val flashThread = Thread {
-                try {
-                    val requestJson = buildRequest(dataUri, model = "qwen3-vl-flash")
-                    flashResultHolder[0] = parseResponse(sendRequest(requestJson))
-                } catch (e: Exception) { flashErrorHolder[0] = e.message }
+            // V2.9.83: 单通道vl-plus——去掉flash并行，速度翻倍
+            val result = try {
+                val requestJson = buildRequest(dataUri, model = "qwen-vl-plus")
+                parseResponse(sendRequest(requestJson))
+            } catch (e: Exception) {
+                lastError = "API错误: ${e.message}"; Log.e(TAG, "vl-plus失败", e); return null
             }
-            val plusThread = Thread {
-                try {
-                    val requestJson = buildRequest(dataUri, model = "qwen-vl-plus")
-                    plusResultHolder[0] = parseResponse(sendRequest(requestJson))
-                } catch (e: Exception) { plusErrorHolder[0] = e.message }
-            }
-            val dButtonThread = Thread {
-                try { dButtonHolder[0] = analyzeDButtonPosition(dataUri) }
-                catch (e: Exception) { dButtonErrorHolder[0] = e.message }
-            }
+            if (result == null) { lastError = "API返回空结果"; return null }
 
-            flashThread.start(); plusThread.start(); dButtonThread.start()
-            flashThread.join(5000); plusThread.join(5000); dButtonThread.join(5000)
-
-            // 至少一个通道成功
-            if (flashErrorHolder[0] != null && plusErrorHolder[0] != null) {
-                lastError = "双通道API错误: flash=${flashErrorHolder[0]} vl-plus=${plusErrorHolder[0]}"
-                return null
-            }
-            val flashResult = flashResultHolder[0]
-            val plusResult = plusResultHolder[0]
-            if (flashResult == null && plusResult == null) { lastError = "双通道都返回空"; return null }
-
-            // 单通道失败
-            if (flashResult == null) { lockReason = "flash失败，单通道"; suitUncertain = true }
-            else if (plusResult == null) { lockReason = "vl-plus失败，单通道"; suitUncertain = true }
-
-            // 双通道交叉验证手牌
-            val crossResult = if (flashResult != null && plusResult != null) {
-                crossValidateHoleCards(flashResult.holeCards, plusResult.holeCards)
-            } else if (flashResult != null) {
-                Pair(flashResult.holeCards, "vl-plus失败，用flash")
-            } else {
-                Pair(plusResult!!.holeCards, "flash失败，用vl-plus")
-            }
-            val holeCardsToUse: List<CardInfo> = crossResult.first
-            val crossReason: String = crossResult.second
-            suitUncertain = "双通道冲突⚠️" in crossReason || "单通道" in crossReason
-            Log.d(TAG, "双通道验证: $crossReason, holeCards=${holeCardsToUse.joinToString()}")
+            // V2.9.83: 所有牌去花色——只保留rank，suit置空
+            val holeCardsNoSuit = result.holeCards.map { it.copy(suit = "") }
+            val commCardsNoSuit = result.communityCards.map { it.copy(suit = "") }
 
             // V2.9.82: 手牌锁定逻辑——只用rank判断是否新一手牌（花色波动不触发重置）
-            val currentRankKey = holeCardsToUse.joinToString(",") { it.rank }
+            val currentRankKey = result.holeCards.joinToString(",") { it.rank }
             val lastRankKey = holeCardsLocked?.joinToString(",") { it.rank } ?: ""
 
             // rank变了→确定是新一手牌→重置
@@ -167,44 +111,36 @@ object VisionApiClient {
                 holeCardsLocked = null; dButtonLocked = ""
             }
 
-            // 已锁定→用锁定值（不管当前识别花色是否一致，锁定值优先）
+            // 已锁定→用锁定值
             if (holeCardsLocked != null) {
-                Log.d(TAG, "手牌锁定: 已锁定=${holeCardsLocked!!.joinToString()}")
+                Log.d(TAG, "手牌锁定: 已锁定=${holeCardsLocked!!.map{it.rank}.joinToString()}")
                 lockReason = "已锁定，跳过重识"; suitUncertain = false
-                val srcResult = plusResult ?: flashResult!!
-                var result = srcResult.copy(holeCards = holeCardsLocked!!)
-                val dPosInsured = applyDButtonInsurance(dButtonHolder[0] ?: "", holeCardsLocked!!)
+                var lockedResult = result.copy(holeCards = holeCardsLocked!!, communityCards = commCardsNoSuit)
+                val dPosInsured = applyDButtonInsurance(lockedResult.dButtonPosition, holeCardsLocked!!)
                 dButtonPosition = dPosInsured
-                result = result.copy(dButtonPosition = dPosInsured)
-                lastResult = result; lastResultTime = System.currentTimeMillis()
-                var corrected = applyStreetCorrection(result)
+                lockedResult = lockedResult.copy(dButtonPosition = dPosInsured)
+                lastResult = lockedResult; lastResultTime = System.currentTimeMillis()
+                var corrected = applyStreetCorrection(lockedResult)
                 corrected = applyValidationCorrections(corrected); lastResult = corrected
-                Log.d(TAG, "识别成功(锁定): ${corrected.holeCards.joinToString()} | ${corrected.communityCards.joinToString()} | 底池${corrected.potSize} | D=$dPosInsured | 花色OK")
+                Log.d(TAG, "识别成功(锁定): ${corrected.holeCards.map{it.rank}.joinToString()} | comm=${corrected.communityCards.map{it.rank}.joinToString()} | 底池${corrected.potSize} | D=$dPosInsured")
                 return corrected
             }
 
-            // 未锁定→决定是否锁定
-            if ("双通道一致✅" in crossReason) {
-                holeCardsLocked = holeCardsToUse; suitUncertain = false; lockReason = "双通道一致锁定✅"
-                Log.d(TAG, "手牌锁定: 双通道一致，锁定=${holeCardsLocked!!.joinToString()}")
-            } else {
-                holeCardsLocked = null; lockReason = crossReason
-                Log.d(TAG, "手牌锁定: $crossReason，不锁定")
-            }
+            // 未锁定→用当前结果（去花色）
+            holeCardsLocked = holeCardsNoSuit; lockReason = "首次识别锁定"
+            suitUncertain = false
+            Log.d(TAG, "手牌锁定: 首次识别，锁定=${holeCardsNoSuit.map{it.rank}.joinToString()}")
 
-            val baseResult = plusResult ?: flashResult!!
-            var result = baseResult.copy(holeCards = holeCardsToUse)
-            val dPosRaw = dButtonHolder[0] ?: ""
-            val dPosInsured = applyDButtonInsurance(dPosRaw, result.holeCards)
+            var correctedResult = result.copy(holeCards = holeCardsNoSuit, communityCards = commCardsNoSuit)
+            // D按钮保险
+            val dPosInsured = applyDButtonInsurance(correctedResult.dButtonPosition, correctedResult.holeCards)
             dButtonPosition = dPosInsured
-            if (dButtonErrorHolder[0] != null) Log.w(TAG, "D按钮失败(不影响主流程): ${dButtonErrorHolder[0]}")
-            Log.d(TAG, "D按钮: $dPosRaw→$dPosInsured")
+            correctedResult = correctedResult.copy(dButtonPosition = dPosInsured)
 
-            var correctedResult = result.copy(dButtonPosition = dPosInsured)
             lastResult = correctedResult; lastResultTime = System.currentTimeMillis(); lastError = ""
             correctedResult = applyStreetCorrection(correctedResult)
             correctedResult = applyValidationCorrections(correctedResult); lastResult = correctedResult
-            Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | ${correctedResult.communityCards.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌 | D=$dPosInsured | ${if(suitUncertain)"⚠️花色不确定" else "花色OK"}")
+            Log.d(TAG, "识别成功: ${correctedResult.holeCards.joinToString()} | comm=${correctedResult.communityCards.map{it.rank}.joinToString()} | 底池${correctedResult.potSize} | ${correctedResult.totalPlayers}桌 | D=$dPosInsured")
             correctedResult
         } catch (e: Exception) {
             lastError = "API错误: ${e.message}"; Log.e(TAG, "analyzeScreenshot failed", e); null
@@ -298,82 +234,6 @@ object VisionApiClient {
     }
 
 
-    private fun analyzeDButtonPosition(base64Image: String): String? {
-        // 只有dashscope才调用vl-plus（同一个API平台，同一个key）
-        if (apiProvider != "dashscope" || apiKey.isEmpty()) {
-            Log.d(TAG, "D按钮识别跳过: 非dashscope平台或无API Key")
-            return null
-        }
-
-        val prompt = """Look at this poker table screenshot. There is a small YELLOW circle with the letter "D" on it - this is the dealer button. It sits near one of the player seats around the table.
-
-The table has 6 possible seat positions arranged in an ellipse:
-- bottom-center: YOUR seat (always has your face-up cards below)
-- left-bottom: seat between you and the top, on the LEFT side
-- left-top: seat on the LEFT side near the top
-- top-center: seat directly across from you at the top
-- right-top: seat on the RIGHT side near the top
-- right-bottom: seat between you and the top, on the RIGHT side
-
-Which position has the "D" dealer button? Answer with ONLY one of these exact words: bottom-center, left-bottom, left-top, top-center, right-top, right-bottom, or not_found"""
-
-        try {
-            val requestJson = JSONObject().apply {
-                put("model", "qwen-vl-plus")
-                put("max_tokens", 50)
-                put("temperature", 0.0)
-                put("messages", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("type", "text")
-                                put("text", prompt)
-                            })
-                            put(JSONObject().apply {
-                                put("type", "image_url")
-                                put("image_url", JSONObject().apply {
-                                    put("url", base64Image)
-                                    put("detail", "high")
-                                })
-                            })
-                        })
-                    })
-                })
-            }
-
-            val response = sendRequest(requestJson.toString())
-            val responseJson = JSONObject(response)
-            val content = responseJson
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-                .trim()
-                .lowercase()
-
-            // 验证返回值是否合法
-            val validPositions = setOf("bottom-center", "left-bottom", "left-top", "top-center", "right-top", "right-bottom", "not_found")
-            return if (content in validPositions) {
-                Log.d(TAG, "D按钮识别成功: $content")
-                content
-            } else {
-                // 尝试模糊匹配
-                val matched = validPositions.find { content.contains(it) }
-                if (matched != null) {
-                    Log.d(TAG, "D按钮识别(模糊匹配): $content → $matched")
-                    matched
-                } else {
-                    Log.w(TAG, "D按钮识别返回无效值: $content")
-                    "not_found"
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "D按钮位置识别异常: ${e.message}")
-            return null
-        }
-    }
-
     private fun compressImage(jpegData: ByteArray, maxWidth: Int): ByteArray {
         val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
 
@@ -412,53 +272,22 @@ Which position has the "D" dealer button? Answer with ONLY one of these exact wo
     }
 
     private fun buildRequest(base64Image: String, model: String? = null): String {
-        val prompt = """你是德州扑克截图识别专家。按以下步骤识别：
+        val prompt = """识别德州扑克截图，只认牌面rank不认花色：
 
-【步骤1】先找到2个关键位置（从上到下）：
-  ① 顶部白色数字框 → 这是底池(pot_size)
-  ② 左下角你头像下方的数字 → 这是你的筹码(my_chips)
-  判断依据：底池数字在屏幕上方1/3区域的白色框里；你的筹码在左下角头像旁边
+1. 底池pot_size：牌桌中央"底池XXX"的数字，去逗号，10K=10000
+2. 筹码my_chips：左下角你头像下数字
+3. 手牌hole_cards：底部2张正面牌，只要rank（A K Q J T 9 8 7 6 5 4 3 2，T=10）
+4. 公共牌community_cards：桌面中央0/3/4/5张，只要rank
+5. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
+6. 操作按钮buttons：底部按钮原样输出
+7. total_players总座位数，active_players活跃人数
+8. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
+9. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
 
-【步骤2】底池(pot_size)识别——最关键，错误会导致策略全错：
-  来源优先级：牌桌中央"底池XXX"标签 > 顶部白色数字框
-  - 两处数字应该一致，取较大值
-  - 去掉逗号："5,750"→5750
-  - K/M转换："10K"→10000
-  ❌ pot_size不是左下角你头像下的数字（那是my_chips）
-  ❌ pot_size不是其他玩家头像旁的数字
-  ❌ pot_size不是玩家头像旁边下注筹码堆上的数字
-  ❌ pot_size不要自己算（不要把各玩家下注加起来）
-
-【步骤3】你的筹码(my_chips)识别：
-  - 只看左下角你自己头像名字下方的数字
-  - ❌ my_chips不是顶部白色数字框（那是底池）
-
-【步骤4】识别其余信息：
-  1. 手牌：屏幕最下方2张正面牌
-  2. 公共牌：桌面中央0/3/4/5张牌
-  3. 操作按钮：底部按钮原样输出
-  4. 座位总数、活跃玩家数（面前有牌的，已弃牌不算）
-  5. 盲注：桌面标题"200 / 500"→blind_sb=200 blind_bb=500
-  6. 前注ante
-
-【步骤5】跟注金额(to_call)识别：
-  - "跟注3,194"→to_call=3194
-  - "跟注10K"→to_call=10000
-  - "让牌"/"过牌"→to_call=0
-  - "全押"/"全下"→to_call=my_chips值
-
-★★★ 关键规则 ★★★：
-- rank: A K Q J T 9 8 7 6 5 4 3 2（T=10）
-- suit: s=黑桃♠ h=红桃♥ d=方块♦ c=梅花♣（⚠️黑桃s是实心箭头形，梅花c是三瓣圆弧形，严禁把黑桃误认为梅花！）
-- K/M后缀转换：10K=10000 1.5M=1500000
-- street：0张=preflop 3=flop 4=turn 5=river
-
-★★★ 底池vs筹码自检（输出前必做）★★★：
-如果pot_size < my_chips 且有多张公共牌，很可能是底池和筹码搞反了！
-正确情况：翻后pot_size通常 ≥ my_chips（底池至少是盲注的几倍）
+❌ pot_size不是你头像下数字（那是my_chips）
 
 返回JSON：
-{"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"buttons":["弃牌","跟注10K","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0}
+{"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top"}
 
 只返回JSON"""
 
@@ -578,7 +407,7 @@ Which position has the "D" dealer button? Answer with ONLY one of these exact wo
             blindSB = blindSB,
             blindBB = blindBB,
             ante = ante,
-            dButtonPosition = "",  // V2.9.78: 由并行vl-plus调用填充，此处为空默认值
+            dButtonPosition = data.optString("d_button_pos", ""),  // V2.9.83: 从主调用解析，不再并行
             rawResponse = content
         )
     }
@@ -617,8 +446,8 @@ Which position has the "D" dealer button? Answer with ONLY one of these exact wo
                     is JSONObject -> {
                         var rank = element.optString("rank", "")
                         rank = rankNormalize[rank] ?: rank
-                        val suit = element.optString("suit", "")
-                        if (rank in validRanks && suit.isNotEmpty()) {
+                        val suit = element.optString("suit", "")  // V2.9.83: suit可选，为空也合法
+                        if (rank in validRanks) {
                             cards.add(CardInfo(rank = rank, suit = suit))
                         } else {
                             Log.w(TAG, "parseCards: 跳过无效对象牌 rank=$rank suit=$suit")
