@@ -42,7 +42,7 @@ jobs:
       with:
         tag_name: v2.9.106
         name: "V2.9.106 River极化诈唬+fold追踪修复"
-        body: "V2.9.106: RiverPolarStrategy极化诈唬模块+_onNewHand fold追踪bug修复
+        body: "V2.9.106: RiverPolarStrategy极化诈唬模块+_onNewHand fold追踪bug修复"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
