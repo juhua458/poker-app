@@ -551,7 +551,12 @@ class FloatingService : Service() {
         wv.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
                 // V2.9.114: 用WebViewAssetLoader拦截本地资源请求
-                return assetLoader.shouldInterceptRequest(request?.url) ?: super.shouldInterceptRequest(view, request)
+                val url = request?.url
+                if (url != null) {
+                    val response = assetLoader.shouldInterceptRequest(url)
+                    if (response != null) return response
+                }
+                return super.shouldInterceptRequest(view, request)
             }
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
                 Log.e(TAG, "WebView加载失败: code=$errorCode desc=$description url=$failingUrl")
