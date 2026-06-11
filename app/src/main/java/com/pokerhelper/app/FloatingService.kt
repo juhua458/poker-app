@@ -342,6 +342,7 @@ class FloatingService : Service() {
      * V2.9.38: 触发截屏（通知栏按钮调用）
      */
     private fun triggerCapture() {
+        Log.d(TAG, "★ triggerCapture开始: webViewReady=$webViewReady, stealth=$isStealthMode, screenOpt=${ScreenOptService.isServiceRunning()}, apiKey=${VisionApiClient.apiKey.takeLast(4)}")
         executeJs("if(typeof clr==='function'){clr()}")
         tvRecResult?.text = ""
         tvRecResult?.visibility = View.GONE
@@ -350,29 +351,36 @@ class FloatingService : Service() {
         tvStatus?.text = "🎯 截屏中..."
         executeJs("document.body.classList.add('api-processing')")
         tvAction?.alpha = 0.5f
-        // V2.9.70: 诊断通知
-        if (isStealthMode) updateAdviceNotification("1/4 截屏中", "点击悬浮球触发")
+        // V2.9.109: 诊断通知（不分stealth，始终更新通知方便排查）
+        updateAdviceNotification("1/4 截屏中", "无障碍=${ScreenOptService.isServiceRunning()}")
 
         if (ScreenOptService.isServiceRunning()) {
             ScreenOptService.onScreenshotReady = { success ->
                 handler.post {
                     if (success) {
-                        if (isStealthMode) updateAdviceNotification("2/4 截屏成功", "正在调用API识别...")
+                        Log.d(TAG, "★ 截屏成功，进入processScreenshotAndAnalyze")
+                        updateAdviceNotification("2/4 截屏成功", "正在调用API识别...")
                         processScreenshotAndAnalyze()
                     } else {
+                        Log.e(TAG, "★ 截屏失败: ${ScreenCaptureService.lastError}")
                         tvStatus?.text = "❌ 截图失败，请重试"
                         tvAction?.alpha = 1.0f
                         executeJs("document.body.classList.remove('api-processing')")
-                        if (isStealthMode) updateAdviceNotification("❌ 截图失败", "请重试或检查无障碍服务")
+                        updateAdviceNotification("❌ 截屏失败", ScreenCaptureService.lastError.take(30))
+                        // V2.9.109: 失败也变红
+                        updateBallAdvice("COLOR:FOLD|SIGNAL:ERROR")
                     }
                 }
             }
             ScreenOptService.captureScreen()
         } else {
+            Log.e(TAG, "★ 无障碍服务未运行！")
             tvStatus?.text = "⚠️ 请先开启无障碍服务！"
             tvAction?.alpha = 1.0f
             executeJs("document.body.classList.remove('api-processing')")
-            if (isStealthMode) updateAdviceNotification("❌ 无障碍未开启", "请回App开启后重试")
+            updateAdviceNotification("❌ 无障碍未开启", "请回App开启后重试")
+            // V2.9.109: 无障碍没开也变红
+            updateBallAdvice("COLOR:FOLD|SIGNAL:NO_TABLE")
         }
     }
 
@@ -396,7 +404,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.109"
+            text = "青云 v2.9.110"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -801,10 +809,11 @@ class FloatingService : Service() {
                         prefs?.edit()?.putInt(KEY_BALL_X, params.x)?.putInt(KEY_BALL_Y, params.y)?.apply()
                     } else if (!isLongPressed) {
                         // 点击 → 截屏识别
+                        Log.d(TAG, "★ 悬浮球点击触发")
+                        // V2.9.109: 诊断——点击后立即变黄+通知，确认touch事件正常
+                        updateBallColor(0xDDFFD600.toInt())
+                        updateAdviceNotification("⏳ 点击已触发", "正在截屏...")
                         triggerCapture()
-                        // 视觉反馈：闪绿
-                        updateBallColor(0xDD4ade80.toInt())
-                        handler.postDelayed({ updateBallColor(0xDD1a1a2e.toInt()) }, 300)
                     }
                     true
                 }
@@ -1061,6 +1070,7 @@ class FloatingService : Service() {
      */
     private fun processScreenshotAndAnalyze() {
         val screenshot = ScreenCaptureService.latestScreenshot
+        Log.d(TAG, "★ processScreenshotAndAnalyze: screenshot=${if(screenshot!=null)\"${screenshot.size/1024}KB\" else \"null\"}, apiKey=${VisionApiClient.apiKey.takeLast(4)}, webViewReady=$webViewReady")
         if (screenshot == null) {
             val diag = when {
                 !ScreenOptService.isServiceRunning() ->
@@ -1072,7 +1082,7 @@ class FloatingService : Service() {
             tvStatus?.text = diag
             tvAction?.alpha = 1.0f
             executeJs("document.body.classList.remove('api-processing')")
-            if (isStealthMode) updateAdviceNotification("❌ 2/4 截图为空", diag)
+            updateAdviceNotification("❌ 2/4 截图为空", diag)
             // V2.9.70: 截图失败→悬浮球闪烁红 + 记录错误日志
             updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
             isBlinkingError = true
@@ -1081,35 +1091,36 @@ class FloatingService : Service() {
             if (errorLogs.size > 50) errorLogs.removeAt(0)
             return
         }
-        // V2.9.70: 诊断——截图成功
+        // V2.9.109: 诊断——截图成功，始终更新通知
         Log.d(TAG, "截图成功: ${screenshot.size / 1024}KB, apiKey=${if(VisionApiClient.apiKey.isNotEmpty()) "已配置" else "空"}")
-        if (isStealthMode) updateAdviceNotification("2/4 截图OK", "${screenshot.size / 1024}KB, API识别中...")
+        updateAdviceNotification("2/4 截图OK", "${screenshot.size / 1024}KB, API识别中...")
 
         if (VisionApiClient.apiKey.isEmpty()) {
             executeJs("if(typeof onActionCapture==='function'){onActionCapture()};document.body.classList.add('speed-mode');document.body.classList.remove('api-processing')")
             tvAction?.alpha = 1.0f
             tvStatus?.text = ScreenCaptureService.lastChipStatus.ifEmpty { "🎯 已更新(无API)" }
-            if (isStealthMode) updateAdviceNotification("已更新(无API)", ScreenCaptureService.lastChipStatus)
+            updateAdviceNotification("已更新(无API)", ScreenCaptureService.lastChipStatus)
             return
         }
 
         // 有API Key → 调用视觉模型识别牌面
         tvStatus?.text = "🎯 API识别中..."
         tvAction?.alpha = 0.5f
-        if (isStealthMode) updateAdviceNotification("识别中...", "正在分析牌面")
+        updateAdviceNotification("识别中...", "正在分析牌面")
         Thread {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
-                Log.d(TAG, "V2.9.70诊断: VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
+                Log.d(TAG, "★ VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
                 if (result != null) {
                     val resultJson = VisionApiClient.toJson(result)
+                    Log.d(TAG, "★ resultJson长度=${resultJson.length}, webViewReady=$webViewReady")
                     handler.post {
-                        executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}else{console.log('[V269]onVisionResult未定义!')}")
+                        executeJs("if(typeof onVisionResult==='function'){onVisionResult($resultJson)}else{console.log('[V29109]onVisionResult未定义!')}")
                         tvAction?.alpha = 1.0f
-                        Log.d(TAG, "V2.9.70诊断: onVisionResult已调用")
+                        Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
                         isBlinkingError = false
-                        if (isStealthMode) updateAdviceNotification("3/4 API识别OK", "策略计算中...")
+                        updateAdviceNotification("3/4 API识别OK", "策略计算中...")
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
                         val suitSym = mapOf("s" to "♠", "h" to "♥", "d" to "♦", "c" to "♣")
@@ -1117,7 +1128,6 @@ class FloatingService : Service() {
                         val holeStr = result.holeCards.map { "${if(it.rank=="T") "10" else it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
                         val commStr = result.communityCards.map { "${if(it.rank=="T") "10" else it.rank}${suitSym[it.suit] ?: it.suit}" }.joinToString(" ")
                         val streetStr = streetCN[result.street] ?: result.street
-                        // V2.9.43: 分两行显示——第一行手牌+桌型+阶段，第二行底池/跟注/盲注
                         var recText = "🔍 $holeStr | $streetStr | ${result.totalPlayers}人桌"
                         if (result.ante > 0) recText += " | Ante:${result.ante}"
                         var detailText = "BB=${result.blindBB}"
@@ -1133,26 +1143,22 @@ class FloatingService : Service() {
                         }
                         tvRecResult?.text = recText
                         tvRecResult?.visibility = View.VISIBLE
-                        tvRecDetail?.text = detailText  // V2.9.43: 详情行
+                        tvRecDetail?.text = detailText
                         tvRecDetail?.visibility = View.VISIBLE
-                        // V2.9.38: 隐身模式也更新通知
-                        if (isStealthMode) {
-                            updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", commStr)
-                        }
+                        updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", commStr)
                     }
                 } else {
                     handler.post {
                         tvAction?.alpha = 1.0f
                         tvStatus?.text = "❌ API: ${VisionApiClient.lastError.take(30)}"
                         executeJs("document.body.classList.remove('api-processing')")
-                        // V2.9.70: API失败→悬浮球闪烁红 + 记录错误日志
                         updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
                         isBlinkingError = true
                         floatingBall?.text="⚠️";floatingBall?.textSize=14f
                         errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API失败: ${VisionApiClient.lastError.take(100)}")
                         if (errorLogs.size > 50) errorLogs.removeAt(0)
-                        Log.e(TAG, "V2.9.70诊断: API失败, error=${VisionApiClient.lastError}")
-                        if (isStealthMode) updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
+                        Log.e(TAG, "★ API失败, error=${VisionApiClient.lastError}")
+                        updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
                     }
                 }
             } catch (e: Exception) {
@@ -1160,13 +1166,12 @@ class FloatingService : Service() {
                     tvAction?.alpha = 1.0f
                     tvStatus?.text = "❌ API错误"
                     executeJs("document.body.classList.remove('api-processing')")
-                    // V2.9.70: API异常→悬浮球闪烁红 + 记录错误日志
                     updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
                     isBlinkingError = true
                     floatingBall?.text="⚠️";floatingBall?.textSize=14f
                     errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API异常: ${e.message?.take(100) ?: "未知"}")
                     if (errorLogs.size > 50) errorLogs.removeAt(0)
-                    if (isStealthMode) updateAdviceNotification("API错误", e.message?.take(50) ?: "")
+                    updateAdviceNotification("API错误", e.message?.take(50) ?: "")
                 }
             }
         }.start()
