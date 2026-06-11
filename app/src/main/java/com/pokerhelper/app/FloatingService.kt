@@ -413,7 +413,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.114"
+            text = "青云 v2.9.115"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -577,7 +577,7 @@ class FloatingService : Service() {
                     }
                 }
                 // V2.9.114: 验证策略引擎是否真的加载了
-                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.114] ✅策略引擎就绪')}else{console.log('[V2.9.114] ❌策略引擎未加载！')}", null)
+                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.115] ✅策略引擎就绪')}else{console.log('[V2.9.115] ❌策略引擎未加载！')}", null)
             }
         }
         wv.webChromeClient = WebChromeClient()
@@ -1187,7 +1187,7 @@ class FloatingService : Service() {
                             tvRecResult?.setBackgroundColor(0xFF8B0000.toInt())
                             tvRecDetail?.text = "D按钮=${result.dButtonPosition} 按钮=${result.buttons}"
                             tvRecDetail?.visibility = View.VISIBLE
-                            updateAdviceNotification("❓ 不在牌桌", "D=${result.dButtonPosition} 按钮=${result.buttons.joinToString(",")}")
+                            updateAdviceNotification("❓ 不在牌桌", "D=${result.dButtonPosition} 按钮=${result.buttons.joinToString(",")} WV:$webViewReady")
                         }
                     } else {
                     val resultJson = VisionApiClient.toJson(result)
@@ -1207,12 +1207,12 @@ class FloatingService : Service() {
                     }, 5000)
                     handler.post {
                         // V2.9.113: 先检测WebView是否就绪，再调onVisionResult
-                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.114] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.114] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
+                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.115] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.115] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
                         isBlinkingError = false
-                        updateAdviceNotification("3/4 API识别OK", "策略计算中...")
+                        updateAdviceNotification("3/4 API识别OK", "策略计算中... WV:$webViewReady")
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
                         val suitSym = mapOf("s" to "♠", "h" to "♥", "d" to "♦", "c" to "♣")
@@ -1237,7 +1237,14 @@ class FloatingService : Service() {
                         tvRecResult?.visibility = View.VISIBLE
                         tvRecDetail?.text = detailText
                         tvRecDetail?.visibility = View.VISIBLE
-                        val notifyDetail = buildString { append("手牌:$holeStr"); if (commStr.isNotEmpty()) append(" 公牌:$commStr") }
+                        // V2.9.114: 通知栏增加诊断信息——webViewReady+手牌数+策略回调状态
+                        val notifyDetail = buildString {
+                            append("手牌:$holeStr")
+                            if (commStr.isNotEmpty()) append(" 公牌:$commStr")
+                            append(" | WV:$webViewReady")
+                            append(" | 牌数:${result.holeCards.size}")
+                            append(" | isPoker:${result.isPokerTable}")
+                        }
                         updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", notifyDetail)
                     }
                     } // V2.9.111: end of NO_TABLE else (正常牌桌才执行策略)
@@ -1354,7 +1361,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.114\"")
+                append("{\"version\":\"2.9.115\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")

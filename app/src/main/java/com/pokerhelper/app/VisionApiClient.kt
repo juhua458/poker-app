@@ -126,7 +126,8 @@ object VisionApiClient {
                 Log.d(TAG, "手牌锁定: 新一手牌(rank: $lastRankKey→$currentRankKey)，重置")
                 holeCardsLocked = null; dButtonLocked = ""
             }
-            if (holeCardsLocked != null) {
+            // V2.9.114: 空手牌不应被锁定——如果之前锁定了空列表，必须重置
+            if (holeCardsLocked != null && holeCardsLocked!!.isNotEmpty()) {
                 lockReason = "已锁定，跳过重识"; suitUncertain = false
                 var lockedResult = result.copy(holeCards = holeCardsLocked!!, communityCards = commCardsNoSuit)
                 val dPosInsured = applyDButtonInsurance(lockedResult.dButtonPosition, holeCardsLocked!!)
@@ -137,7 +138,12 @@ object VisionApiClient {
                 Log.d(TAG, "识别成功(锁定,$lastPromptMode): ${corrected.holeCards.map{it.rank}.joinToString()} | comm=${corrected.communityCards.map{it.rank}.joinToString()} | 底池${corrected.potSize} | D=$dPosInsured")
                 return corrected
             }
-            holeCardsLocked = holeCardsNoSuit; lockReason = "首次识别锁定"; suitUncertain = false
+            // V2.9.114: 只锁定非空手牌，防止空列表锁死
+            if (holeCardsNoSuit.isNotEmpty()) {
+                holeCardsLocked = holeCardsNoSuit; lockReason = "首次识别锁定"; suitUncertain = false
+            } else {
+                holeCardsLocked = null; lockReason = "手牌为空不锁定"; suitUncertain = false
+            }
             var correctedResult = result.copy(holeCards = holeCardsNoSuit, communityCards = commCardsNoSuit)
             val dPosInsured = applyDButtonInsurance(correctedResult.dButtonPosition, correctedResult.holeCards)
             dButtonPosition = dPosInsured; correctedResult = correctedResult.copy(dButtonPosition = dPosInsured)
