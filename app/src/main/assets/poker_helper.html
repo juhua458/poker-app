@@ -5302,7 +5302,7 @@ function updateBet(){G.bet=parseInt(document.getElementById('betInp').value)||0;
 function togAdv(){document.getElementById('adv').classList.toggle('show');}
 function clr(){
   document.body.classList.remove('speed-mode');
-  G.hole=[null,null];G.comm=[null,null,null,null,null];G._heroDid4bet=false;
+  G.hole=[null,null];G.comm=[null,null,null,null,null];G._heroDid4bet=false;G._slowplayed=false;
   G.scene=G.phase==='pre'?'open':'check';
   G.bet=0;G.pot=10;G.limpers=0;mxVisible=true;
   document.getElementById('mxWrap').classList.remove('collapsed');
