@@ -41,7 +41,7 @@ jobs:
       if: success()
       with:
         tag_name: v2.9.112
-        name: "V2.9.111 NO_TABLE增强检测-3信号判牌桌"
+        name: "V2.9.112 通知栏手牌修复"
         body: "V2.9.107: 删除DBStrategy残留死代码(ReferenceError)+HTTP Keep-Alive连接复用"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
