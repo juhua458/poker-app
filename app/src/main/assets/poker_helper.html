@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.87 · 座位角色+筹码深度</title>
+<title>青云 v2.9.88 · 策略引擎3bet+深度</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -402,7 +402,7 @@ var SU=['h','d','s','c'];
 var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{},_seatRoles:{}};
+var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{},_seatRoles:{},_facing3bet:false,_raiserRole:'unknown',_raiserStackType:'unknown'};
 var _pi=null,_ms='h';
 var _decisionCache={};var _cacheMax=200;
 function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('')+'L'+G.limpers;}
@@ -1108,7 +1108,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.87',
+    version:'2.9.88',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1226,7 +1226,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.87',
+  CURRENT_VERSION:'2.9.88',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1315,9 +1315,9 @@ var ActionLine={
   reset:function(){this._lines=[];this._handId='';this._prevStreet='';}
 };
 
-// ===== V2.9.87: 对手画像追踪器 =====
+// ===== V2.9.88: 对手画像追踪器 =====
 var OppProfiler={
-  // V2.9.87: 用nickname做主键，跨座跨桌追踪
+  // V2.9.88: 用nickname做主键，跨座跨桌追踪
   // _profiles key = nickname, value = {nickname, pos, hands, entered, folded, chipsHistory, betHistory, type, _lastChips, _enteredThisHand, _foldedThisHand, _lastBet, _raiseCount}
   _profiles:{},
   // pos→nickname映射，用于按位置查询
@@ -1350,7 +1350,7 @@ var OppProfiler={
       var p=this._profiles[nk];
       p.pos=s.pos;
       
-      // V2.9.87: 用bet字段直接检测行动
+      // V2.9.88: 用bet字段直接检测行动
       if(s.bet>0&&!p._enteredThisHand){
         p._enteredThisHand=true;
         p.entered++;
@@ -1387,7 +1387,7 @@ var OppProfiler={
       p._lastChips=s.chips;
     }
     
-    // V2.9.87: 筹码深度分类
+    // V2.9.88: 筹码深度分类
     this._updateStackTypes();
     G.oppSeats=oppSeats;
     this._updateTypes();
@@ -1439,7 +1439,7 @@ var OppProfiler={
     G._oppProfiles=this._profiles;
   },
   
-  // V2.9.87: 筹码深度分类
+  // V2.9.88: 筹码深度分类
   _updateStackTypes:function(){
     var bb=G.stk?Math.round(G.pot/G.stk*100)/100:0;
     // 用盲注算BB更准确
@@ -1505,7 +1505,7 @@ var OppProfiler={
 };
 
 
-// ===== V2.9.87: 座位角色推算 =====
+// ===== V2.9.88: 座位角色推算 =====
 // 从D按钮位置推算每个座位的扑克角色(BU/SB/BB/UTG/CO等)
 var SeatRole={
   // 屏幕座位的顺时针顺序（从top-center开始顺时针）
@@ -1566,7 +1566,7 @@ var SeatRole={
   }
 };
 
-// ===== V2.9.87: 花色概率推断 =====
+// ===== V2.9.88: 花色概率推断 =====
 var SuitProb={
   // 计算同花听牌概率（纯数学，不依赖视觉识别）
   // 返回0-1之间的概率值
@@ -2542,15 +2542,36 @@ var FOURBET_RESPONSE={
   fourbet_fold:['A2s','A3s','A4s','A5s','76s','65s','54s','43s']  // 4bet-fold（诈唬被推回）
 };
 
-// V2.9.79: 按位置判断是否该3bet
-function shouldThreebet(k,pos,oppType){
+// V2.9.88: 按位置+对手角色判断是否该3bet
+function shouldThreebet(k,pos,oppType,oppRole){
   var range=THREEBET_BY_POS[pos]||THREEBET_BY_POS.btn;
   var isValue=range.value.indexOf(k)!==-1;
   var isBluff=range.bluff.indexOf(k)!==-1;
+  // V2.9.88: 对手位置角色调整
+  // 面对UTG/MP open → 对手范围强，3bet更紧，bluff减少
+  // 面对CO/BU open → 对手范围宽，3bet更松，bluff增加
+  var _oppRole=oppRole||G._raiserRole||'unknown';
+  if(_oppRole==='utg'||_oppRole==='mp'){
+    // vs UTG/MP: 只value 3bet，不bluff
+    if(isBluff) return {action:'fold',reason:'vs '+_oppRole.toUpperCase()+' open不3bet诈唬'};
+    // 跟注范围也收窄——UTG开池范围强，边缘牌不跟
+    if(range.call.indexOf(k)!==-1){
+      // 边缘跟注牌 vs UTG → 弃牌（如KQo, JTo等）
+      var marginalVsUTG=['KQo','KJo','QJo','JTo','ATo','A9s','A8s','KTs','QTs','JTs','T9s','98s','87s'];
+      if(marginalVsUTG.indexOf(k)!==-1) return {action:'fold',reason:'vs '+_oppRole.toUpperCase()+' 弃边缘牌'};
+    }
+  }
+  if(_oppRole==='co'||_oppRole==='btn'){
+    // vs CO/BU: bluff效率高，范围不变或稍宽
+    // (isBluff会在下面正常处理)
+  }
+  if(_oppRole==='sb'){
+    // vs SB: SB开池范围通常偏宽，3bet可以稍多
+  }
   // 对手类型影响：calling_station/fish不bluff
   if(isBluff && (oppType==='calling_station'||oppType==='fish')) return {action:'call',reason:'vs'+oppType+'不3bet诈唬'};
-  if(isValue) return {action:'3bet',reason:'位置3bet价值',type:'value'};
-  if(isBluff) return {action:'3bet',reason:'位置3bet诈唬',type:'bluff'};
+  if(isValue) return {action:'3bet',reason:'位置3bet价值('+_oppRole+')',type:'value'};
+  if(isBluff) return {action:'3bet',reason:'位置3bet诈唬('+_oppRole+')',type:'bluff'};
   // 跟注范围
   if(range.call.indexOf(k)!==-1) return {action:'call',reason:'位置跟注范围'};
   return {action:'fold',reason:'不在3bet/跟注范围'};
@@ -3241,7 +3262,7 @@ function decide(){
     var _spr=G.spr||10;
     var _stk=G.stk||100000;
     var _oppType=G.opp||'unknown';
-    // V2.9.87: 花色概率修正——对手同花概率→保守equity调整
+    // V2.9.88: 花色概率修正——对手同花概率→保守equity调整
     var _flushPenalty=0;
     var _numComm=G.comm.filter(function(c){return c&&c.rank;}).length;
     if(_numComm>=3){
@@ -3311,6 +3332,25 @@ function applyOppActionShift(action,eq,oppType,tiltInfo,ceResult,pulse){
   var a=action;
   // check不变
   if(a==='check')return a;
+  
+  // V2.9.88: 筹码深度策略调整
+  var _raiserStack=G._raiserStackType||'unknown';
+  // vs短筹码: 不bluff他（他容易全下），缩紧加注
+  if(_raiserStack==='short'){
+    if(a==='raise'&&eq<55)a='call'; // 中等牌不加注vs短码
+    if(a==='weak_call')a='fold'; // 弱跟注vs短码直接弃
+  }
+  // vs深筹码: 可以多施压，bluff效率高
+  if(_raiserStack==='deep'){
+    if(a==='call'&&eq>=52)a='raise'; // 深码对手可以多加注
+  }
+  // V2.9.88: 面对3bet额外收紧
+  if(G._facing3bet){
+    if(a==='weak_call')a='fold'; // 面对3bet不弱跟
+    if(a==='call'&&eq<48)a='fold'; // 低于48%弃牌
+    if(a==='raise'&&eq<60)a='call'; // 中等牌只跟注不反加
+  }
+  
   // vs鱼/跟站: 偏价值,弱牌不送
   if(oppType==='fish'||oppType==='calling_station'){
     if(a==='call'&&eq>=55)a='raise';
@@ -3431,7 +3471,7 @@ function preF(k){
   // 翻前面对3bet
   if(scene==='reraise'){
     // V2.9.79: 位置感知3bet/4bet决策
-    var threebetDecision=shouldThreebet(k,G.pos,oppType);
+    var threebetDecision=shouldThreebet(k,G.pos,oppType,G._raiserRole);
     var f4b=FOUR_BET[k];
     // V2.9.18: 对手类型4bet频率调整
     var f4bVal=f4b?f4b.val:0;
@@ -3475,7 +3515,7 @@ function preF(k){
   }
   if(scene==='raise'){
     // V2.9.79: 位置感知3bet决策
-    var _3betDec=shouldThreebet(k,G.pos,oppType);
+    var _3betDec=shouldThreebet(k,G.pos,oppType,G._raiserRole);
     if(_3betDec.action==='3bet'){
       var _3betSz=Math.round(Math.max(actualBet*3,pot*0.75));
       var exploitResult3d=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
@@ -5161,16 +5201,16 @@ function onVisionResult(data){
     G._playersCrossCheck=null;
   }
 
-  // V2.9.87: 存盲注供筹码深度计算
+  // V2.9.88: 存盲注供筹码深度计算
   if(data.blind_bb&&data.blind_bb>0){
     window._lastBlindBB=data.blind_bb;
   }
-  // V2.9.87: 推算座位角色
+  // V2.9.88: 推算座位角色
   if(data.d_button_position&&data.d_button_position!=='not_found'){
     var _roles=SeatRole.calc(data.d_button_position,data.total_players||G.tt||6);
     console.log('[SeatRole] D='+data.d_button_position+' roles='+JSON.stringify(_roles));
   }
-  // V2.9.87: 对手画像追踪——nickname跨座追踪+bet行动线+VPIP/弃牌率
+  // V2.9.88: 对手画像追踪——nickname跨座追踪+bet行动线+VPIP/弃牌率
   if(data.opp_seats&&data.opp_seats.length>0){
     G.oppSeats=data.opp_seats;
     OppProfiler.update(data.opp_seats,G.stk,data.street||G.phase);
@@ -5183,6 +5223,34 @@ function onVisionResult(data){
       console.log('[OppProfiler] 自动设置对手类型: '+_autoType);
     }
     OppProfiler.updateUI();
+    // V2.9.88: 从opp_seats的bet检测3bet和raiser角色
+    G._facing3bet=false;
+    G._raiserRole='unknown';
+    G._raiserStackType='unknown';
+    var _maxBet=0,_raiserPos='';
+    for(var i=0;i<data.opp_seats.length;i++){
+      var os=data.opp_seats[i];
+      if(os.bet>0&&os.status==='active'){
+        // 找最大bet的对手
+        if(os.bet>_maxBet){_maxBet=os.bet;_raiserPos=os.pos;}
+        // bet > BB → 有人加注了
+        var _blindBB=data.blind_bb||200;
+        if(os.bet>_blindBB*2){
+          G._facing3bet=true;
+        }
+      }
+    }
+    // 获取raiser的角色和筹码深度
+    if(_raiserPos){
+      G._raiserRole=SeatRole.getRole(_raiserPos);
+      var _nk=OppProfiler._posMap[_raiserPos];
+      if(_nk&&OppProfiler._profiles[_nk]){
+        G._raiserStackType=OppProfiler._profiles[_nk].stackType||'unknown';
+      }
+    }
+    if(_maxBet>0){
+      console.log('[Raiser检测] maxBet='+_maxBet+' raiser='+_raiserPos+' role='+G._raiserRole+' stackType='+G._raiserStackType+' 3bet='+G._facing3bet);
+    }
   }
 
   // 6. 更新UI
