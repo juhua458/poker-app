@@ -4048,8 +4048,8 @@ var ThinValueStrategy={
     else if(oppType==='tag') freq=30;
     else if(oppType==='lag') freq=35;
     // Nit/tight：低频率——它们只跟强牌，薄价值无意义
-    else if(oppType==='nit') freq=8;
-    else if(oppType==='tight') freq=12;
+    else if(oppType==='nit') freq=5;
+    else if(oppType==='tight') freq=8;
     // Maniac：中等频率——会raise诈唬但也会fold差牌
     else if(oppType==='maniac') freq=25;
     else freq=20; // unknown
@@ -4060,7 +4060,7 @@ var ThinValueStrategy={
     else if(eq<45) freq-=15; // 低equity的中等牌更倾向过牌
     
     // 位置——IP薄价值更好(OOP被raise难处理)
-    if(ip) freq+=8;
+    if(ip) freq+=(oppType==='nit'||oppType==='tight'?3:8);
     else freq-=5;
     
     // 牌面——干面薄价值更好(对手范围更宽，更可能有更差中对)
