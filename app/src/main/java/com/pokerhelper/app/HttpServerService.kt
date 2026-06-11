@@ -36,12 +36,31 @@ class HttpServerService : Service() {
 
     private fun loadPokerHelperHtml(): String {
         if (pokerHelperHtml == null) {
+            // V2.9.112: 先从assets加载当前版本号
+            var assetsVer = ""
+            try {
+                val is_ = assets.open("poker_helper.html")
+                val assetsHtml = java.io.InputStreamReader(is_, "UTF-8").readText()
+                is_.close()
+                val verMatch = Regex("""V(\d+\.\d+\.\d+)""").find(assetsHtml)
+                assetsVer = verMatch?.groupValues?.get(1) ?: ""
+            } catch (_: Exception) {}
             // v2.9.35: 优先加载热更新文件（持久化的远程版本）
+            // V2.9.112: 但如果热更新版本比assets旧，删除热更新文件
             try {
                 val hotFile = File(filesDir, HOTLOAD_FILE)
                 if (hotFile.exists()) {
-                    pokerHelperHtml = hotFile.readText(Charsets.UTF_8)
-                    hotloadSource = "remote"
+                    val hotHtml = hotFile.readText(Charsets.UTF_8)
+                    val hotVerMatch = Regex("""V(\d+\.\d+\.\d+)""").find(hotHtml)
+                    val hotVer = hotVerMatch?.groupValues?.get(1) ?: "0"
+                    if (assetsVer.isNotEmpty() && hotVer < assetsVer) {
+                        // 热更新版本比assets旧→删除，用assets的新版
+                        hotFile.delete()
+                        Log.w(TAG, "热更新版本$hotVer < assets版本$assetsVer，已删除旧热更新")
+                    } else {
+                        pokerHelperHtml = hotHtml
+                        hotloadSource = "remote"
+                    }
                 }
             } catch (_: Exception) {}
             // 没有热更新文件则从assets加载
@@ -72,6 +91,8 @@ class HttpServerService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        // V2.9.112: 清空HTML缓存，强制重新加载（防止升级后仍用旧版HTML）
+        pokerHelperHtml = null
 
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
