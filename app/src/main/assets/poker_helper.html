@@ -4291,6 +4291,8 @@ var ProbeStrategy={
     if(street==='preflop')return false;
     if(scene!=='check')return false;
     if(!ip)return false; // OOP不用probe，那是donk lead
+    // NUTS/STRONG走Overbet/通用raise，不走probe
+    if(hClass&&(hClass.name==='NUTS'||hClass.name==='STRONG'))return false;
     // IP + 非PFR(由调用方检查)
     return true;
   },
