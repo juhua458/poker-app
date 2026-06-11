@@ -1070,7 +1070,8 @@ class FloatingService : Service() {
      */
     private fun processScreenshotAndAnalyze() {
         val screenshot = ScreenCaptureService.latestScreenshot
-        Log.d(TAG, "★ processScreenshotAndAnalyze: screenshot=${if(screenshot!=null)\"${screenshot.size/1024}KB\" else \"null\"}, apiKey=${VisionApiClient.apiKey.takeLast(4)}, webViewReady=$webViewReady")
+        val ssInfo = if (screenshot != null) "${screenshot.size/1024}KB" else "null"
+        Log.d(TAG, "★ processScreenshotAndAnalyze: screenshot=$ssInfo, apiKey=${VisionApiClient.apiKey.takeLast(4)}, webViewReady=$webViewReady")
         if (screenshot == null) {
             val diag = when {
                 !ScreenOptService.isServiceRunning() ->
