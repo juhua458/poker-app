@@ -130,13 +130,14 @@ object VisionApiClient {
                 return null
             }
 
-            // 合并D按钮位置
-
-
-
-
-
-
+            // V2.9.80: D按钮保险层——同一手牌内锁定+突变用旧值+邻近位容错
+            val dPosRaw = dButtonHolder[0] ?: ""
+            val dPosInsured = applyDButtonInsurance(dPosRaw, result.holeCards)
+            dButtonPosition = dPosInsured
+            if (dButtonErrorHolder[0] != null) {
+                Log.w(TAG, "D按钮位置识别失败(不影响主流程): ${dButtonErrorHolder[0]}")
+            }
+            Log.d(TAG, "D按钮位置: $dPosRaw→$dPosInsured (vl-plus${if(dPosRaw.isEmpty()) "失败" else "成功"})")
 
             var correctedResult = result.copy(dButtonPosition = dPosInsured)
 
