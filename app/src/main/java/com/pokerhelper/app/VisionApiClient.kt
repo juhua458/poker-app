@@ -80,7 +80,7 @@ object VisionApiClient {
      * V2.9.81: 双通道交叉验证 - flash + vl-plus
      * 一致→100%可信，锁定；不一致→不锁定，标记花色不确定
      */
-    private fun crossValidateHoleCards(flashCards: List<CardInfo>, plusCards: List<CardInfo>): Pair<List<CardInfo>?, String> {
+    private fun crossValidateHoleCards(flashCards: List<CardInfo>, plusCards: List<CardInfo>): Pair<List<CardInfo>, String> {
         if (flashCards.size != 2 || plusCards.size != 2) {
             return Pair(plusCards, "数量异常")
         }
@@ -145,13 +145,15 @@ object VisionApiClient {
             else if (plusResult == null) { lockReason = "vl-plus失败，单通道"; suitUncertain = true }
 
             // 双通道交叉验证手牌
-            val (holeCardsToUse, crossReason) = if (flashResult != null && plusResult != null) {
+            val crossResult = if (flashResult != null && plusResult != null) {
                 crossValidateHoleCards(flashResult.holeCards, plusResult.holeCards)
             } else if (flashResult != null) {
                 Pair(flashResult.holeCards, "vl-plus失败，用flash")
             } else {
                 Pair(plusResult!!.holeCards, "flash失败，用vl-plus")
             }
+            val holeCardsToUse: List<CardInfo> = crossResult.first
+            val crossReason: String = crossResult.second
             suitUncertain = "双通道冲突⚠️" in crossReason || "单通道" in crossReason
             Log.d(TAG, "双通道验证: $crossReason, holeCards=${holeCardsToUse.joinToString()}")
 
