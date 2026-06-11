@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.110 · WebView缓存修复</title>
+<title>青云 v2.9.111 · NO_TABLE增强检测</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1108,7 +1108,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.110',
+    version:'2.9.111',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1226,7 +1226,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.110',
+  CURRENT_VERSION:'2.9.111',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -6262,11 +6262,27 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
 
 // V1.3: API视觉识别结果回调 - 自动填入牌面+策略分析
 function onVisionResult(data){
-  // V2.9.70: data为空或无手牌→悬浮球变红，表示"App在工作但没看到牌桌"
-  if(!data || !data.hole_cards || data.hole_cards.length<2){
+  // V2.9.111: NO_TABLE增强检测——3信号(无手牌/无D按钮/无操作按钮)满足2个→不在牌桌
+  var _noHole = !data || !data.hole_cards || data.hole_cards.length<2;
+  var _noD = !data || !data.d_button_position || data.d_button_position==='not_found' || data.d_button_position==='';
+  var _noBtn = !data || !data.buttons || data.buttons.length===0 || !data.buttons.some(function(b){
+    return b.indexOf('弃牌')>=0||b.indexOf('跟注')>=0||b.indexOf('加注')>=0||b.indexOf('过牌')>=0||b.indexOf('让牌')>=0||b.indexOf('下注')>=0||b.indexOf('全下')>=0||b.indexOf('全押')>=0;
+  });
+  var _noTableSignals = (_noHole?1:0)+(_noD?1:0)+(_noBtn?1:0);
+  if(_noTableSignals>=2){
+    console.log('[NO_TABLE] signals='+_noTableSignals+' noHole='+_noHole+' noD='+_noD+' noBtn='+_noBtn);
     try{
       if(typeof AndroidBridge!=='undefined' && AndroidBridge.showAdvice){
         AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:NO_TABLE|EQ:0|REASON:未检测到牌桌');
+      }
+    }catch(e){}
+    return;
+  }
+  // V2.9.70保留: data为空→也判NO_TABLE(兜底)
+  if(!data){
+    try{
+      if(typeof AndroidBridge!=='undefined' && AndroidBridge.showAdvice){
+        AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:NO_TABLE|EQ:0|REASON:数据为空');
       }
     }catch(e){}
     return;

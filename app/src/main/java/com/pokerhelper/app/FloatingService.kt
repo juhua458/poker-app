@@ -404,7 +404,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.110"
+            text = "青云 v2.9.111"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -1113,6 +1113,27 @@ class FloatingService : Service() {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
                 Log.d(TAG, "★ VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
                 if (result != null) {
+                    // V2.9.111: NO_TABLE检测——3信号(无手牌/无D按钮/无操作按钮)满足2个→不在牌桌
+                    val noHoleCards = result.holeCards.size < 2
+                    val noDButton = result.dButtonPosition.isEmpty() || result.dButtonPosition == "not_found"
+                    val noPokerButtons = result.buttons.isEmpty() || result.buttons.none { b ->
+                        b.contains("弃牌") || b.contains("跟注") || b.contains("加注") || b.contains("过牌") || b.contains("让牌") || b.contains("下注") || b.contains("全下") || b.contains("全押")
+                    }
+                    val noTableSignals = (if(noHoleCards) 1 else 0) + (if(noDButton) 1 else 0) + (if(noPokerButtons) 1 else 0)
+                    Log.d(TAG, "★ NO_TABLE检测: noHole=$noHoleCards noD=$noDButton noBtn=$noPokerButtons signals=$noTableSignals")
+                    if (noTableSignals >= 2) {
+                        Log.w(TAG, "★ NO_TABLE判定: 不在牌桌(signals=$noTableSignals), dButton=${result.dButtonPosition}, buttons=${result.buttons}")
+                        handler.post {
+                            updateBallAdvice("COLOR:FOLD|SIGNAL:NO_TABLE|EQ:0|REASON:未检测到牌桌")
+                            tvStatus?.text = "❓ 未检测到牌桌"
+                            tvRecResult?.text = "🔍 不在游戏桌面"
+                            tvRecResult?.visibility = View.VISIBLE
+                            tvRecResult?.setBackgroundColor(0xFF8B0000.toInt())
+                            tvRecDetail?.text = "D按钮=${result.dButtonPosition} 按钮=${result.buttons}"
+                            tvRecDetail?.visibility = View.VISIBLE
+                            updateAdviceNotification("❓ 不在牌桌", "D=${result.dButtonPosition} 按钮=${result.buttons.joinToString(",")}")
+                        }
+                    } else {
                     val resultJson = VisionApiClient.toJson(result)
                     Log.d(TAG, "★ resultJson长度=${resultJson.length}, webViewReady=$webViewReady")
                     handler.post {
@@ -1148,6 +1169,7 @@ class FloatingService : Service() {
                         tvRecDetail?.visibility = View.VISIBLE
                         updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", commStr)
                     }
+                    } // V2.9.111: end of NO_TABLE else (正常牌桌才执行策略)
                 } else {
                     handler.post {
                         tvAction?.alpha = 1.0f
