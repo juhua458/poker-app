@@ -3761,20 +3761,20 @@ function preF(k){
   profile=CounterExploit.applyAdjustments(profile,ceResult);
   var weights=DRTA.getDRTAWeight(profile);
   var sceneLabel='';
-  if(scene==='reraise'){eq-=12;sceneLabel='面对再raise';}
-    // V2.9.95: 4bet-call中间层——面对5bet决策
-    if(FourBetResponse.isFacing5bet()){
-      var _5betDec=FourBetResponse.decide(k,eq,oppType,pot,bet,stk);
-      if(_5betDec.action==='raise'){
-        var exploitResult5b=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot,facing3bet:true});
-        return{a:'raise',v:stk,r:_5betDec.reason,eq:exploitResult5b.eq,c:'h',sizing:stk,scene:'面对5bet',spr:spr,exploit:exploitResult5b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-      }
-      if(_5betDec.action==='call'){
-        var exploitResult5c=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
-        return{a:'call',r:_5betDec.reason,eq:exploitResult5c.eq,c:_5betDec.c,scene:'面对5bet',spr:spr,evs:compareEVs(eq,pot,bet,0),exploit:exploitResult5c.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-      }
-      return{a:'fold',r:_5betDec.reason,eq:eq,c:_5betDec.c,scene:'面对5bet',spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+  // V2.9.95: 4bet-call中间层——面对5bet短路（在eq调整前截获）
+  if(FourBetResponse.isFacing5bet()){
+    var _5betDec=FourBetResponse.decide(k,eq,oppType,pot,bet,stk);
+    if(_5betDec.action==='raise'){
+      var exploitResult5b=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot,facing3bet:true});
+      return{a:'raise',v:stk,r:_5betDec.reason,eq:exploitResult5b.eq,c:'h',sizing:stk,scene:'面对5bet',spr:spr,exploit:exploitResult5b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
+    if(_5betDec.action==='call'){
+      var exploitResult5c=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      return{a:'call',r:_5betDec.reason,eq:exploitResult5c.eq,c:_5betDec.c,scene:'面对5bet',spr:spr,evs:compareEVs(eq,pot,bet,0),exploit:exploitResult5c.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
+    return{a:'fold',r:_5betDec.reason,eq:eq,c:_5betDec.c,scene:'面对5bet',spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+  }
+  if(scene==='reraise'){eq-=12;sceneLabel='面对再raise';}
   else if(scene==='raise'){eq-=4;sceneLabel='面对加注';}
   else if(scene==='call'){eq-=2;sceneLabel='多人跟注';}
   else{sceneLabel='开池';}
@@ -3813,7 +3813,7 @@ function preF(k){
     // V2.9.95: Check-raise检测
     var _didPFR5=ActionLine.didPreflopRaise();
     var _didHeroBetPrev2=ActionLine.getStreetAction(street)&&ActionLine.getStreetAction(street).heroAction==='raise';
-    var _isCR=OppPostFlopAction.isCheckRaise(scene,street,_didHeroBetPrev2);
+    var _isCR=street!=='preflop'&&OppPostFlopAction.isCheckRaise(scene,street,_didHeroBetPrev2);
     if(_isCR){
       var _crAdj=OppPostFlopAction.checkRaiseAdj(eq,hClass,G.opp);
       eq+=_crAdj.eqAdj;
@@ -3842,7 +3842,7 @@ function preF(k){
     if(isBluff4b&&Math.random()*100<f4b.bluff){
       var rSz=Math.round(actualBet*2.5);
       var exploitResult2b=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
-      'G._heroDid4bet=true;G._heroDid4bet=true;return{a:'raise',v:stk<=rSz?stk:rSz,r:k+' 4bet诈唬!',eq:exploitResult2b.eq,c:'l',sizing:stk<=rSz?stk:rSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz),exploit:exploitResult2b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      G._heroDid4bet=true;return{a:'raise',v:stk<=rSz?stk:rSz,r:k+' 4bet诈唬!',eq:exploitResult2b.eq,c:'l',sizing:stk<=rSz?stk:rSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz),exploit:exploitResult2b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.71: 3bet跟注分两档
     // V2.9.79: 位置感知3bet响应——优先用位置范围表决定
