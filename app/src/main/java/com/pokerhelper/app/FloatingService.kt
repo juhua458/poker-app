@@ -28,6 +28,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import java.io.File
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -1330,11 +1331,50 @@ class FloatingService : Service() {
         }
     }
 
-    // V2.9.112: 从通知栏直接导出日志
+    // V2.9.112: 纯Kotlin端导出日志，不依赖WebView
     private fun exportLogFromNotification() {
         try {
-            executeJs("if(typeof exportLog==='function'){exportLog()}else{console.log('exportLog未定义')}")
-            updateAdviceNotification("📤 导出中...", "正在收集日志")
+            val logData = buildString {
+                append("{\"version\":\"2.9.112\"")
+                append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
+                append(",\"webViewReady\":$webViewReady")
+                append(",\"strategyReceived\":$_strategyReceived")
+                append(",\"lastAdvice\":\"${_lastStrategyAdvice.replace("\"", "\\\"").take(100)}\"")
+                append(",\"nativeErrors\":[")
+                val errs = errorLogs.map { "\"${it.replace("\"", "\\\"").replace("\n", " ")}\"" }
+                append(errs.joinToString(","))
+                append("]")
+                append(",\"lastVisionResult\":\"${VisionApiClient.lastError.take(100).replace("\"", "\\\"")}\"")
+                append("}")
+
+            val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val fileName = "poker_log_${java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())}.json"
+            val exportFile = File(downloadDir, fileName)
+            exportFile.writeText(logData, Charsets.UTF_8)
+
+            // 复制到剪贴板
+            try {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("poker_log", logData))
+            } catch (_: Exception) {}
+
+            // 弹出分享
+            val fileUri = androidx.core.content.FileProvider.getUriForFile(
+                this@FloatingService,
+                "${packageName}.fileprovider",
+                exportFile
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, fileUri)
+                putExtra(Intent.EXTRA_SUBJECT, "青云扑克日志")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(Intent.createChooser(shareIntent, "分享日志(已复制到剪贴板)").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            updateAdviceNotification("✅ 日志已导出", "保存到Download/${fileName}")
         } catch (e: Exception) {
             updateAdviceNotification("❌ 导出失败", e.message?.take(30) ?: "")
         }
