@@ -3523,7 +3523,7 @@ var CBetStrategy={
     
     // 对手类型调整：fold_cbet高的多cbet
     var profile=DRTA.getProfile();
-    var foldCBet=profile.fold_cbet||45;
+    var foldCBet=(function(){var _nk=OppProfiler._posMap[G.pos]||OppProfiler._posMap['sb']||OppProfiler._posMap['bb'];var _f=(_nk&&OppProfiler.getFoldToCBetPct(_nk));return _f!==null?_f:(profile.fold_cbet||45);})();
     if(foldCBet>=60) baseFreq=Math.min(baseFreq+15,95); // 高弃牌率对手多cbet
     if(foldCBet<=30) baseFreq=Math.max(baseFreq-15,5); // 低弃牌率对手少cbet
     
