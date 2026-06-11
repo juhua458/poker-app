@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.90 · C-bet策略引擎</title>
+<title>青云 v2.9.91 · C-bet策略引擎</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1108,7 +1108,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.90',
+    version:'2.9.91',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1226,7 +1226,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.90',
+  CURRENT_VERSION:'2.9.91',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1315,9 +1315,9 @@ var ActionLine={
   reset:function(){this._lines=[];this._handId='';this._prevStreet='';}
 };
 
-// ===== V2.9.90: 对手画像追踪器 =====
+// ===== V2.9.91: 对手画像追踪器 =====
 var OppProfiler={
-  // V2.9.90: 用nickname做主键，跨座跨桌追踪
+  // V2.9.91: 用nickname做主键，跨座跨桌追踪
   // _profiles key = nickname, value = {nickname, pos, hands, entered, folded, chipsHistory, betHistory, type, _lastChips, _enteredThisHand, _foldedThisHand, _lastBet, _raiseCount}
   _profiles:{},
   // pos→nickname映射，用于按位置查询
@@ -1350,7 +1350,7 @@ var OppProfiler={
       var p=this._profiles[nk];
       p.pos=s.pos;
       
-      // V2.9.90: 用bet字段直接检测行动
+      // V2.9.91: 用bet字段直接检测行动
       if(s.bet>0&&!p._enteredThisHand){
         p._enteredThisHand=true;
         p.entered++;
@@ -1387,7 +1387,7 @@ var OppProfiler={
       p._lastChips=s.chips;
     }
     
-    // V2.9.90: 筹码深度分类
+    // V2.9.91: 筹码深度分类
     this._updateStackTypes();
     G.oppSeats=oppSeats;
     this._updateTypes();
@@ -1439,7 +1439,7 @@ var OppProfiler={
     G._oppProfiles=this._profiles;
   },
   
-  // V2.9.90: 筹码深度分类
+  // V2.9.91: 筹码深度分类
   _updateStackTypes:function(){
     var bb=G.stk?Math.round(G.pot/G.stk*100)/100:0;
     // 用盲注算BB更准确
@@ -1505,7 +1505,7 @@ var OppProfiler={
 };
 
 
-// ===== V2.9.90: 座位角色推算 =====
+// ===== V2.9.91: 座位角色推算 =====
 // 从D按钮位置推算每个座位的扑克角色(BU/SB/BB/UTG/CO等)
 var SeatRole={
   // 屏幕座位的顺时针顺序（从top-center开始顺时针）
@@ -1566,7 +1566,7 @@ var SeatRole={
   }
 };
 
-// ===== V2.9.90: 花色概率推断 =====
+// ===== V2.9.91: 花色概率推断 =====
 var SuitProb={
   // 计算同花听牌概率（纯数学，不依赖视觉识别）
   // 返回0-1之间的概率值
@@ -2488,7 +2488,18 @@ var FB=['AA','KK','QQ','JJ','AKs','AKo'];
 var FOUR_BET={'AA':{val:100},'KK':{val:95},'QQ':{val:80},'AKs':{val:90,bluff:20},'AKo':{val:85,bluff:15},'AQs':{val:40,bluff:10},'A5s':{val:20,bluff:25},'A4s':{val:18,bluff:20},'A3s':{val:15,bluff:15},'A2s':{val:15,bluff:15},'JJ':{val:30},'TT':{val:15}};
 var FIVE_BET={'AA':{val:100},'KK':{val:95},'QQ':{val:50},'AKs':{val:60},'JJ':{val:10}};
 var MIX_FREQ={'AA':{raise:100},'KK':{raise:95,call:5},'QQ':{raise:90,call:10},'JJ':{raise:85,call:15},'TT':{raise:75,call:25},'99':{raise:55,call:45},'88':{raise:45,call:55},'77':{raise:35,call:65},'66':{raise:30,call:70},'55':{raise:28,call:72},'44':{raise:25,call:75},'33':{raise:20,call:80},'22':{raise:18,call:82},'AKs':{raise:90,call:10},'AQs':{raise:80,call:20},'AJs':{raise:65,call:35},'ATs':{raise:55,call:45},'A9s':{raise:40,call:60},'A8s':{raise:35,call:65},'A7s':{raise:30,call:70},'A6s':{raise:25,call:75},'A5s':{raise:45,call:55},'A4s':{raise:40,call:60},'A3s':{raise:35,call:65},'A2s':{raise:35,call:65},'KQs':{raise:60,call:40},'KJs':{raise:50,call:50},'KTs':{raise:40,call:60},'K9s':{raise:30,call:70},'K8s':{raise:20,call:80},'K7s':{raise:15,call:85},'K6s':{raise:12,call:88},'K5s':{raise:10,call:90},'K4s':{raise:8,call:92},'K3s':{raise:6,call:94},'K2s':{raise:5,call:95},'QJs':{raise:45,call:55},'QTs':{raise:40,call:60},'Q9s':{raise:30,call:70},'Q8s':{raise:18,call:82},'Q7s':{raise:12,call:88},'Q6s':{raise:8,call:92},'Q5s':{raise:6,call:94},'Q4s':{raise:4,call:96},'Q3s':{raise:3,call:97},'Q2s':{raise:2,call:98},'JTs':{raise:45,call:55},'J9s':{raise:32,call:68},'J8s':{raise:20,call:80},'J7s':{raise:12,call:88},'J6s':{raise:8,call:92},'J5s':{raise:5,call:95},'J4s':{raise:3,call:97},'J3s':{raise:2,call:98},'J2s':{raise:2,call:98},'T9s':{raise:40,call:60},'T8s':{raise:25,call:75},'T7s':{raise:15,call:85},'T6s':{raise:8,call:92},'T5s':{raise:5,call:95},'T4s':{raise:3,call:97},'T3s':{raise:2,call:98},'T2s':{raise:2,call:98},'98s':{raise:40,call:60},'97s':{raise:22,call:78},'96s':{raise:12,call:88},'95s':{raise:6,call:94},'87s':{raise:30,call:70},'86s':{raise:15,call:85},'85s':{raise:6,call:94},'84s':{raise:3,call:97},'83s':{raise:2,call:98},'82s':{raise:2,call:98},'76s':{raise:28,call:72},'75s':{raise:18,call:82},'74s':{raise:8,call:92},'73s':{raise:4,call:96},'72s':{raise:2,call:98},'65s':{raise:25,call:75},'64s':{raise:12,call:88},'63s':{raise:5,call:95},'62s':{raise:2,call:98},'54s':{raise:22,call:78},'53s':{raise:10,call:90},'52s':{raise:4,call:96},'43s':{raise:8,call:92},'42s':{raise:3,call:97},'32s':{raise:2,call:98}};
-var Squeeze={'AA':{val:100},'KK':{val:95},'QQ':{val:85},'JJ':{val:70},'TT':{val:55},'AKs':{val:90,bluff:25},'AKo':{val:80,bluff:20},'AQs':{val:55,bluff:15},'AJs':{val:35,bluff:10},'KQs':{val:40,bluff:12},'KJs':{val:25}};
+var Squeeze={
+  // V2.9.91: 扩展挤压范围 - 区分value squeeze和light squeeze
+  'AA':{val:100,type:'value'},'KK':{val:98,type:'value'},'QQ':{val:90,type:'value'},
+  'JJ':{val:78,type:'value'},'AKs':{val:92,type:'value'},'AKo':{val:82,type:'value'},
+  'TT':{val:60,type:'value'},'AQs':{val:58,type:'value'},'AQo':{val:45,type:'value'},
+  'AJs':{val:40,type:'value'},'KQs':{val:42,type:'value'},'KJs':{val:30,type:'value'},
+  'ATs':{val:28,type:'light',bluff:30},'A9s':{val:22,type:'light',bluff:25},
+  'A5s':{val:20,type:'light',bluff:35},'A4s':{val:18,type:'light',bluff:30},
+  'KQo':{val:25,type:'light',bluff:20},'QJs':{val:20,type:'light',bluff:18},
+  'JTs':{val:18,type:'light',bluff:15},'T9s':{val:15,type:'light',bluff:12},
+  'AJo':{val:28,type:'light',bluff:15},'KJo':{val:18,type:'light',bluff:10}
+};
 // V2.9.18: 对手类型影响翻前范围
 var PREFLOP_OPP_ADJ={
   nit:{open_expand:['44','33','22','A8s','A7s','A6s','K8s','K7s','Q8s','J8s','T8s','97s','86s','75s','64s','53s','43s','A8o','A7o','K9o'],open_contract:[],facing_raise_expand:[],facing_raise_contract:['KJo','QJo','JTo','A9s','A8s','K9s','Q9s','J9s','T9s','A5s','A4s'],mix_freq_boost:{fourbet:15}},
@@ -2542,12 +2553,12 @@ var FOURBET_RESPONSE={
   fourbet_fold:['A2s','A3s','A4s','A5s','76s','65s','54s','43s']  // 4bet-fold（诈唬被推回）
 };
 
-// V2.9.90: 按位置+对手角色判断是否该3bet
+// V2.9.91: 按位置+对手角色判断是否该3bet
 function shouldThreebet(k,pos,oppType,oppRole){
   var range=THREEBET_BY_POS[pos]||THREEBET_BY_POS.btn;
   var isValue=range.value.indexOf(k)!==-1;
   var isBluff=range.bluff.indexOf(k)!==-1;
-  // V2.9.90: 对手位置角色调整
+  // V2.9.91: 对手位置角色调整
   // 面对UTG/MP open → 对手范围强，3bet更紧，bluff减少
   // 面对CO/BU open → 对手范围宽，3bet更松，bluff增加
   var _oppRole=oppRole||G._raiserRole||'unknown';
@@ -2569,7 +2580,7 @@ function shouldThreebet(k,pos,oppType,oppRole){
     // vs SB: SB开池范围通常偏宽，3bet可以稍多
   }
   // 对手类型影响：calling_station/fish不bluff
-  // V2.9.90: 多人池3bet调整——3way bluff减半, 4+不bluff
+  // V2.9.91: 多人池3bet调整——3way bluff减半, 4+不bluff
   var mw3b=Multiway.threebetAdj();
   if(isBluff && !mw3b.bluffAllowed) return {action:'fold',reason:'多人池不3bet诈唬('+Multiway.level()+')'};
   if(isBluff && mw3b.bluffReduction>0 && Math.random()<mw3b.bluffReduction) return {action:'call',reason:'多人池3bet诈唬减'+Math.round(mw3b.bluffReduction*100)+'%'};
@@ -2679,7 +2690,7 @@ function getAdjustedRange(scene,pos){
   base=adjustRangeForStack(base,getStackBucket(),scene);
   // 对手类型调整
   base=adjustPreflopRange(base,G.opp||'unknown',scene);
-  // V2.9.90: 多人池范围收紧
+  // V2.9.91: 多人池范围收紧
   if(Multiway.isMultiway()){
     var mwAdj=Multiway.preflopRangeAdj();
     if(scene==='open'||scene==='call'){
@@ -3110,7 +3121,7 @@ var StrategicBluff={
         if(_ceResult&&_ceResult.detected&&_ceResult.adjustments.bluffReduce)bf*=(1-_ceResult.adjustments.bluffReduce);
         // 被剥削检测: bluff成功率<30%且>=3次尝试→降频70%
         if(bsr<0.3&&profile.bluff_attempts>=3)bf*=0.3;
-        // V2.9.90: 多人池bluff频率降低(3way 0.5x, 4+ 0.2x)
+        // V2.9.91: 多人池bluff频率降低(3way 0.5x, 4+ 0.2x)
         bf*=Multiway.bluffFreqAdj();
         if(Math.random()<bf){
           blu.action='raise';blu.strategy='河牌bluff(f='+(bf*100).toFixed(0)+'%)';
@@ -3152,7 +3163,7 @@ var StrategicBluff={
     var _tvTilt=TiltDetector.detectTilt(DRTA.getProfile());
     var wideThresh=_tvTilt&&_tvTilt.isTilt?0.25:0.35;
     var eqThresh=_tvTilt&&_tvTilt.isTilt?46:50;
-    // V2.9.90: 多人池薄价值阈值提高
+    // V2.9.91: 多人池薄价值阈值提高
     var _mwTvEq=eqThresh+Multiway.callThresholdAdj();
     if(wideRatio>=wideThresh&&eq>=_mwTvEq&&opponents<=2&&(scene==='check'||scene==='opponent_check')){
       return{action:'raise',strategy:'宽范围价值下注(宽'+Math.round(wideRatio*100)+'%)',sizing:Math.round(G.pot*0.5)};
@@ -3265,7 +3276,7 @@ function multiPlayerEquity(eq,opponents){
   if(!factor) factor=Math.max(0.40, 0.55-(opponents-6)*0.08);
   return Math.round(eq*factor*10)/10;
 }
-// V2.9.90: 多人池策略模块——多人池范围收紧/c-bet降低/bluff减少/draw收窄
+// V2.9.91: 多人池策略模块——多人池范围收紧/c-bet降低/bluff减少/draw收窄
 var Multiway={
   level:function(){var a=G.act||2;if(a<=2)return "hu";if(a===3)return "3way";if(a<=5)return "multiway";return "super";},
   preflopRangeAdj:function(){
@@ -3285,7 +3296,7 @@ var Multiway={
   isMultiway:function(){return(G.act||2)>=3;},
   log:function(action,detail){if(this.isMultiway())console.log("[多人池 "+this.level()+"] "+action+": "+detail);}
 };
-// V2.9.90: C-bet策略模块——翻前加注者翻后决策
+// V2.9.91: C-bet策略模块——翻前加注者翻后决策
 var CBetStrategy={
   // 判断我们是否应该考虑C-bet（翻前加注者+翻后第一个行动）
   shouldConsider:function(street,scene){
@@ -3406,6 +3417,43 @@ var CBetStrategy={
     return{a:'check',r:reason.replace(freq+'%','check'),eq:eq,c:'m'};
   }
 };
+// V2.9.91: Squeeze挤压加注策略 - raise+callers场景
+var SqueezeStrategy={
+  isSqueezeSpot:function(scene,bet,act){
+    if(scene!=='call')return false;
+    if(bet<=0)return false;
+    if(act<3)return false;
+    return true;
+  },
+  calcSizing:function(raiseBet,callerCount,pot){
+    var base=Math.max(raiseBet*3, pot*0.75);
+    var perCaller=Math.max(raiseBet, pot*0.25);
+    var total=base+callerCount*perCaller;
+    return Math.min(Math.round(total), Math.round(pot*4));
+  },
+  decide:function(k,scene,bet,act,pos,oppType,eq,stk,pot){
+    if(!this.isSqueezeSpot(scene,bet,act))return null;
+    var sq=Squeeze[k];
+    if(!sq)return{action:'fold_or_call',reason:'not in squeeze range'};
+    var callers=act-2;
+    var sqSizing=this.calcSizing(bet,callers,pot);
+    if(sq.type==='light'&&(oppType==='calling_station'||oppType==='fish')){
+      return{action:'call',reason:'vs'+oppType+' no light squeeze'};
+    }
+    var freqBoost=1.0;
+    if(oppType==='nit'||oppType==='tight')freqBoost=1.3;
+    if(sq.type==='light'){
+      var bluffFreq=(sq.bluff||20)*freqBoost;
+      if(Math.random()*100>bluffFreq){
+        return{action:'call',reason:'light squeeze '+Math.round(bluffFreq)+'% miss'};
+      }
+    }
+    if(sq.val>=50){
+      return{action:'squeeze',sizing:Math.min(sqSizing,stk),reason:'squeeze value('+sq.val+')',type:'value'};
+    }
+    return{action:'squeeze',sizing:Math.min(sqSizing,stk),reason:'squeeze light('+sq.type+')',type:'light'};
+  }
+};
 
 // ===== 核心决策函数 =====
 function decide(){
@@ -3423,7 +3471,7 @@ function decide(){
     var _spr=G.spr||10;
     var _stk=G.stk||100000;
     var _oppType=G.opp||'unknown';
-    // V2.9.90: 花色概率修正——对手同花概率→保守equity调整
+    // V2.9.91: 花色概率修正——对手同花概率→保守equity调整
     var _flushPenalty=0;
     var _numComm=G.comm.filter(function(c){return c&&c.rank;}).length;
     if(_numComm>=3){
@@ -3494,7 +3542,7 @@ function applyOppActionShift(action,eq,oppType,tiltInfo,ceResult,pulse){
   // check不变
   if(a==='check')return a;
   
-  // V2.9.90: 筹码深度策略调整
+  // V2.9.91: 筹码深度策略调整
   var _raiserStack=G._raiserStackType||'unknown';
   // vs短筹码: 不bluff他（他容易全下），缩紧加注
   if(_raiserStack==='short'){
@@ -3505,7 +3553,7 @@ function applyOppActionShift(action,eq,oppType,tiltInfo,ceResult,pulse){
   if(_raiserStack==='deep'){
     if(a==='call'&&eq>=52)a='raise'; // 深码对手可以多加注
   }
-  // V2.9.90: 面对3bet额外收紧
+  // V2.9.91: 面对3bet额外收紧
   if(G._facing3bet){
     if(a==='weak_call')a='fold'; // 面对3bet不弱跟
     if(a==='call'&&eq<48)a='fold'; // 低于48%弃牌
@@ -3704,14 +3752,20 @@ function preF(k){
     return{a:'fold',r:k+' 不够跟注',eq:exploitResult7.eq,c:'l',scene:sceneLabel,spr:spr,exploit:exploitResult7.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(scene==='call'){
-    // V2.9.90: 多人池iso-raise尺寸加大
+    // V2.9.91: Squeeze挤压加注 - raise+callers场景
+    var _sqDec=SqueezeStrategy.decide(k,scene,bet,G.act,G.pos,G.opp,eq,stk,pot);
+    if(_sqDec&&_sqDec.action==='squeeze'){
+      var exploitSq=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot});
+      return{a:'raise',v:_sqDec.sizing,r:_sqDec.reason,eq:exploitSq.eq,c:_sqDec.type==='value'?'h':'l',sizing:_sqDec.sizing,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,bet,_sqDec.sizing),exploit:exploitSq.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
+    // V2.9.91: 多人池iso-raise尺寸加大(非squeeze的隔离加注)
     if(oS.indexOf(k)!==-1&&pA(p)>=0.5){
       var _isoMul=Multiway.isoRaiseAdj();
       var rSz3=Math.round((pot*0.6+actualBet)*_isoMul);
       var exploitResult8=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
       return{a:'raise',v:rSz3,r:k+' 隔离加注',eq:exploitResult8.eq,c:'h',sizing:rSz3,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz3),exploit:exploitResult8.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    // V2.9.90: 多人池跟注阈值提高
+    // V2.9.91: 多人池跟注阈值提高
     var _mwCallThresh=48+Multiway.callThresholdAdj();
     if(cS.indexOf(k)!==-1&&eq>=_mwCallThresh){
       var exploitResult9=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
@@ -3925,7 +3979,7 @@ function postF(k){
       }
     }
     // 河牌bluff频率与底池赔率挂钩(GTO: bluff频率≈底池赔率/(1+底池赔率))
-    // V2.9.90: 多人池bluff频率大幅降低
+    // V2.9.91: 多人池bluff频率大幅降低
     if(scene==='check'&&hClass.name==='AIR'&&G.opp!=='calling_station'&&G.opp!=='fish'){
       var potOdds=1/(1+pot);
       var bluffFreq=Math.round(potOdds/(1+potOdds)*100);
@@ -4032,7 +4086,7 @@ function postF(k){
     return{a:'fold',r:'空气牌不追',eq:exploitAir.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(outs>0&&io&&hClass.name!=="NUTS"&&hClass.name!=="STRONG"){
-    // V2.9.90: 多人池只追强听牌
+    // V2.9.91: 多人池只追强听牌
     var _mwDraw=Multiway.drawAdj();
     if(outs<_mwDraw.minOuts){
       Multiway.log('Draw','outs='+outs+'<'+_mwDraw.minOuts+'→不追');
@@ -4056,7 +4110,7 @@ function postF(k){
         return{a:'raise',v:dbSizing,r:_dbReason,eq:exploitDB.eq,c:hClass.name==='AIR'?'l':'m',sizing:dbSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights},sizingOptions:getSizingOptions(eq,hClass.name,street,ip,G.opp,spr,bTexture,pot,bet)};
       }
     }
-    // V2.9.90: C-bet策略——统一模块替代旧GTO频率+CBET_FREQ双系统
+    // V2.9.91: C-bet策略——统一模块替代旧GTO频率+CBET_FREQ双系统
     // 优先使用CBetStrategy(含PFR检测+牌面感知+对手适配+尺度优化)
     var _cbetResult=CBetStrategy.decide(hClass,bTexture,street,scene,eq,pot,G.opp,ip);
     if(_cbetResult){
@@ -5349,16 +5403,16 @@ function onVisionResult(data){
     G._playersCrossCheck=null;
   }
 
-  // V2.9.90: 存盲注供筹码深度计算
+  // V2.9.91: 存盲注供筹码深度计算
   if(data.blind_bb&&data.blind_bb>0){
     window._lastBlindBB=data.blind_bb;
   }
-  // V2.9.90: 推算座位角色
+  // V2.9.91: 推算座位角色
   if(data.d_button_position&&data.d_button_position!=='not_found'){
     var _roles=SeatRole.calc(data.d_button_position,data.total_players||G.tt||6);
     console.log('[SeatRole] D='+data.d_button_position+' roles='+JSON.stringify(_roles));
   }
-  // V2.9.90: 对手画像追踪——nickname跨座追踪+bet行动线+VPIP/弃牌率
+  // V2.9.91: 对手画像追踪——nickname跨座追踪+bet行动线+VPIP/弃牌率
   if(data.opp_seats&&data.opp_seats.length>0){
     G.oppSeats=data.opp_seats;
     OppProfiler.update(data.opp_seats,G.stk,data.street||G.phase);
@@ -5371,7 +5425,7 @@ function onVisionResult(data){
       console.log('[OppProfiler] 自动设置对手类型: '+_autoType);
     }
     OppProfiler.updateUI();
-    // V2.9.90: 从opp_seats的bet检测3bet和raiser角色
+    // V2.9.91: 从opp_seats的bet检测3bet和raiser角色
     G._facing3bet=false;
     G._raiserRole='unknown';
     G._raiserStackType='unknown';
