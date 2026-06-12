@@ -36,20 +36,20 @@ jobs:
         echo "=== Build output tree ==="
         find app/build/outputs -type f 2>/dev/null || true
         
+    - name: Extract version
+      id: version
+      run: |
+        VERSION=$(grep 'versionName' app/build.gradle | sed 's/.*"\([^"]*\)".*/\1/')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+        
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.135
-        name: "V2.9.135 速度优化+计时日志"
-        body: "V2.9.135 变更:
-  - 图片压缩 1080px/Q85→960px/Q75 (体积减35%)
-  - MC模拟 2000→1000次基础 (策略快0.5-1s)
-  - 全链路计时日志 (Kotlin+JS)
-  - Vision prompt加suit字段(h/d/c/s)
-  - Kotlin端不再抹掉suit
-  - 翻前手牌识别加强(prompt⚠️强调)
-  - GG实战5截图验证: Rank 100% / Suit 94%"
+        tag_name: v${{ steps.version.outputs.version }}
+        name: "V${{ steps.version.outputs.version }}"
+        body: "V${{ steps.version.outputs.version }} release"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
