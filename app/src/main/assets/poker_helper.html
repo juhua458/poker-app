@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.128 · 按池人数自适应(5-max多人池剥削落地)+V2.9.125/126/127保护100%保留</title>
+<title>青云 v2.9.129 · 自己Tilt早期预警(4档状态机+命名空间隔离)+V2.9.128/127/126/125保护100%保留</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -915,6 +915,12 @@ var HandHistory={
     }catch(e){this.records=[];}
   },
   add:function(result,rawVision){
+    // V2.9.129: 决策时间（go 入口记 _goStartTime，这里算 elapsed）
+    var _decisionMs=0;
+    if(window._goStartTime){
+      _decisionMs=Date.now()-window._goStartTime;
+      window._goStartTime=0;
+    }
     var rec={
       ts:Date.now(),
       hole:G.hole.map(function(c){return c?c.rank+c.suit:'?';}),
@@ -927,13 +933,16 @@ var HandHistory={
       rawPot:window._lastVisionPot||0,
       rawChips:window._lastVisionChips||0,
       rawBB:window._lastVisionBB||0,
-      bbResult:result.bbResult||0
+      bbResult:result.bbResult||0,
+      decisionMs:_decisionMs  // V2.9.129
     };
     this.records.unshift(rec);
     if(this.records.length>this.MAX_RECORDS)this.records=this.records.slice(0,this.MAX_RECORDS);
     try{localStorage.setItem(this.STORAGE_KEY,JSON.stringify(this.records));}catch(e){}
     // V2.9.57: 自动推送结果到SessionStats
     SessionStats.recordHand(rec);
+    // V2.9.129: 自动推送结果到SelfTiltGuard（自己Tilt预警）
+    if(typeof SelfTiltGuard!=='undefined')SelfTiltGuard.recordHand(rec);
   },
   getAll:function(){return this.records;},
   clear:function(){this.records=[];try{localStorage.removeItem(this.STORAGE_KEY);}catch(e){}}
@@ -990,6 +999,8 @@ var SessionStats={
       posStats:{}
     };
     this.save();
+    // V2.9.129: 重置SelfTiltGuard（保持session内一致性）
+    if(typeof SelfTiltGuard!=='undefined')SelfTiltGuard.reset();
   },
   recordHand:function(rec){
     var d=this.data;
@@ -1109,7 +1120,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.128',
+    version:'2.9.129',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1238,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.128',
+  CURRENT_VERSION:'2.9.129',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2234,6 +2245,190 @@ var TiltDetector={
     var icons={low:'⚠️',medium:'🔥',high:'💥'};
     var levels={low:'轻Tilt',medium:'中Tilt',high:'重Tilt'};
     return(icons[tiltInfo.level]||'⚠️')+(levels[tiltInfo.level]||'Tilt');
+  }
+};
+
+
+// ===== V2.9.129: SelfTiltGuard — 豪哥自己 Tilt 早期预警 =====
+// 与 V2.9.60 TiltDetector 命名空间隔离：TiltDetector=对手, SelfTiltGuard=自己
+// 4档状态机: 0=NORMAL, 1=WARNING, 2=DANGER, 3=TILT
+// 3个核心信号: 亏损速度(A) + 决策时间(B) + 翻前弃牌率(C) + 报复模式(D辅助)
+var SelfTiltGuard={
+  state:null,
+  // 历史基线（前8手用均值建立）
+  baseline:{avgDecisionMs:5000,foldRatePre:0.5},
+  // 触发阈值常量
+  TH:{lossBB2:100,lossBB3:150,fastN1:3,fastN2:5,foldRatio1:1.3,foldRatio2:1.5,revengeBB:5,stableMs:10000},
+
+  init:function(){
+    this.state={
+      level:0,
+      lossBB:0,
+      winBB:0,
+      fastClicks:0,
+      fastHistory:[],
+      preFlopCount:0,
+      preFlopFold:0,
+      lastHands:[],
+      warningStart:0,
+      dangerStart:0,
+      tiltStart:0,
+      sampleBuilt:false
+    };
+  },
+
+  reset:function(){
+    this.init();
+    console.log('[SelfTiltGuard] 状态已重置');
+  },
+
+  // 每手结束后调用（HandHistory.add 末尾触发）
+  recordHand:function(rec){
+    if(!this.state)this.init();
+    var s=this.state;
+
+    // 1) 累计盈亏（只看实结果，不预测）
+    var bb=rec.bbResult||0;
+    if(bb<0)s.lossBB+=Math.abs(bb);
+    else if(bb>0)s.winBB+=bb;
+
+    // 2) 决策时间（窗口：1ms-30s，过滤异常）
+    var ms=rec.decisionMs||0;
+    if(ms>0&&ms<30000){
+      s.fastHistory.push(ms);
+      if(s.fastHistory.length>10)s.fastHistory.shift();
+      // 快速点击：<2秒=乱点信号
+      if(ms<2000)s.fastClicks++;
+      else s.fastClicks=0;  // 中断一次清零（连续性要求）
+    }
+
+    // 3) 翻前弃牌率统计
+    var phase=rec.phase||'';
+    if(phase==='pre'||phase==='翻牌前'||rec.scene==='翻牌前'){
+      s.preFlopCount++;
+      if(rec.action==='fold')s.preFlopFold++;
+    }
+
+    // 4) 最近 5 手结果（用于报复模式检测）
+    s.lastHands.push({bb:bb,action:rec.action,ms:ms,scene:rec.scene||''});
+    if(s.lastHands.length>5)s.lastHands.shift();
+
+    // 5) 建立基线（前 8 手完成后锁定）
+    if(!s.sampleBuilt&&s.preFlopCount>=8){
+      s.sampleBuilt=true;
+      var totalMs=0,n=0;
+      s.fastHistory.forEach(function(m){totalMs+=m;n++;});
+      if(n>0)this.baseline.avgDecisionMs=totalMs/n;
+      this.baseline.foldRatePre=s.preFlopFold/s.preFlopCount;
+      console.log('[SelfTiltGuard] 基线已建: avgMs='+Math.round(this.baseline.avgDecisionMs)+' foldRate='+this.baseline.foldRatePre.toFixed(2));
+    }
+  },
+
+  // 评估 0-3（每手结束后调一次）
+  eval:function(){
+    if(!this.state)this.init();
+    var s=this.state;
+    var now=Date.now();
+    var TH=this.TH;
+
+    // === 信号检测 ===
+    var sig={loss:0,speed:0,fold:0,revenge:0};
+
+    // 信号1: 亏损速度
+    if(s.lossBB>=TH.lossBB3)sig.loss=2;
+    else if(s.lossBB>=TH.lossBB2)sig.loss=1;
+
+    // 信号2: 连续快速点击
+    if(s.fastClicks>=TH.fastN2)sig.speed=2;
+    else if(s.fastClicks>=TH.fastN1)sig.speed=1;
+
+    // 信号3: 翻前弃牌率相对基线偏离（需样本已建好）
+    if(s.sampleBuilt&&s.preFlopCount>=8){
+      var rate=s.preFlopFold/s.preFlopCount;
+      var ratio=rate/this.baseline.foldRatePre;
+      if(ratio>=TH.foldRatio2)sig.fold=2;
+      else if(ratio>=TH.foldRatio1)sig.fold=1;
+    }
+
+    // 信号4: 报复模式 - 大亏后两手全弃/全跟
+    if(s.lastHands.length>=3){
+      var last3=s.lastHands.slice(-3);
+      if(last3[0].bb<=-TH.revengeBB){
+        var passive=last3.slice(1).every(function(h){
+          return h.action==='fold'||h.action==='call'||h.action==='check';
+        });
+        if(passive)sig.revenge=1;
+      }
+    }
+
+    // === 状态机判定（4档）===
+    // 权重: 亏损2=红, 速度2=红, 弃牌2=红, 任一红+任一黄=橙, 纯黄=黄
+    var red=sig.loss+sig.speed+sig.fold;  // 0-6
+    var yellow=sig.revenge;                 // 0-1
+    var newLevel=0;
+    if(red>=5||sig.loss>=2&&sig.speed>=1&&sig.fold>=1)newLevel=3;        // TILT
+    else if(red>=3||sig.loss>=2&&(sig.speed>=1||sig.fold>=1))newLevel=2; // DANGER
+    else if(red>=1||yellow>=1)newLevel=1;                                  // WARNING
+    else newLevel=0;                                                        // NORMAL
+
+    // === 降级 1: 赢 1+ buy-in 自动降 1 档（避免一赢就忘乎所以）===
+    if(s.winBB>=TH.lossBB2&&newLevel>0){
+      newLevel=Math.max(0,newLevel-1);
+      s.winBB=0;
+    }
+
+    // === 降级 2: 不可跳级（TILT 不能直接跳到 NORMAL）===
+    if(s.level===3&&newLevel===0)newLevel=1;
+    if(s.level===2&&newLevel===0)newLevel=1;
+    if(s.level===3&&newLevel===1)newLevel=2;
+
+    // === 稳定时间：升级需要持续 10 秒（防止抖动）===
+    if(newLevel>s.level){
+      if(newLevel===1&&!s.warningStart)s.warningStart=now;
+      if(newLevel===2&&!s.dangerStart)s.dangerStart=now;
+      if(newLevel===3&&!s.tiltStart)s.tiltStart=now;
+    } else if(newLevel<s.level){
+      // 降级：5秒内不许再降
+      s.warningStart=0;s.dangerStart=0;s.tiltStart=0;
+    }
+
+    if(newLevel===1&&s.warningStart&&(now-s.warningStart)<TH.stableMs)newLevel=s.level;
+    if(newLevel===2&&s.dangerStart&&(now-s.dangerStart)<TH.stableMs)newLevel=s.level;
+    if(newLevel===3&&s.tiltStart&&(now-s.tiltStart)<TH.stableMs)newLevel=s.level;
+
+    s.level=newLevel;
+    return{level:newLevel,signals:sig,redCount:red,summary:this._summary(sig)};
+  },
+
+  _summary:function(sig){
+    if(sig.loss===0&&sig.speed===0&&sig.fold===0&&sig.revenge===0)return'';
+    var p=[];
+    if(sig.loss>=2)p.push('重亏');
+    else if(sig.loss>=1)p.push('亏损');
+    if(sig.speed>=2)p.push('狂点');
+    else if(sig.speed>=1)p.push('快打');
+    if(sig.fold>=2)p.push('弃牌↑↑');
+    else if(sig.fold>=1)p.push('弃牌↑');
+    if(sig.revenge>=1)p.push('报复');
+    return p.join('+');
+  },
+
+  getDisplay:function(evalResult){
+    if(!evalResult||evalResult.level===0)return null;
+    var L=evalResult.level;
+    var icons=['🟢正常','🟡注意','🟠危险','🔴TILT'];
+    var banner='';
+    if(L===1)banner='';
+    else if(L===2)banner='建议暂停5分钟';
+    else if(L===3)banner='立刻停止,20分钟后再来';
+    return{
+      level:L,
+      icon:icons[L],
+      banner:banner,
+      prefix:L===3?'[🔥TILT]':(L===2?'[⚠️DANGER]':''),
+      notify:icons[L]+(evalResult.summary?' ('+evalResult.summary+')':''),
+      summary:evalResult.summary
+    };
   }
 };
 
@@ -4699,6 +4894,20 @@ function decide(){
     var keys=Object.keys(_decisionCache);
     if(keys.length>=_cacheMax)delete _decisionCache[keys[0]];
     _decisionCache[ck]=result;
+    // V2.9.129: SelfTiltGuard r 前缀（在 V2.9.127/126 保护之后叠加，不动 action）
+    // 设计: 命名空间隔离 - TiltDetector(V2.9.60)改action给策略, SelfTiltGuard(V2.9.129)只改r给预警
+    // 硬约束: 不覆盖 V2.9.127 顶级牌保护, 不覆盖 V2.9.126 池驱反 fold
+    if(typeof SelfTiltGuard!=='undefined'){
+      try{
+        var _stEval=SelfTiltGuard.eval();
+        var _stDisp=SelfTiltGuard.getDisplay(_stEval);
+        if(_stDisp&&_stDisp.prefix){
+          result.r=_stDisp.prefix+' '+result.r;
+          // 给 result 加 _selfTilt 字段（供 show() 通知栏显示）
+          result._selfTilt=_stDisp;
+        }
+      }catch(e){console.log('[SelfTiltGuard] decide末尾异常: '+e.message);}
+    }
   }
   return result;
 }
@@ -5761,6 +5970,13 @@ function show(r){
     var _showProfile=DRTA.getProfile();
     var _tiltDisp=TiltDetector.getTiltDisplay(TiltDetector.detectTilt(_showProfile));
     if(_tiltDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(255,69,0,.15);color:#ff4500">'+_tiltDisp+'</div>';
+    // V2.9.129: SelfTiltGuard 自己Tilt早期预警(命名空间隔离,不动V2.9.60对手Tilt)
+    if(r._selfTilt){
+      var _st=r._selfTilt;
+      var _stBg=_st.level===3?'rgba(255,0,0,.20)':(_st.level===2?'rgba(255,140,0,.20)':'rgba(255,215,0,.15)');
+      var _stColor=_st.level===3?'#ff2020':(_st.level===2?'#ff8c00':'#ffd700');
+      h+='<div style="font-size:10px;padding:3px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:'+_stBg+';color:'+_stColor+';font-weight:bold">'+_st.icon+' 自己Tilt'+(_st.summary?'('+_st.summary+')':'')+(_st.banner?' — '+_st.banner:'')+'</div>';
+    }
     // V2.9.61: 反剥削状态显示
     var _ceDisp=CounterExploit.getDisplay(CounterExploit.detect(_showProfile));
     if(_ceDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(0,191,255,.12);color:#00bfff">'+_ceDisp+'</div>';
@@ -5818,7 +6034,7 @@ function show(r){
 }
 
 var _mcSimCache=null; // V2.9.46: Worker异步MC结果缓存
-function go(){var resEl=document.getElementById('res');if(resEl)resEl.innerHTML='<div style="color:#4fc3f7;font-size:14px;text-align:center;padding:8px">⏳</div>';setTimeout(function(){
+function go(){window._goStartTime=Date.now();var resEl=document.getElementById('res');if(resEl)resEl.innerHTML='<div style="color:#4fc3f7;font-size:14px;text-align:center;padding:8px">⏳</div>';setTimeout(function(){
   // V2.9.30: 自动采集对手动作(在decide之前)
   // V2.9.73: ★ phase修正——post但公共牌数量异常→强制pre + 清空异常comm ★
   // 根因: Vision API可能误将翻前识别为翻后→走MC异步路径→decide()崩溃→悬浮球卡死
@@ -7455,6 +7671,7 @@ LogBuffer.init(); // V2.9.47: 日志缓冲
 CacheManager.init(); // V2.9.46: 缓存管理
 HandHistory.init(); // V2.9.46: 手牌历史
 SessionStats.init(); // V2.9.57: Session统计
+SelfTiltGuard.init(); // V2.9.129: 自己Tilt早期预警
 DRTA.init();
 _initMCWorker(); // V2.9.46: 预创建Worker
 mkMx();

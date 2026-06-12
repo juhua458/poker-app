@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.128
-        name: "V2.9.128 按池人数自适应——5-max 多人池剥削规则落地"
-        body: "V2.9.128: 按池人数自适应（5-max 多人池剥削规则落地）。原V2.9.126池子驱动框架是矩阵空架，本版按G.act（实际池人数）填入具体剥削规则：5+人池0%bluff+25%pot Cbet+河牌绝不bluff+被raise直接弃；4人池10%bluff+25%pot Cbet+禁止hero call；3人池20%bluff+33%pot Cbet+保留hero call。HeroCallGate按G.act细分（5+/4人池禁止，3人池保留V2.9.126原行为）。V2.9.123/125/126/127所有保护点100%保留。E2E 10/10 PASS。"
+        tag_name: v2.9.129
+        name: "V2.9.129 自己Tilt早期预警——4档状态机+命名空间隔离"
+        body: "V2.9.129: 自己Tilt早期预警。V2.9.60 TiltDetector是检测对手Tilt给策略，V2.9.129 SelfTiltGuard是检测自己Tilt给警告，两层命名空间隔离。4档状态机：NORMAL/WARNING/DANGER/TILT。3个核心信号：亏损速度(亏100BB/150BB)、决策时间(<2秒连点3+/5+次)、翻前弃牌率(相对基线1.3/1.5倍)+报复模式(亏5+BB后两手全被动)。呈现：通知栏🟡/🟠/🔴+result.r前缀[⚠️DANGER]/[🔥TILT]+软横幅(建议暂停5分钟/立刻停止20分钟)。硬约束：7色悬浮球不动，V2.9.127顶级牌保护不动，V2.9.126池驱反fold不动。E2E 33/33+回归64/64 PASS。"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
