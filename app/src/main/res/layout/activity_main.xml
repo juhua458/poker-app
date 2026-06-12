@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.137 · stk bug修(88不再误弃)+V2.9.135速度优化"
+        android:text="V2.9.138 · 崩溃不再误弃(兜底策略)+V2.9.135速度优化"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />

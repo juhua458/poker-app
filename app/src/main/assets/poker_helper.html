@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.137 · stk bug修</title>
+<title>青云 v2.9.138 · 崩溃不再误弃</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.137',
+    version:'2.9.138',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.137',
+  CURRENT_VERSION:'2.9.138',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -5408,6 +5408,7 @@ function decide(){
   // V2.9.135: 计时
   var _tDecideStart=Date.now();
   // V2.9.133: decide() 入口 try-catch——命名空间污染 ReferenceError 一律 notifyCrash
+  // V2.9.137: catch 不再暴力 fold，尝试 FallbackStrategy 兜底
   try{
     var _r=_decideInner();
     console.log('⏱ decide(): '+(Date.now()-_tDecideStart)+'ms');
@@ -5415,6 +5416,24 @@ function decide(){
   }catch(e){
     console.log('[decide] ❌'+e.message);
     try{if(typeof AndroidBridge!=='undefined'&&AndroidBridge.notifyCrash){AndroidBridge.notifyCrash('decide:'+e.message);}}catch(_){}
+    // V2.9.137: 不再直接 fold，尝试用已有信息走 FallbackStrategy
+    // 兜底代码不调用任何可能崩溃的函数（handClassify/eQ等），只用 G.xxx 安全值
+    try{
+      var _fbEq=50;
+      var _fbStreet=G.comm.filter(function(c){return c;}).length>=5?'river':G.comm.filter(function(c){return c;}).length===4?'turn':'flop';
+      var _fbHClass={name:'MEDIUM',desc:'兜底(崩溃恢复)',outs:0};
+      var _fbResult=FallbackStrategy.medium(_fbEq,_fbHClass,
+        _fbStreet,G.scene||'check',G.pot||1,G.bet||0,G.stk||100,
+        G.stk?Math.round((G.stk||100)/(G.pot||1)):10,true,G.opp||'unknown',
+        null,null,null,'medium');
+      if(_fbResult&&_fbResult.a){
+        var _fbA=_fbResult.a==='fold'?'fold':_fbResult.a==='check'?'check':'call';
+        console.log('[decide兜底] '+_fbA+' (FallbackStrategy)');
+        return {a:_fbA,r:'[兜底]'+_fbResult.r+'|'+e.message,eq:_fbEq,c:_fbResult.c||'m',
+          hClass:_fbHClass,scene:'?',spr:0,sprAdvice:'',bTexture:null,io:null,
+          _colorInfo:{colorKey:actionToColor(_fbA),color:ColorStrategy.COLORS[actionToColor(_fbA)],signalType:'CRASH'}};
+      }
+    }catch(_fbErr){console.log('[decide兜底] Fallback也失败: '+_fbErr.message);}
     return {a:'fold',r:'[出错]'+e.message,eq:0,c:'l',hClass:{name:'?',desc:'?',outs:0},scene:'?',spr:0,sprAdvice:'',bTexture:null,io:null,_colorInfo:{colorKey:'FOLD',color:'#FF5252',signalType:'NONE'}};
   }
 }
