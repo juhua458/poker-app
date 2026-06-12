@@ -40,17 +40,14 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.133
-        name: "V2.9.133 崩溃「崩」悬浮球提示——命名空间污染3 bug全修+notifyCrash 4Hz红闪+用户原话:崩了能不能显示在悬浮球"
-        body: "V2.9.133 修复实战崩溃:
-  - Bug A: HandClassifier isFlush2 把 suit=空字符串误判同花(假 flush → NUTS)
-  - Bug B: ProbeStrategy.isProbeSpot 内部用 hClass 但签名漏接(V2.9.130 改造漏改)
-  - Bug C: postF L6496 引用未声明全局 cbetThresh → ReferenceError
-  - Bug D: onVisionResult 切桌 BB 未重置, rawBB 从 200 跳 500
-  - 新增 notifyCrash(reason) + renderCrashBall: 任何 ReferenceError/未捕获异常 → 悬浮球立即变「崩」+红+4Hz 快闪, 用户能立刻知道崩溃+停止游戏
-  - 用户原话:「崩了能不能显示在悬浮球, 这样我就不会在崩溃的情况下, 还在游戏中」
-  - V2.9.132 字为王 + V2.9.131 桌质/换桌闪烁 + V2.9.130 HandClassifier + V2.9.129 SelfTiltGuard 100% 保留
-  - E2E V2.9.132 ≥20 + 实战 16 场景 PASS (REF_ERR=0)"
+        tag_name: v2.9.134
+        name: "V2.9.134 花色识别恢复+SuitProb删除"
+        body: "V2.9.134 变更:
+  - 删除 SuitProb 整段(V2.9.105花色概率推断+equity调整)
+  - Vision prompt加suit字段(h/d/c/s)
+  - Kotlin端不再抹掉suit
+  - 翻前手牌识别加强(prompt⚠️强调)
+  - GG实战5截图验证: Rank 100% / Suit 94%"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
