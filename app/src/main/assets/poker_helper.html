@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.138 · 崩溃不再误弃</title>
+<title>青云 v2.9.140 · Ax全系列+后门听牌</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.139',
+    version:'2.9.140',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.138',
+  CURRENT_VERSION:'2.9.140',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4133,6 +4133,36 @@ function handClassify(hole,comm){
     if(isOpenEnd){madeType='DRAW';outs=8;}
     else if(isGutshot){madeType='DRAW';outs=4;}
   }
+  // V2.9.140: 后门听牌识别——翻牌AIR/DRAW有后门潜力也值得看转牌
+  // 后门同花=2张手牌同花+1张公共牌同花(转牌+河牌需要连出2张同花)≈1.5outs
+  // 后门顺子=手牌参与3连张中的2张(转牌+河牌补齐)≈1.5outs
+  if(commCount===3&&madeType!=='NUTS'&&madeType!=='STRONG'){
+    var _bdOuts=0;var _bdDesc=[];
+    // 后门同花: 手牌2张同花 + 公共牌至少1张同花
+    if(hole.length>=2&&hole[0]&&hole[1]&&hole[0].suit===hole[1].suit){
+      var _holeSuit=hole[0].suit;
+      var _commMatchSuits=comm.filter(function(c){return c&&c.suit===_holeSuit;}).length;
+      if(_commMatchSuits>=1&&outs<9){_bdOuts+=1;_bdDesc.push('后门花');}
+    }
+    // Ax没中: A顶对潜力(翻出A就是顶对)——已在Ace-high 3outs里，不重复加
+    // 后门顺子: 手牌2张间隔<=3 + 公共牌在手牌范围附近
+    if(hole.length>=2&&hole[0]&&hole[1]){
+      var _hr1=RV[hole[0].rank],_hr2=RV[hole[1].rank];
+      if(_hr1!==undefined&&_hr2!==undefined){
+        var _holeGap=Math.abs(_hr1-_hr2);
+        if(_holeGap<=3&&_holeGap>0&&outs<8){
+          var _commVals=comm.filter(function(c){return c;}).map(function(c){return RV[c.rank];});
+          var _nearby=_commVals.filter(function(v){return v>=Math.min(_hr1,_hr2)-1&&v<=Math.max(_hr1,_hr2)+1;}).length;
+          if(_nearby>=1){_bdOuts+=1;_bdDesc.push('后门顺');}
+        }
+      }
+    }
+    if(_bdOuts>0){
+      if(madeType==='AIR'){madeType='DRAW';}
+      outs+=_bdOuts;
+      if(_bdDesc.length>0)pairSubType=(pairSubType?pairSubType+'+':'')+_bdDesc.join('+');
+    }
+  }
   var desc='';
   if(madeType==='NUTS')desc='坚果牌';
   else if(madeType==='STRONG')desc=hasComboDraw?'强牌+听牌':(pairSubType||'强牌');
@@ -5705,8 +5735,8 @@ function preF(k){
   // V2.9.139: 投机手牌隐含赔率加成——同花连张更愿看翻牌
   // 同花连张(SC)=顺子+同花双潜力; 同花隔一张=同花+顺子潜力; 纯同花=同花隐含赔率
   // 杂色连张=纯顺子潜力(弱于同花版)
-  if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined){var _gap=Math.abs(_r1-_r2);if(_gap===1)eq+=5;else if(_gap===2)eq+=4;else eq+=2;if(_sr[0]==='A'&&_r2!==undefined&&_r2<=5)eq+=3;}}
-  if(k.indexOf('o')>=0&&k.length===3){var _sr2=k.slice(0,2),_r1b=RV[_sr2[0]],_r2b=RV[_sr2[1]];if(_r1b!==undefined&&_r2b!==undefined&&Math.abs(_r1b-_r2b)===1&&_r2b<=9)eq+=2;}
+  if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined){var _gap=Math.abs(_r1-_r2);if(_gap===1)eq+=5;else if(_gap===2)eq+=4;else eq+=2;if(_sr[0]==='A')eq+=3;}}
+  if(k.indexOf('o')>=0&&k.length===3){var _sr2=k.slice(0,2),_r1b=RV[_sr2[0]],_r2b=RV[_sr2[1]];if(_r1b!==undefined&&_r2b!==undefined){if(Math.abs(_r1b-_r2b)===1&&_r2b<=9)eq+=2;if(_sr2[0]==='A'&&_r2b<=9)eq+=3;}}
   var pa=pA(p);
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
@@ -6163,6 +6193,24 @@ function postF(k){
   if(betPotRatio>=0.75&&hClass.name==='MEDIUM'&&hClass.desc.indexOf('底对')>=0){
     eq=eq*0.80; // 大注面对底对额外折扣——对手不会用大注打空气
     console.log('[V2.9.121理智] 大注+底对额外折扣*0.80 eq→'+eq.toFixed(1));
+  }
+  // V2.9.140: 翻后投机牌隐含赔率加成——Ax没中/后门听牌也值得看转牌
+  // MC模拟只看当前牌面胜率，不反映"翻出A就是顶对"的结构性隐含价值
+  if(street==='flop'&&hClass.name==='DRAW'&&bet>0){
+    var _holeRanks2=G.hole.filter(function(c){return c;}).map(function(c){return RV[c.rank];});
+    var _hasAce=_holeRanks2.indexOf(12)>=0;
+    var _isBackdoor=hClass.outs<=5&&hClass.desc.indexOf('后门')>=0;
+    // Ax后门听牌: 翻出A就是顶对+后门同花/顺子潜力
+    if(_hasAce&&_isBackdoor){
+      var _axBonus=Math.min(5,Math.round(3*(pot/(bet*2||1)))); // 赔率越好加越多，最多+5
+      eq+=_axBonus;
+      console.log('[V2.9.140] Ax后门隐含赔率 eq+'+_axBonus+'→'+eq.toFixed(1)+'('+hClass.desc+')');
+    }
+    // 后门同花/顺子(非Ax): 赔率好时也加一点
+    if(!_hasAce&&_isBackdoor&&bet/(pot+bet)<0.33){
+      eq+=2;
+      console.log('[V2.9.140] 后门听牌赔率好 eq+2→'+eq.toFixed(1));
+    }
   }
   // V2.9.47: 翻后eq衰减——2人桌不衰减,3人桌微调
   // 翻前act=桌位人数, 翻后act可能=桌位但实际进池人数更少
