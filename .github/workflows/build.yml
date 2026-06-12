@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.125
-        name: "V2.9.125 策略引擎修复——FourBetResponse未定义+翻前决策链路恢复"
-        body: "V2.9.125: 策略引擎修复——FourBetResponse对象补全+翻前决策链路恢复（KK/AA/QQ/AK全部正确返回raise+绿色悬浮球）"
+        tag_name: v2.9.126
+        name: "V2.9.126 池子驱动策略引擎——什么池子打什么牌(4模块+反fold接入decide)"
+        body: "V2.9.126: 池子驱动策略引擎——4模块(PTD/VTA/PSM/HCG)+池驱反fold接入decide()。小牌打赢/大牌打稳。V2.9.125所有保护点(EV护栏/纠错/顶级保护)100%保留。"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

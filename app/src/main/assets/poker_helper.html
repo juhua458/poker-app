@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.125 · 策略引擎修复——FourBetResponse未定义+翻前决策链路恢复</title>
+<title>青云 v2.9.126 · 池子驱动策略引擎——什么池子打什么牌(4模块+反fold接入decide)</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -4652,6 +4652,41 @@ function decide(){
         result._colorInfo.color=ColorStrategy.COLORS.RAISE_BIG;
       }
     }
+    // V2.9.126: ★ 池子驱动反fold——只解决"什么都弃牌"痛点 ★
+    // 原则: 不覆盖原 raise/call 决策（避免和postF精细决策打架）
+    //        只在原决策=fold时启用二次过滤
+    //        翻后才启用（翻前V2.9.123顶级保护已做）
+    //        跳过EV护栏主动fold（数学负EV，强行call会出新坑）
+    //        V2.9.125/V2.9.72/V2.9.123所有保护点100%保留
+    try{
+      if(result.a==='fold' && _cc>0){
+        // EV护栏主动fold=数学负EV,不反fold(避免乱call新坑)
+        var _evGuardedFold=result._evs&&result._evs.fold&&result._evs.fold.ev<-2;
+        if(_evGuardedFold){
+          console.log('[V2.9.126] EV护栏主动fold→不反fold');
+        }else{
+          var _poolType=PoolTypeDetector.detect();
+          var _holeArr=G.hole.filter(function(c){return c;});
+          var _commArr=G.comm.filter(function(c){return c;});
+          var _hClassPost=typeof handClassify==='function'?handClassify(_holeArr,_commArr):null;
+          var _thickness=ValueThicknessAnalyzer.analyze(k,G.comm,_poolType,_hClassPost);
+          var _psmResult=PoolStrategyMatrix.decide(_poolType,_thickness,k,G.comm,G.pos);
+          if(_psmResult&&_psmResult.action&&_psmResult.action!=='fold'){
+            console.log('[V2.9.126 池驱反fold] fold→'+_psmResult.action+' 池型='+_poolType+' 厚度='+_thickness+' '+_psmResult.reason);
+            result.a=_psmResult.action;
+            // sizing 字符串→数字BB
+            var _szMap={allin:function(){return G.stk||100;},big:function(){return G.stk||100;},pot:function(){return G.pot||0;},'80%pot':function(){return Math.round((G.pot||0)*0.8);},'75%pot':function(){return Math.round((G.pot||0)*0.75);},'66%pot':function(){return Math.round((G.pot||0)*0.66);},'50%pot':function(){return Math.round((G.pot||0)*0.5);},'33%pot':function(){return Math.round((G.pot||0)*0.33);}};
+            if(_psmResult.sizing&&_szMap[_psmResult.sizing]){result.v=_szMap[_psmResult.sizing]();}
+            result.r='[池驱反fold '+_poolType+'/'+_thickness+'] '+_psmResult.reason+' '+result.r;
+            var _newColorKey=actionToColor(result.a);
+            result._colorInfo.colorKey=_newColorKey;
+            result._colorInfo.color=ColorStrategy.COLORS[_newColorKey];
+          }
+        }
+      }
+    }catch(e){
+      console.log('[V2.9.126 池驱反fold] 异常→保原决策: '+e.message);
+    }
     TablePulse.record(_profile);
     var keys=Object.keys(_decisionCache);
     if(keys.length>=_cacheMax)delete _decisionCache[keys[0]];
@@ -7046,6 +7081,332 @@ function revertLocal(){
     }
   }).catch(function(){});
 })();
+
+// ===== V2.9.126: 4个新策略模块（池子驱动决策）=====
+// V2.9.126 模块1: PoolTypeDetector — 池子类型检测
+// 输入: G.pot, G.bet, G.scene, G.act, G.phase, G.players
+// 输出: 'HU' | 'SRP' | '3BP' | '4BP' | 'MP'
+// 原则: 只读G.*，不修改任何状态；不依赖handClassify
+
+var PoolTypeDetector = {
+  detect: function(){
+    try{
+      var phase = (typeof G!=='undefined' && G.phase) || 'pre';
+      var scene = (typeof G!=='undefined' && G.scene) || 'open';
+      var act = (typeof G!=='undefined' && G.act) || 2;
+      var pot = (typeof G!=='undefined' && G.pot) || 0;
+      var bet = (typeof G!=='undefined' && G.bet) || 0;
+      var heroDid4bet = (typeof G!=='undefined' && G._heroDid4bet) || false;
+      var players = (typeof G!=='undefined' && G.players) || [];
+      var tt = (typeof G!=='undefined' && G.tt) || 6;
+
+      // 多人池判定（最优先）——用G.players长度,不用G.act(preflop G.act总等于tt,不准确)
+      if(players.length >= 3) return 'MP';
+      // 翻后无players数据时,用act判定(翻后G.act才反映实际进池人数)
+      if(phase==='post' && act >= 3) return 'MP';
+
+      // 4BP判定：bet/pot比值是最稳定的特征（不依赖_heroDid4bet,因preF会改它）
+      if(scene==='reraise'){
+        if(pot > 0 && bet/pot >= 1.5) return '4BP';
+        return '3BP';
+      }
+
+      // 3BP判定（场景reraise已被上面拦截,这里是raise场景）
+      if(scene==='raise'){
+        if(pot > 0 && bet/pot >= 1) return '3BP';
+        return 'SRP';
+      }
+
+      // 开池 = SRP
+      if(scene==='open') return 'SRP';
+
+      // 翻后check
+      if(phase==='post' && scene==='check'){
+        return act >= 3 ? 'MP' : 'HU';
+      }
+
+      // 翻后bet（不是check）
+      if(phase==='post' && (scene==='bet' || scene==='raise')){
+        if(pot > 0 && bet/pot >= 1) return '3BP';
+        return 'SRP';
+      }
+
+      // 默认HU
+      return 'HU';
+    }catch(e){
+      console.log('[PoolTypeDetector] 检测失败→回退HU: '+e.message);
+      return 'HU';
+    }
+  },
+
+  // 盲注战检测（SB/BB位置 vs 1-2人）
+  isBlindBattle: function(){
+    try{
+      var pos = (typeof G!=='undefined' && G.pos) || '';
+      var act = (typeof G!=='undefined' && G.act) || 2;
+      var scene = (typeof G!=='undefined' && G.scene) || 'open';
+      return (pos==='sb' || pos==='bb') && act <= 3 && (scene==='raise' || scene==='open');
+    }catch(e){return false;}
+  },
+
+  // 简化版的池子描述（调试用）
+  describe: function(poolType){
+    return {
+      HU: '单挑池（翻后1v1）',
+      SRP: '单加注池（标准C-bet池）',
+      '3BP': '3-bet池（高筹码压力）',
+      '4BP': '4-bet池（接近全押压力）',
+      MP: '多人池（3+人，坚果级才打顶池）'
+    }[poolType] || '未知池子';
+  }
+};
+
+// Node.js导出
+
+// V2.9.126 模块2: ValueThicknessAnalyzer — 价值厚度分析
+// 输入: 手牌key + 公共牌 + 池子类型 + handClassify结果
+// 输出: 'NUTS' | 'THICK' | 'THIN' | 'AIR'
+// 原则: 4档分级（不增加新类型，保持与现有7色映射兼容）
+
+var ValueThicknessAnalyzer = {
+  analyze: function(k, board, poolType, hClassResult){
+    try{
+      var hasComm = board && board.filter(function(c){return c;}).length >= 3;
+
+      // ===== 翻前简化分级（不依赖hClass）=====
+      if(!hasComm){
+        if(k==='AA' || k==='KK' || k==='QQ') return 'NUTS';
+        if(k==='AK' || k==='AQ' || k==='AJ') return 'NUTS';  // AK是preflop的坚果
+        if(k==='JJ' || k==='TT' || k==='99') return 'THICK';
+        if(k==='88' || k==='77') return 'THIN';
+        return 'AIR';
+      }
+
+      // ===== 翻后分级（必须有hClass）=====
+      if(!hClassResult || !hClassResult.name) return 'AIR';
+
+      var name = hClassResult.name;
+      var subType = hClassResult.pairSubType || '';
+      var desc = hClassResult.desc || '';
+
+      // ===== 翻后分级 =====
+      // 1. NUTS: 暗三/顺/同花/葫芦/四条
+      if(name==='NUTS') return 'NUTS';
+
+      // 2. STRONG: 按subType细分
+      if(name==='STRONG'){
+        // 厚价值: 超对/顶对顶踢/两对（安全面）
+        if(subType==='超对' || subType==='顶对顶踢' || subType==='两对'){
+          // 多人池中两对要降一档
+          if(poolType==='MP' && subType==='两对') return 'THIN';
+          return 'THICK';
+        }
+        // 顶对中踢在多人池直接降薄
+        if(subType==='顶对中踢'){
+          return poolType==='MP' ? 'AIR' : 'THIN';
+        }
+        return 'THICK';
+      }
+
+      // 3. MEDIUM: 中对/底对/顶对弱踢
+      if(name==='MEDIUM'){
+        // 多人池里MEDIUM基本不动手
+        if(poolType==='MP') return 'AIR';
+        return 'THIN';
+      }
+
+      // 4. DRAW: 听牌按池子类型分级
+      if(name==='DRAW'){
+        // 组合听牌(combo)在多人池也可以打
+        if(desc.indexOf('组合听牌')>=0) return 'THIN';
+        // 卡顺+坚果听牌
+        if(desc.indexOf('开放顺听')>=0) return 'THIN';
+        return 'AIR';
+      }
+
+      // 5. AIR
+      return 'AIR';
+    }catch(e){
+      console.log('[ValueThicknessAnalyzer] 异常→回退AIR: '+e.message);
+      return 'AIR';
+    }
+  }
+};
+
+
+// V2.9.126 模块3: PoolStrategyMatrix — 池子×手牌→动作矩阵
+// 输入: poolType + thickness + hand + board + position
+// 输出: {action, sizing, reason, colorKey}
+// 原则: 不抢 decide() 主导权，输出"建议"由decide()采纳或拒绝
+//        返回null时=不干预，走原逻辑
+
+var PoolStrategyMatrix = {
+  // 主决策：池子×厚度→动作建议
+  decide: function(poolType, thickness, hand, board, position){
+    try{
+      var k = hand;
+      var p = position || 'btn';
+
+      // ===== 4BP: 极高压 =====
+      if(poolType==='4BP'){
+        if(thickness==='NUTS') return {action:'raise', sizing:'big', reason:'4BP坚果级→all-in', colorKey:'ALL_IN'};
+        if(thickness==='THICK') return {action:'call', sizing:'pot', reason:'4BP厚价值→跟注控池', colorKey:'CALL'};
+        return {action:'fold', reason:'4BP非坚果→弃', colorKey:'FOLD'};
+      }
+
+      // ===== 3BP: 高压池 =====
+      if(poolType==='3BP'){
+        if(thickness==='NUTS') return {action:'raise', sizing:'75%pot', reason:'3BP坚果级→重锤', colorKey:'RAISE_BIG'};
+        if(thickness==='THICK') return {action:'call', sizing:'pot', reason:'3BP厚价值→跟注控池', colorKey:'CALL'};
+        if(thickness==='THIN') return {action:'fold', reason:'3BP薄价值→弃', colorKey:'FOLD'};
+        return {action:'fold', reason:'3BP空气→弃', colorKey:'FOLD'};
+      }
+
+      // ===== MP: 多人池（3+人） =====
+      if(poolType==='MP'){
+        if(thickness==='NUTS') return {action:'raise', sizing:'80%pot', reason:'MP坚果级→重锤', colorKey:'RAISE_BIG'};
+        if(thickness==='THICK') return {action:'call', sizing:'pot', reason:'MP厚价值→跟注', colorKey:'CALL'};
+        // 多人池薄价值/空气/听牌全check
+        if(thickness==='THIN') return {action:'check', reason:'MP薄价值→check down', colorKey:'CHECK'};
+        return {action:'check', reason:'MP空气→check', colorKey:'CHECK'};
+      }
+
+      // ===== SRP: 单加注池 =====
+      if(poolType==='SRP'){
+        // SRP关键：坚果级C-bet要重（占池2/3），厚价值中等bet，薄价值小注或check
+        if(thickness==='NUTS') return {action:'raise', sizing:'66%pot', reason:'SRP坚果级→C-bet重注', colorKey:'RAISE_BIG'};
+        if(thickness==='THICK') return {action:'raise', sizing:'50%pot', reason:'SRP厚价值→C-bet中注', colorKey:'RAISE'};
+        if(thickness==='THIN') return {action:'raise', sizing:'33%pot', reason:'SRP薄价值→小注拿价值', colorKey:'RAISE'};
+        return {action:'check', reason:'SRP空气→check', colorKey:'CHECK'};
+      }
+
+      // ===== HU: 单挑池 =====
+      if(poolType==='HU'){
+        if(thickness==='NUTS') return {action:'raise', sizing:'75%pot', reason:'HU坚果级→重锤', colorKey:'RAISE_BIG'};
+        if(thickness==='THICK') return {action:'raise', sizing:'50%pot', reason:'HU厚价值→bet', colorKey:'RAISE'};
+        if(thickness==='THIN') return {action:'call', sizing:'pot', reason:'HU薄价值→跟注拿showdown', colorKey:'CALL'};
+        return {action:'check', reason:'HU空气→check', colorKey:'CHECK'};
+      }
+
+      // 默认不干预
+      return null;
+    }catch(e){
+      console.log('[PoolStrategyMatrix] 异常→不干预: '+e.message);
+      return null;
+    }
+  },
+
+  // 翻前专用简化（不带board）
+  decidePreflop: function(poolType, k, position, oppType){
+    try{
+      // 翻前多人池：收紧
+      if(poolType==='MP'){
+        // 多人池只打NUTS
+        if(k==='AA' || k==='KK' || k==='AK') return {action:'raise', reason:'MP翻前坚果级→加', colorKey:'RAISE'};
+        return {action:'fold', reason:'MP翻前非坚果→弃', colorKey:'FOLD'};
+      }
+      // 4BP/3BP翻前：返回null让preF原有逻辑处理
+      return null;
+    }catch(e){
+      return null;
+    }
+  }
+};
+
+
+// V2.9.126 模块4: HeroCallGate — 抓诈门控
+// 原则: 必须有showdown value才允许hero call
+//       多人池禁止hero call
+//       底池赔率必须够
+
+var HeroCallGate = {
+  canCall: function(k, board, poolType, eq, potOddsPct){
+    try{
+      // 翻前无门控
+      if(!board || board.filter(function(c){return c;}).length < 3){
+        return {allow:true, reason:'翻前无门控', hasShowdownValue:true};
+      }
+
+      // 多人池不抓诈
+      if(poolType==='MP'){
+        return {allow:false, reason:'多人池禁止hero call', hasShowdownValue:false};
+      }
+
+      // 必须有showdown value
+      var hasShowdownValue = this._hasShowdownValue(k, board);
+      if(!hasShowdownValue){
+        return {allow:false, reason:'无showdown value（纯A高/弱K高/无对无听）', hasShowdownValue:false};
+      }
+
+      // 底池赔率必须够
+      if(typeof potOddsPct==='number' && potOddsPct > 0){
+        if(eq < potOddsPct){
+          return {allow:false, reason:'底池赔率不足(eq='+Math.round(eq)+'% < potOdds='+Math.round(potOddsPct)+'%)', hasShowdownValue:true};
+        }
+      }
+
+      return {allow:true, reason:'有showdown value+赔率够→可抓诈', hasShowdownValue:true};
+    }catch(e){
+      // 异常→保守禁止（避免乱抓诈）
+      console.log('[HeroCallGate] 异常→保守拒绝: '+e.message);
+      return {allow:false, reason:'门控异常→保守弃', hasShowdownValue:false};
+    }
+  },
+
+  // 检查是否有showdown value
+  _hasShowdownValue: function(k, board){
+    try{
+      // 口袋对（任何对）→ 有showdown value
+      if(k && k.length===2 && k[0]===k[1]) return true;
+
+      // A高/高牌
+      if(k && (k[0]==='A' || k[1]==='A')) return true;
+      if(k && (k[0]==='K' || k[1]==='K')) return true;
+      if(k && (k[0]==='Q' || k[1]==='Q')) return true;
+
+      // 检查公共牌是否有可用的成牌（pair/draw）
+      var comm = board.filter(function(c){return c;});
+      if(comm.length < 3) return false;
+
+      // 用handClassify判断
+      if(typeof handClassify==='function'){
+        var hole = k ? this._parseHole(k) : [];
+        var hc = handClassify(hole, comm);
+        if(hc.name==='PAIR' || hc.name==='TWO_PAIR' || hc.name==='SET' ||
+           hc.name==='STRAIGHT' || hc.name==='FLUSH' || hc.name==='NUTS' ||
+           hc.name==='STRONG' || hc.name==='MEDIUM' || hc.name==='DRAW'){
+          return true;
+        }
+        return false;
+      }
+
+      // 没有handClassify时回退
+      return false;
+    }catch(e){
+      return false;
+    }
+  },
+
+  // 把"AK" / "AKs" / "T9o" 解析成 [{rank:'A',suit:''}, {rank:'K',suit:''}]
+  _parseHole: function(k){
+    var ranks = [];
+    if(!k) return ranks;
+    // 简化：花色/踢脚都不care，只取rank
+    if(k[0]==='T' || k[0]==='J' || k[0]==='Q' || k[0]==='K' || k[0]==='A'){
+      ranks.push({rank:k[0], suit:''});
+    } else {
+      ranks.push({rank:k[0], suit:''});
+    }
+    if(k[1]==='T' || k[1]==='J' || k[1]==='Q' || k[1]==='K' || k[1]==='A'){
+      ranks.push({rank:k[1], suit:''});
+    } else {
+      ranks.push({rank:k[1], suit:''});
+    }
+    return ranks;
+  }
+};
+
+
 
 // 初始化
 LogBuffer.init(); // V2.9.47: 日志缓冲
