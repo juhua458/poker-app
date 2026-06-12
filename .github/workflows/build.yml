@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.117
-        name: "V2.9.117 preF函数bug修复+通知栏显示策略动作"
-        body: "V2.9.117: 修preF函数street未定义/reraise崩溃+去重复BvB调用+通知栏显示策略动作"
+        tag_name: v2.9.118
+        name: "V2.9.118 范围表扩大+隐含赔率bonus+惩罚优化"
+        body: "V2.9.118: 扩大O6.utg/mp范围表+隐含赔率bonus(小对子+8/SC+5/SA+3)+6max惩罚-15→-8"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
