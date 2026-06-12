@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.136 · 版本描述修正</title>
+<title>青云 v2.9.137 · stk bug修</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.136',
+    version:'2.9.137',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.136',
+  CURRENT_VERSION:'2.9.137',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4317,7 +4317,7 @@ var StrategicBluff={
 
 // ===== P1: StrategicRetreat - 战略撤退 =====
 var StrategicRetreat={
-  check:function(eq,hClass,street,scene,profile,bTexture,spr,opponents,pot,bet){
+  check:function(eq,hClass,street,scene,profile,bTexture,spr,opponents,pot,bet,stk){
     var type=profile.type,conf=profile.confidence,af=profile.af||1,ra=profile.recent_agg||0;
     // V2.9.58: 用rangeDist调整弃牌阈值——对手范围越紧,越该弃牌
     var rd=profile.rangeDist||{wide:0.20,medium:0.40,tight:0.40};
@@ -4374,7 +4374,7 @@ var StrategicRetreat={
     // V2.9.58: 紧范围对手的大raise更可信→降低弃牌阈值
     var foldThreshold=tightRatio>=0.50?0.45:0.6;
     if(hClass.name==='MEDIUM'&&bet>0){
-      var _ebSB=Math.min(bet,stk||100);
+      var _ebSB=Math.min(bet,stk||G.stk||100);
       var betPotRatio=_ebSB/pot;
       if(betPotRatio>foldThreshold&&(scene==='raise'||scene==='allin')){
         ret.action='fold';ret.strategy='大raise撤退(>' +(betPotRatio*100).toFixed(0)+'%底池'+(tightRatio>=0.50?'·紧':'')+')';
@@ -6286,7 +6286,7 @@ function postF(k){
   var short=stk<=30;
   var sceneLabel=street==='flop'?'翻牌':street==='turn'?'转牌':'河牌';
   // === DRTA层: 先检查战略撤退 ===
-  var retreat=StrategicRetreat.check(eq,hClass,street,scene,profile,bTexture,spr,opponents,pot,bet);
+  var retreat=StrategicRetreat.check(eq,hClass,street,scene,profile,bTexture,spr,opponents,pot,bet,stk);
   if(retreat.action){
     var exploitR=applyExploit(eq,retreat.action,_facingOppType,{bet:bet,pot:pot});
     return{a:retreat.action,r:retreat.strategy,eq:exploitR.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,strategy:retreat.strategy,weights:weights}};
