@@ -378,7 +378,7 @@ class FloatingService : Service() {
                         updateAdviceNotification("❌ 截屏失败", ScreenCaptureService.lastError.take(30))
                         // V2.9.109: 失败也变红
                         updateBallAdvice("COLOR:FOLD|SIGNAL:ERROR")
-                            updateAdviceNotification("⚠️ 策略超时", "5s未回调→强制FOLD")
+
                     }
                 }
             }

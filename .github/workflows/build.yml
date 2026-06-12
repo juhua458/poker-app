@@ -27,7 +27,7 @@ jobs:
     - name: Build Debug APK
       run: |
         chmod +x gradlew
-        ./gradlew assembleDebug 2>&1
+        ./gradlew assembleDebug
         
     - name: Find APK
       run: |
