@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.138',
+    version:'2.9.139',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -5556,6 +5556,10 @@ function _decideInner(){
           var _thickness=ValueThicknessAnalyzer.analyze(k,G.comm,_poolType,_hClassPost);
           var _psmResult=PoolStrategyMatrix.decide(_poolType,_thickness,k,G.comm,G.pos);
           if(_psmResult&&_psmResult.action&&_psmResult.action!=='fold'){
+            // V2.9.139: 面对bet时PoolStrategyMatrix返回check→无效(不能check过牌)，保留fold
+            if(_psmResult.action==='check' && G.bet>0){
+              console.log('[V2.9.139 池驱反fold] PoolStrategyMatrix建议check但面对bet='+G.bet+'→保持fold(不能过牌)');
+            }else{
             console.log('[V2.9.126 池驱反fold] fold→'+_psmResult.action+' 池型='+_poolType+' 厚度='+_thickness+' '+_psmResult.reason);
             result.a=_psmResult.action;
             // sizing 字符串→数字BB
@@ -5565,6 +5569,7 @@ function _decideInner(){
             var _newColorKey=actionToColor(result.a);
             result._colorInfo.colorKey=_newColorKey;
             result._colorInfo.color=ColorStrategy.COLORS[_newColorKey];
+            }
           }
         }
       }
@@ -5697,7 +5702,11 @@ function preF(k){
   var eq=eQ(k);
   // V2.9.121: Speculative hand implied odds bonus
   if(k.length===2&&k[0]===k[1]&&'23456'.indexOf(k[0])>=0)eq+=8; // Small pairs: set mining
-  if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined&&Math.abs(_r1-_r2)===1&&_r2<=8)eq+=5;if(_sr[0]==='A'&&_r2!==undefined&&_r2<=3)eq+=3;} // SC+suited ace low
+  // V2.9.139: 投机手牌隐含赔率加成——同花连张更愿看翻牌
+  // 同花连张(SC)=顺子+同花双潜力; 同花隔一张=同花+顺子潜力; 纯同花=同花隐含赔率
+  // 杂色连张=纯顺子潜力(弱于同花版)
+  if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined){var _gap=Math.abs(_r1-_r2);if(_gap===1)eq+=5;else if(_gap===2)eq+=4;else eq+=2;if(_sr[0]==='A'&&_r2!==undefined&&_r2<=5)eq+=3;}}
+  if(k.indexOf('o')>=0&&k.length===3){var _sr2=k.slice(0,2),_r1b=RV[_sr2[0]],_r2b=RV[_sr2[1]];if(_r1b!==undefined&&_r2b!==undefined&&Math.abs(_r1b-_r2b)===1&&_r2b<=9)eq+=2;}
   var pa=pA(p);
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
@@ -6715,7 +6724,16 @@ function show(r){
 }
 
 var _mcSimCache=null; // V2.9.46: Worker异步MC结果缓存
-function go(){window._goStartTime=Date.now();var resEl=document.getElementById('res');if(resEl)resEl.innerHTML='<div style="color:#4fc3f7;font-size:14px;text-align:center;padding:8px">⏳</div>';setTimeout(function(){
+function go(){
+  // V2.9.139: 防双触发——200ms内重复调用跳过(避免HandHistory重复记录)
+  var _now=Date.now();
+  if(window._goLastTime && (_now-window._goLastTime)<200){
+    console.log('[go] 防双触发: 距上次'+(_now-window._goLastTime)+'ms→跳过');
+    return;
+  }
+  window._goLastTime=_now;
+  window._goStartTime=_now;
+  var resEl=document.getElementById('res');if(resEl)resEl.innerHTML='<div style="color:#4fc3f7;font-size:14px;text-align:center;padding:8px">⏳</div>';setTimeout(function(){
   // V2.9.30: 自动采集对手动作(在decide之前)
   // V2.9.73: ★ phase修正——post但公共牌数量异常→强制pre + 清空异常comm ★
   // 根因: Vision API可能误将翻前识别为翻后→走MC异步路径→decide()崩溃→悬浮球卡死
