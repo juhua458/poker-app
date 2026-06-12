@@ -208,6 +208,7 @@ object VisionApiClient {
         val prompt = if (compact) {
             """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)，返回单行JSON(禁止换行禁止markdown)。格式:
 {"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"Q","suit":"c"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3}
+⚠️CRITICAL:buttons是决定策略的核心字段！必须完整识别屏幕底部所有操作按钮文字！包括:弃牌/让牌/过牌/跟注(含金额如"跟注1,500")/加注(含比例如"50%加注4,500")/下注(含比例如"33%下注726")/全押/全下。buttons识别不全会导致策略完全错误！
 is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，suit=h(红心♥)/d(方块♦)/c(梅花♣)/s(黑桃♠)，phase=preflop/flop/turn/river,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。⚠️hole_cards必须识别2张手牌(屏幕底部正面朝上的牌)，每张必须返回rank和suit！不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]"""
         } else {
             """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)。
@@ -220,7 +221,7 @@ is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，su
 4. ⚠️手牌hole_cards：底部2张正面朝上的牌，必须返回rank和suit！rank=A K Q J T 9 8 7 6 5 4 3 2(T=10)，suit=h(红心♥) d(方块♦) c(梅花♣) s(黑桃♠)
 5. 公共牌community_cards：桌面中央0/3/4/5张，必须返回rank和suit
 6. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
-7. 操作按钮buttons：底部按钮原样输出
+7. ⚠️操作按钮buttons(极其重要！)：底部所有按钮原样输出，必须包含"弃牌""让牌/过牌""跟注XXX""加注XXX""下注XXX""全押/全下"等全部可见按钮文字，遗漏会导致策略完全错误！
 8. total_players总座位数，active_players活跃人数
 9. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
 10. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips

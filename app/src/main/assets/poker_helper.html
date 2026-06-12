@@ -7401,7 +7401,7 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
   var hasCall = buttons.some(function(b){return b.indexOf('跟注')>=0||b.indexOf('Call')>=0;});
   var hasCheck = buttons.some(function(b){return b.indexOf('过牌')>=0||b.indexOf('让牌')>=0||b.indexOf('Check')>=0;});
   var hasRaise = buttons.some(function(b){return b.indexOf('加注')>=0||b.indexOf('Raise')>=0||b.indexOf('下注')>=0||b.indexOf('Bet')>=0;});
-  // GG特有：组合按钮检测
+  // V2.9.139: "让牌/弃牌"组合按钮=有让牌选项→check场景，不是bet
   var hasCheckFold = buttons.some(function(b){return (b.indexOf('让牌')>=0||b.indexOf('过牌')>=0)&&b.indexOf('弃牌')>=0;});
   if (hasCheckFold) hasCheck = true; // 组合按钮包含让牌选项
   // V2.9.71: 翻前有"跟注"按钮 = 有人下注/加注
@@ -7883,19 +7883,24 @@ function onVisionResult(data){
   // V2.9.72: ★ 场景-赔率交叉校验 ★
   // 根因: Vision API有时不返回buttons→detectSceneFromButtons默认'check'→提示过牌但无过牌按钮
   // 修复: 用to_call(G.bet)反推场景——bet>0说明面对下注,不可能是check/open
+  // V2.9.139: 加强——同时用data.to_call原始值做校验（在G.bet可能被bbValue除零等场景前）
   (function validateSceneBet(){
-    if(G.bet>0){
+    var _rawToCall=parseInt(data.to_call)||0;
+    var _effectiveBet=G.bet>0?G.bet:(_rawToCall>0?1:0); // to_call>0但G.bet=0→至少1BB
+    if(_effectiveBet>0 || _rawToCall>0){
       if(G.phase==='post' && (G.scene==='check' || G.scene==='open')){
-        console.log('[场景纠错] postflop bet='+G.bet+'BB但scene='+G.scene+'→强制bet(按钮检测失败,赔率推断)');
+        console.log('[场景纠错] postflop to_call='+_rawToCall+'/G.bet='+G.bet+'BB但scene='+G.scene+'→强制bet(按钮检测失败,赔率推断)');
         G.scene='bet';
+        if(G.bet===0 && _rawToCall>0){G.bet=Math.max(1,Math.round(_rawToCall/(bbValue||200)));} // V2.9.139: 补救bet=0
         try{
           document.querySelectorAll('#sceneBtnsPost .big-btn').forEach(function(b){b.classList.remove('on');});
           var el=document.getElementById('scBet');if(el)el.classList.add('on');
         }catch(e){}
       }
       if(G.phase==='pre' && G.scene==='open'){
-        console.log('[场景纠错] preflop bet='+G.bet+'BB但scene=open→强制raise(按钮检测失败,赔率推断)');
+        console.log('[场景纠错] preflop to_call='+_rawToCall+'/G.bet='+G.bet+'BB但scene=open→强制raise(按钮检测失败,赔率推断)');
         G.scene='raise';
+        if(G.bet===0 && _rawToCall>0){G.bet=Math.max(1,Math.round(_rawToCall/(bbValue||200)));}
         try{
           document.querySelectorAll('#sceneBtnsPre .big-btn').forEach(function(b){b.classList.remove('on');});
           var el=document.getElementById('scRaise');if(el)el.classList.add('on');
