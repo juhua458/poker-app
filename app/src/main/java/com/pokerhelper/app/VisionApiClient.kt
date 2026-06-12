@@ -118,8 +118,6 @@ object VisionApiClient {
             }
             if (result == null) { lastError = "API返回空结果"; return null }
 
-            val holeCardsNoSuit = result.holeCards.map { it.copy(suit = "") }
-            val commCardsNoSuit = result.communityCards.map { it.copy(suit = "") }
             val currentRankKey = result.holeCards.joinToString(",") { it.rank }
             val lastRankKey = holeCardsLocked?.joinToString(",") { it.rank } ?: ""
             if (lastRankKey.isNotEmpty() && currentRankKey != lastRankKey) {
@@ -127,9 +125,10 @@ object VisionApiClient {
                 holeCardsLocked = null; dButtonLocked = ""
             }
             // V2.9.114: 空手牌不应被锁定——如果之前锁定了空列表，必须重置
+            // V2.9.134: 保留suit（vision已识别花色），不再抹掉
             if (holeCardsLocked != null && holeCardsLocked!!.isNotEmpty()) {
                 lockReason = "已锁定，跳过重识"; suitUncertain = false
-                var lockedResult = result.copy(holeCards = holeCardsLocked!!, communityCards = commCardsNoSuit)
+                var lockedResult = result.copy(holeCards = holeCardsLocked!!, communityCards = result.communityCards)
                 val dPosInsured = applyDButtonInsurance(lockedResult.dButtonPosition, holeCardsLocked!!)
                 dButtonPosition = dPosInsured; lockedResult = lockedResult.copy(dButtonPosition = dPosInsured)
                 lastResult = lockedResult; lastResultTime = System.currentTimeMillis()
@@ -139,12 +138,13 @@ object VisionApiClient {
                 return corrected
             }
             // V2.9.114: 只锁定非空手牌，防止空列表锁死
-            if (holeCardsNoSuit.isNotEmpty()) {
-                holeCardsLocked = holeCardsNoSuit; lockReason = "首次识别锁定"; suitUncertain = false
+            // V2.9.134: 保留suit（vision已识别花色），不再抹掉
+            if (result.holeCards.isNotEmpty()) {
+                holeCardsLocked = result.holeCards; lockReason = "首次识别锁定"; suitUncertain = false
             } else {
                 holeCardsLocked = null; lockReason = "手牌为空不锁定"; suitUncertain = false
             }
-            var correctedResult = result.copy(holeCards = holeCardsNoSuit, communityCards = commCardsNoSuit)
+            var correctedResult = result.copy(holeCards = result.holeCards, communityCards = result.communityCards)
             val dPosInsured = applyDButtonInsurance(correctedResult.dButtonPosition, correctedResult.holeCards)
             dButtonPosition = dPosInsured; correctedResult = correctedResult.copy(dButtonPosition = dPosInsured)
             lastResult = correctedResult; lastResultTime = System.currentTimeMillis(); lastError = ""
@@ -193,18 +193,18 @@ object VisionApiClient {
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
         val prompt = if (compact) {
             """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)，返回单行JSON(禁止换行禁止markdown)。格式:
-{"is_poker_table":true,"hole_cards":[{"rank":"A"},{"rank":"K"}],"community_cards":[{"rank":"Q"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3}
-is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K,phase=preflop/flop/turn/river,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]"""
+{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"Q","suit":"c"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3}
+is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，suit=h(红心♥)/d(方块♦)/c(梅花♣)/s(黑桃♠)，phase=preflop/flop/turn/river,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。⚠️hole_cards必须识别2张手牌(屏幕底部正面朝上的牌)，每张必须返回rank和suit！不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]"""
         } else {
             """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)。
 
-识别德州扑克截图，只认牌面rank不认花色：
+识别德州扑克截图，需要rank和suit：
 
 1. is_poker_table：是否为扑克桌面(不是必须false)
 2. 底池pot_size：牌桌中央"底池XXX"的数字，去逗号，10K=10000
 3. 筹码my_chips：左下角你头像下数字
-4. 手牌hole_cards：底部2张正面牌，只要rank（A K Q J T 9 8 7 6 5 4 3 2，T=10）
-5. 公共牌community_cards：桌面中央0/3/4/5张，只要rank
+4. ⚠️手牌hole_cards：底部2张正面朝上的牌，必须返回rank和suit！rank=A K Q J T 9 8 7 6 5 4 3 2(T=10)，suit=h(红心♥) d(方块♦) c(梅花♣) s(黑桃♠)
+5. 公共牌community_cards：桌面中央0/3/4/5张，必须返回rank和suit
 6. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
 7. 操作按钮buttons：底部按钮原样输出
 8. total_players总座位数，active_players活跃人数
@@ -214,7 +214,7 @@ is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K,phas
 ❌ pot_size不是你头像下数字（那是my_chips）
 
 返回JSON：
-{"is_poker_table":true,"hole_cards":[{"rank":"A"}],"community_cards":[{"rank":"K"},{"rank":"T"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top"}
+{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"K","suit":"c"},{"rank":"T","suit":"s"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top"}
 
 不是扑克桌面时is_poker_table必须false，其余字段填默认值。只返回JSON"""
         }

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.133 · 崩溃「崩」悬浮球提示(notifyCrash 4Hz红闪)+V2.9.132字为王+V2.9.131保护100%保留</title>
+<title>青云 v2.9.134 · 花色识别恢复+SuitProb删除+崩溃「崩」悬浮球</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.133',
+    version:'2.9.134',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.133',
+  CURRENT_VERSION:'2.9.134',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1818,49 +1818,9 @@ var SeatRole={
   }
 };
 
-// ===== V2.9.105: 花色概率推断 =====
-var SuitProb={
-  // 计算同花听牌概率（纯数学，不依赖视觉识别）
-  // 返回0-1之间的概率值
-  flushDrawProb:function(holeCards,communityCards){
-    if(!communityCards||communityCards.length===0)return 0;
-    var numComm=communityCards.filter(function(c){return c&&c.rank;}).length;
-    if(numComm<3)return 0; // 翻前无同花听牌
-    
-    // 策略：不知道花色时，同花概率计算
-    // 翻牌(flop=3): 对手有同花听牌概率 ≈ 3*对手牌组合中同花比例
-    // 简化模型：每张未知牌有1/4概率是某花色
-    // 3张公共牌全是同一花色的概率 = 4*(12/51)*(11/50) ≈ 5.2%
-    // 2张同花+1张不同 = 对手有同花听牌的概率更高
-    
-    // 最实用的指标：对手可能有同花的概率
-    var numUsed=holeCards.length+numComm;
-    var numUnknown=52-numUsed;
-    
-    // 对手两张牌同花的概率 = 4*C(12,2)/C(numUnknown,2) ≈ 23.5% (理论值)
-    // 但考虑已用rank后调整
-    if(numUnknown<2)return 0;
-    var flushProb=4*12/(numUnknown)*11/(numUnknown-1);
-    
-    // 翻牌3同花→对手4同花听牌概率极高(≈35%)
-    // 翻牌2同花→对手同花听牌概率中等(≈15%)  
-    // 这里简化：用数学期望值
-    return Math.min(flushProb,0.4); // 上限40%
-  },
-  
-  // 计算我们可能有同花听牌的概率
-  ourFlushDrawProb:function(holeCards,communityCards){
-    if(!holeCards||holeCards.length<2||!communityCards)return 0;
-    var numComm=communityCards.filter(function(c){return c&&c.rank;}).length;
-    if(numComm<3)return 0;
-    // 我们两张手牌同花的概率 = 1/4 (25%)
-    // 如果同花，flop上3张中有2+张同花→听牌
-    var baseProb=0.25; // 手牌同花概率
-    // flop上有2张与我们同花→9张outs→同花概率≈35%
-    // 简化：期望概率
-    return baseProb*0.35; // ≈8.75%
-  }
-};
+// V2.9.134: SuitProb已删除——V2.9.105的花色equity调整前提是suit=''无法识别花色
+// V2.9.134起vision prompt要求返回suit(h/d/c/s)，Kotlin端不再抹掉，花色信息可用
+// 花色相关的策略判断将基于真实识别结果，而非概率猜测
 
 var DRTA={
   tracker:null,
@@ -3429,7 +3389,7 @@ var SafetyGuard={
     }
     // 筹码为0(不可能)
     if(!stk||stk<=0)level='low';
-    // V2.9.83: 不再需要花色降级（已去掉花色识别）
+    // V2.9.134: 已恢复花色识别，suit可用于同花判断
     return level;
   },
   // 保险过滤: 用equity给颜色上锁
@@ -4848,7 +4808,7 @@ var BluffCatcher={
   blockerEffect:function(k,oppRange,bTexture){
     var baseBlocker=getBlockerScore(k,oppRange);
     // baseBlocker是0-1的阻断系数
-    // 还需考虑花色阻断——无花色系统，只用rank阻断
+    // V2.9.134: 花色已识别，可做精确同花阻断
     // 额外调整：我们持A/K阻断对手顶对/超对
     var extraAdj=0;
     if(k.indexOf('A')===0) extraAdj+=0.08; // A阻断大量价值范围
@@ -5469,16 +5429,7 @@ function _decideInner(){
     var _spr=G.spr||10;
     var _stk=G.stk||100000;
     var _oppType=G.opp||'unknown';
-    // V2.9.105: 花色概率修正——对手同花概率→保守equity调整
-    var _flushPenalty=0;
-    var _numComm=G.comm.filter(function(c){return c&&c.rank;}).length;
-    if(_numComm>=3){
-      _flushPenalty=SuitProb.flushDrawProb(G.hole,G.comm);
-      if(_flushPenalty>0.15){
-        _eq=Math.max(_eq-_flushPenalty*8,5);
-        console.log('[花色概率] 同花概率='+Math.round(_flushPenalty*100)+'% → equity调整-='+Math.round(_flushPenalty*800)+'%');
-      }
-    }
+    // V2.9.134: 删花色概率equity调整——SuitProb已删，花色信息由vision直接提供
     var _profile=DRTA.getProfile();
     var _tiltInfo=TiltDetector.detectTilt(_profile);
     var _ceResult=CounterExploit.detect(_profile);
@@ -7457,7 +7408,7 @@ function onVisionResult(data){
     return;
   }
   
-  // V2.9.83: 手牌锁定——只用rank判断，不认花色
+  // V2.9.134: 手牌锁定——rank判断+保留suit（vision已识别花色）
   var _handLocked = data.hole_cards_locked === true;
   var _lockReason = data.lock_reason || '';
   var _newHandKey = '';
@@ -7478,7 +7429,7 @@ function onVisionResult(data){
     G.hole=[null,null];G.comm=[null,null,null,null,null];
   }
   
-  // 1. V2.9.83: 手牌填入——锁定时不覆盖
+  // 1. V2.9.134: 手牌填入——保留suit（vision已返回花色）
   if(_handLocked && _isSameHand && G.hole[0] && G.hole[1]) {
     console.log('[手牌锁定] 保持锁定手牌: '+G.hole[0].rank+(G.hole[0].suit||'')+' '+G.hole[1].rank+(G.hole[1].suit||''));
   } else if(data.hole_cards && data.hole_cards.length>=2){
@@ -8469,7 +8420,7 @@ var HeroCallGate = {
   _parseHole: function(k){
     var ranks = [];
     if(!k) return ranks;
-    // 简化：花色/踢脚都不care，只取rank
+    // V2.9.134: 花色已恢复，suit保留用于策略
     if(k[0]==='T' || k[0]==='J' || k[0]==='Q' || k[0]==='K' || k[0]==='A'){
       ranks.push({rank:k[0], suit:''});
     } else {
