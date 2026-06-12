@@ -95,6 +95,9 @@ class FloatingService : Service() {
     private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
     private var _strategyTimeoutRunnable: Runnable? = null  // V2.9.125: 策略超时定时器引用
     private var _lastStrategyAdvice = ""   // V2.9.113: 最后策略结果
+    // V2.9.133: 崩溃状态——JS ReferenceError/未捕获异常时悬浮球显示「崩」+红+快闪
+    private var _isCrashed = false
+    private var _lastCrashReason = ""
     private val pendingJsCalls = mutableListOf<String>()
     // V2.9.114: WebViewAssetLoader——Google官方推荐的本地HTML加载方案
     private lateinit var assetLoader: WebViewAssetLoader
@@ -622,6 +625,32 @@ class FloatingService : Service() {
                 return ChipTracker.getStatusJson()
             }
             
+            // V2.9.133: JS策略引擎崩溃回调——立即把悬浮球变「崩」+FOLD红+4Hz快闪+通知栏警告
+            // 用户原话:「崩了能不能显示在悬浮球, 这样我就不会在崩溃的情况下, 还在游戏中」
+            @JavascriptInterface
+            fun notifyCrash(reason: String) {
+                Log.e(TAG, "★ 策略引擎崩溃: " + reason)
+                handler.post {
+                    _isCrashed = true
+                    _lastCrashReason = reason
+                    isBlinkingError = false  // 让位给崩溃信号
+                    // 1. 通知栏
+                    try {
+                        updateAdviceNotification("⚠️ 策略引擎崩溃", reason.take(60))
+                    } catch (_: Exception) {}
+                    // 2. 悬浮球立刻变「崩」——红+4Hz快闪
+                    renderCrashBall()
+                }
+            }
+            // V2.9.133: 清除崩溃态（用户重启WebView/重载HTML后调用）
+            @JavascriptInterface
+            fun clearCrash() {
+                Log.d(TAG, "★ 清除崩溃状态")
+                handler.post {
+                    _isCrashed = false
+                    _lastCrashReason = ""
+                }
+            }
             @JavascriptInterface
             fun resetChips() {
                 handler.post {
@@ -645,6 +674,16 @@ class FloatingService : Service() {
             fun showAdvice(advice: String) {
                 Log.d(TAG, "showAdvice调用: advice=" + advice)
                 handler.post {
+                    // V2.9.133: 崩溃态最高优先级——崩溃时只认显式 RELOAD_AFTER_CRASH 才清, 否则忽略
+                    if (_isCrashed && !advice.contains("CLEAR_CRASH")) {
+                        Log.w(TAG, "★ 策略崩溃态生效, 忽略 advice=" + advice.take(50))
+                        return@post
+                    }
+                    if (advice.contains("CLEAR_CRASH")) {
+                        _isCrashed = false
+                        _lastCrashReason = ""
+                        Log.d(TAG, "★ 收到 CLEAR_CRASH, 崩溃态已清")
+                    }
                     // V2.9.70: 收到正常建议→停止错误闪烁
                     isBlinkingError = false
                     // V2.9.113: 标记策略已回调
@@ -946,8 +985,29 @@ class FloatingService : Service() {
         }
         ball.textSize = 18f
     }
-    fun updateBallAdvice(advice: String) {
+    // V2.9.133: 渲染崩溃悬浮球——「崩」字+红+4Hz快闪
+    private fun renderCrashBall() {
+        try {
+            val ball = floatingBall ?: return
+            val shape = ball.background as? GradientDrawable ?: return
+            val density = resources.displayMetrics.density
+            val stroke = (3 * density).toInt()
+            shape.setColor(0xBBFF5252.toInt()); shape.setStroke(stroke, 0xFFFF5252.toInt())
+            ball.text = "崩"
+            ball.textSize = 22f  // 比正常18f略大(单字无EQ)
+            ball.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
+            startBallSignal(4)  // 4Hz快闪(V2.9.131换桌闪烁档)
+        } catch (e: Exception) {
+            Log.e(TAG, "renderCrashBall失败: " + e.message)
+        }
+    }
+        fun updateBallAdvice(advice: String) {
         Log.d(TAG, "updateBallAdvice: advice=$advice, ball=${if(floatingBall!=null)"存在" else "null"}")
+        // V2.9.133: 崩溃态最高优先级——忽略任何普通 advice, 强制显示「崩」
+        if (_isCrashed) {
+            renderCrashBall()
+            return
+        }
         try {
             val ball = floatingBall ?: return
             val shape = ball.background as? GradientDrawable ?: return
@@ -1428,12 +1488,13 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.132\"")
+                append("{\"version\":\"2.9.133\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")
                 append(",\"lastAdvice\":\"${_lastStrategyAdvice.replace("\"", "\\\"").take(100)}\"")
-                append(",\"nativeErrors\":[")
+                append(",\"crashState\":\"${if(_isCrashed) "CRASHED:" + _lastCrashReason.replace("\"", "\\\"").take(80) else "NORMAL"}\"")
+                append(",\"nativeErrors\":[" )
                 val errs = errorLogs.map { "\"${it.replace("\"", "\\\"").replace("\n", " ")}\"" }
                 append(errs.joinToString(","))
                 append("]")

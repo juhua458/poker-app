@@ -40,9 +40,17 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.132
-        name: "V2.9.132 7色策略色保留+字为王——悬浮球动作字18f加粗,EQ小字(0.5x)在上,颜色作情绪字作决策"
-        body: "V2.9.132: 字为王色为辅(用户原话:「悬浮球里有字, 就什么都清楚, 比如弃呀, 有一个字就可以了」)。保留 V2.9.63 7色策略色硬约束(🔴红=弃 🟠深橙=弱跟 🟡黄=跟 🟢绿=加 💚青绿=重锤 🟣紫=全押 ⚪灰=过)不动, 只把悬浮球文字排版升级: 动作字 18f 加粗居中(Typeface.DEFAULT_BOLD), EQ% 用 SpannableString + RelativeSizeSpan 0.5x 缩小到上方, 允许两行(setSingleLine(false)+setLineSpacing(0,0.85)), V2.9.132 抽 setBallText(ball, action, eqText) 集中管理。新增 import android.text.SpannableString / Spanned / style.RelativeSizeSpan / android.graphics.Typeface。V2.9.131 桌质评估+换桌闪烁+V2.9.130 HandClassifier+V2.9.129 SelfTiltGuard+V2.9.128 PoolStrategyMatrix+V2.9.127 顶级保护+V2.9.126 池驱反 fold 100% 保留。E2E V2.9.132 ≥20 + 7 套回归(V2.9.131/130/129/128/127/126集成/翻前) 200+ PASS。"
+        tag_name: v2.9.133
+        name: "V2.9.133 崩溃「崩」悬浮球提示——命名空间污染3 bug全修+notifyCrash 4Hz红闪+用户原话:崩了能不能显示在悬浮球"
+        body: "V2.9.133 修复实战崩溃:
+  - Bug A: HandClassifier isFlush2 把 suit=空字符串误判同花(假 flush → NUTS)
+  - Bug B: ProbeStrategy.isProbeSpot 内部用 hClass 但签名漏接(V2.9.130 改造漏改)
+  - Bug C: postF L6496 引用未声明全局 cbetThresh → ReferenceError
+  - Bug D: onVisionResult 切桌 BB 未重置, rawBB 从 200 跳 500
+  - 新增 notifyCrash(reason) + renderCrashBall: 任何 ReferenceError/未捕获异常 → 悬浮球立即变「崩」+红+4Hz 快闪, 用户能立刻知道崩溃+停止游戏
+  - 用户原话:「崩了能不能显示在悬浮球, 这样我就不会在崩溃的情况下, 还在游戏中」
+  - V2.9.132 字为王 + V2.9.131 桌质/换桌闪烁 + V2.9.130 HandClassifier + V2.9.129 SelfTiltGuard 100% 保留
+  - E2E V2.9.132 ≥20 + 实战 16 场景 PASS (REF_ERR=0)"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.132 · 7色策略色保留+字为王(动作18f加粗+EQ 0.5x小字)+V2.9.131/130/129/128/127/126保护100%保留</title>
+<title>青云 v2.9.133 · 崩溃「崩」悬浮球提示(notifyCrash 4Hz红闪)+V2.9.132字为王+V2.9.131保护100%保留</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.132',
+    version:'2.9.133',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.132',
+  CURRENT_VERSION:'2.9.133',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4082,7 +4082,7 @@ function handClassify(hole,comm){
   var hasBoardPair=boardOnlyPairs.length>0;
   var madeHand2='high';
   var isFlush2=cards.length>=5&&(function(){
-    var s2={};cards.forEach(function(c2){if(c2)s2[c2.suit]=(s2[c2.suit]||0)+1;});
+    var s2={};cards.forEach(function(c2){if(c2&&c2.suit){s2[c2.suit]=(s2[c2.suit]||0)+1;}});
     for(var k in s2)if(s2[k]>=5)return true;return false;
   })();
   if(isFlush2&&hasMadeStraight)madeHand2='sf';
@@ -5350,7 +5350,7 @@ var RiverPolarStrategy={
 // 场景：hero在IP位，不是翻前加注者(PFR)，对手OOP过牌，hero主动下注
 // 与CBet(PFR+IP/OOP)和DonkLead(OOP+非PFR)完全互斥
 var ProbeStrategy={
-  isProbeSpot:function(street,scene,ip){
+  isProbeSpot:function(street,scene,ip,hClass){
     if(street==='river')return false;
     if(street==='preflop')return false;
     if(scene!=='check')return false;
@@ -5425,7 +5425,7 @@ var ProbeStrategy={
   },
   // 完整决策
   decide:function(hClass,bTexture,street,scene,eq,pot,oppType,ip){
-    if(!this.isProbeSpot(street,scene,ip))return null;
+    if(!this.isProbeSpot(street,scene,ip,hClass))return null;
     var freq=this.calcFreq(hClass,bTexture,oppType,street,eq);
     if(Math.random()*100>=freq){
       console.log('[Probe] '+hClass.name+' eq='+Math.round(eq)+'% freq='+freq+'% \u2192 check');
@@ -5445,6 +5445,16 @@ var ProbeStrategy={
 
 // ===== 核心决策函数 =====
 function decide(){
+  // V2.9.133: decide() 入口 try-catch——命名空间污染 ReferenceError 一律 notifyCrash
+  try{
+    return _decideInner();
+  }catch(e){
+    console.log('[decide] ❌'+e.message);
+    try{if(typeof AndroidBridge!=='undefined'&&AndroidBridge.notifyCrash){AndroidBridge.notifyCrash('decide:'+e.message);}}catch(_){}
+    return {a:'fold',r:'[出错]'+e.message,eq:0,c:'l',hClass:{name:'?',desc:'?',outs:0},scene:'?',spr:0,sprAdvice:'',bTexture:null,io:null,_colorInfo:{colorKey:'FOLD',color:'#FF5252',signalType:'NONE'}};
+  }
+}
+function _decideInner(){
   var k=getHandKey();
   if(!k)return null;
   var ck=cacheKey();
@@ -6493,7 +6503,7 @@ function postF(k){
         return{a:'raise',v:_obResult.sizing,r:_obResult.reason,eq:exploitOB.eq,c:'h',sizing:_obResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
-    if(eq>=cbetThresh){
+    if(eq>=50){
       var exploitResult6=applyExploit(eq,'raise',_facingOppType,{pot:pot});
       return{a:'raise',v:sizing,r:'胜率'+eq.toFixed(0)+'%'+boardInfo,eq:exploitResult6.eq,c:'h',sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,evs:compareEVs(eq,pot,0,sizing),bTexture:bTexture,io:io,exploit:exploitResult6.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -6830,6 +6840,10 @@ function go(){window._goStartTime=Date.now();var resEl=document.getElementById('
     console.log('[go诊断] ❌策略计算出错: '+e.message);
     document.getElementById('res').innerHTML='<div style="color:#ff5252;font-size:14px">⚠️ 策略计算出错: '+e.message+'</div>';
     // V2.9.73: catch分支必须更新悬浮球+记录HandHistory
+    // V2.9.133: notifyCrash → 悬浮球立刻变「崩」+红+4Hz快闪, 用户能看到崩溃, 立刻停止游戏
+    try{
+      if(typeof AndroidBridge!=='undefined'&&AndroidBridge.notifyCrash){AndroidBridge.notifyCrash(e.message);}
+    }catch(_){}
     try{
       var _errR3={a:'fold',r:'[出错]'+e.message,eq:0,c:'l',_colorInfo:{colorKey:'FOLD',color:'#FF5252',signalType:'NONE'}};
       HandHistory.add(_errR3,false);
@@ -6839,6 +6853,7 @@ function go(){window._goStartTime=Date.now();var resEl=document.getElementById('
 },10);}
 // V2.9.63: 7色信号桥接 — 将颜色+信号传递给Android悬浮球
 function bridgeAdvice(r){
+  // V2.9.133: bridgeAdvice 内部 try-catch——任何失败立刻 notifyCrash, 悬浮球显示「崩」
   try{
     var resEl=document.getElementById('res');
     if(!resEl){console.log('[bridge诊断] ❌res元素不存在');return;}
@@ -6855,7 +6870,10 @@ function bridgeAdvice(r){
     var _eqPct=r.eq?Math.round(r.eq):'';var bridgeData=fullAdv+'|COLOR:'+colorKey+'|SIGNAL:'+signalType+(_eqPct!==''?'|EQ:'+_eqPct:'');
     if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){console.log('[bridge诊断] ✅调用showAdvice: '+bridgeData.substring(0,80));AndroidBridge.showAdvice(bridgeData);}else{console.log('[bridge诊断] ❌AndroidBridge不可用');}
     if(typeof AndroidBridge!=='undefined'&&AndroidBridge.updateNotification){AndroidBridge.updateNotification(fullAdv,reason);}
-  }catch(e){}
+  }catch(e){
+    // V2.9.133: bridgeAdvice 失败也调 notifyCrash
+    try{if(typeof AndroidBridge!=='undefined'&&AndroidBridge.notifyCrash){AndroidBridge.notifyCrash('bridgeAdvice:'+e.message);}}catch(_){}
+  }
 }
 function setPhase(p){
   G.phase=p;
@@ -7711,7 +7729,8 @@ function onVisionResult(data){
   // V2.9.48: 保存Vision原始值用于调试日志
   window._lastVisionPot=parseInt(data.pot_size)||0;
   window._lastVisionChips=parseInt(data.my_chips)||0;
-  window._lastVisionBB=bbValue;
+  // V2.9.133 BUG D: 移到 visionInsurance 之后，使用锁定后的 bbValue
+  // window._lastVisionBB=bbValue;
   // V2.9.52: 保存Vision警告用于底池置信度评估
   G._warnings=[];
   if(data._warnings&&data._warnings.length>0){
@@ -7807,6 +7826,8 @@ function onVisionResult(data){
 
     if(insLog.length>0) console.log('[Vision保险] '+insLog.join('; '));
   })();
+  // V2.9.133 BUG D: 用锁定后的 bbValue 更新 _lastVisionBB (rawBB 来源)
+  window._lastVisionBB=bbValue;
   // 新一手牌时重置底池连续性追踪
   if(G.phase==='pre'){G._lastPotBB=0;}
   
