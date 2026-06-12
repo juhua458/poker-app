@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.115 · NO_TABLE增强检测</title>
+<title>青云 v2.9.116 · NO_TABLE增强检测</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.115',
+    version:'2.9.116',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.115',
+  CURRENT_VERSION:'2.9.116',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4103,7 +4103,7 @@ var SlowplayStrategy={
     
     var reason='';
     if(hClass.name==='NUTS'){
-      reason='\u6162\u6253NUTS(vs '+oppType+', '+(bTexture.wetness<=1?'\u5e72\u9762':'\u9762'+bTexture.wetness+')';
+      reason='\u6162\u6253NUTS(vs '+oppType+', '+(bTexture.wetness<=1?'\u5e72\u9762':'\u9762'+bTexture.wetness)+')';
     }else{
       reason='\u6162\u6253STRONG(vs '+oppType+')';
     }
@@ -4973,6 +4973,142 @@ function getSizingOptions(eq,hClass,street,ip,oppType,spr,bTexture,pot,bet){
   return options;
 }
 
+
+
+var DBStrategy={
+  // 是否是Double-barrel场景
+  isDBSpot:function(street,scene){
+    if(street!=='turn')return false;
+    if(scene!=='check')return false; // 对手过牌给我们行动权
+    if(!ActionLine.didFlopCBet())return false; // 没翻牌c-bet不算DB
+    return true;
+  },
+  // 转牌牌面变化评估——转牌是否改善了我们的范围/恶化了对手范围
+  turnCardEval:function(turnCard,bTexture){
+    if(!turnCard)return 'neutral';
+    var r=turnCard.rank||turnCard;
+    var rv={A:12,K:11,Q:10,J:9,T:8,9:7,8:6,7:5,6:4,5:3,4:2,3:1,2:0};
+    var v=rv[r]||0;
+    // 高牌(A/K/Q)通常改善PFR范围
+    if(v>=10)return 'good';
+    // 中牌(J/T)中性
+    if(v>=8)return 'neutral';
+    // 低牌通常帮助对手的听牌
+    if(bTexture.wetness>=2)return 'bad'; // 湿面低牌完成听牌
+    return 'neutral';
+  },
+  // 对手翻牌响应推断——对手跟了翻牌C-bet意味着什么
+  oppFlopResponse:function(oppType,bTexture){
+    // 对手跟了flop c-bet → 范围里有something
+    // 不同对手类型跟注范围不同
+    if(oppType==='nit')return {range:'strong',foldToDB:70}; // nit跟了=强牌，但DB能打走弱强牌
+    if(oppType==='tight')return {range:'medium_strong',foldToDB:55};
+    if(oppType==='tag')return {range:'medium',foldToDB:45};
+    if(oppType==='lag')return {range:'wide',foldToDB:35}; // lag跟flop很宽，DB不太有效
+    if(oppType==='maniac')return {range:'very_wide',foldToDB:20}; // maniac不弃牌
+    if(oppType==='calling_station')return {range:'any_pair',foldToDB:10}; // 几乎不弃
+    if(oppType==='fish')return {range:'any_pair_draw',foldToDB:25};
+    return {range:'unknown',foldToDB:40};
+  },
+  // DB频率——综合手牌/牌面/对手/位置
+  calcFreq:function(hClass,bTexture,oppType,ip,turnCard){
+    var baseFreq=0;
+    var cat=bTexture.category||'dry';
+    
+    // 基础频率
+    if(hClass.name==='NUTS') baseFreq=95;
+    else if(hClass.name==='STRONG') baseFreq=cat==='dry'?80:cat==='wet'?70:75;
+    else if(hClass.name==='MEDIUM') baseFreq=cat==='dry'?40:cat==='wet'?15:25;
+    else if(hClass.name==='DRAW') baseFreq=ip?55:35; // 有位半诈唬多
+    else baseFreq=cat==='dry'?30:cat==='wet'?5:15; // AIR
+    
+    // 转牌牌面变化
+    var turnEval=this.turnCardEval(turnCard,bTexture);
+    if(turnEval==='good') baseFreq=Math.min(baseFreq+8,95);
+    if(turnEval==='bad') baseFreq=Math.max(baseFreq-12,5);
+    
+    // 对手翻牌响应——最关键因素
+    var oppResp=this.oppFlopResponse(oppType,bTexture);
+    if(oppResp.foldToDB>=60) baseFreq=Math.min(baseFreq+10,95); // 容易被打走
+    if(oppResp.foldToDB<=25) baseFreq=Math.max(baseFreq-15,5); // 几乎不弃
+    
+    // 位置
+    if(!ip) baseFreq=Math.round(baseFreq*0.8); // OOP更谨慎
+    
+    // 多人池
+    if(G.act>=3) baseFreq=Math.round(baseFreq*0.6); // 多人池DB少
+    
+    // SPR
+    var spr=calcSPR();
+    if(spr<4) baseFreq=Math.round(baseFreq*0.7); // 短码DB少
+    
+    return Math.max(5,Math.min(95,baseFreq));
+  },
+  // DB尺度——根据目的(价值/保护/诈唬)区分
+  calcSizing:function(hClass,bTexture,pot,oppType,ip){
+    var cat=bTexture.category||'dry';
+    var baseSize=0;
+    
+    if(hClass.name==='NUTS'){
+      // 坚果：根据对手类型——vs跟注站大注，vs紧牌小注引诱
+      if(oppType==='calling_station'||oppType==='fish') baseSize=0.75;
+      else if(oppType==='nit'||oppType==='tight') baseSize=0.45; // 小注引诱
+      else baseSize=0.60;
+    }else if(hClass.name==='STRONG'){
+      // 强牌：价值+保护
+      baseSize=cat==='dry'?0.50:cat==='wet'?0.65:0.55;
+    }else if(hClass.name==='MEDIUM'){
+      // 中等：控池小注
+      baseSize=0.35;
+    }else if(hClass.name==='DRAW'){
+      // 听牌半诈唬：给压力
+      baseSize=ip?0.55:0.45;
+    }else{
+      // AIR诈唬：尺度要能打走对手
+      // vs nit小注就行, vs others需要更大
+      if(oppType==='nit'||oppType==='tight') baseSize=0.40;
+      else baseSize=0.55;
+    }
+    
+    return Math.max(2,Math.round(pot*baseSize));
+  },
+  // Triple-barrel(河牌第三桶)快速评估
+  isTripleBarrelSpot:function(street,hClass,oppType,bTexture){
+    if(street!=='river')return false;
+    if(!ActionLine.didFlopCBet())return false;
+    // 简化：强牌/坚果可以三桶，AIR vs紧牌可以诈唬三桶
+    if(hClass.name==='NUTS'||hClass.name==='STRONG')return true;
+    if(hClass.name==='AIR'&&(oppType==='nit'||oppType==='tight')&&bTexture.wetness<=1)return true;
+    return false;
+  },
+  // 完整DB决策
+  decide:function(hClass,bTexture,street,scene,eq,pot,oppType,ip){
+    if(!this.isDBSpot(street,scene))return null;
+    
+    var freq=this.calcFreq(hClass,bTexture,oppType,ip,null);
+    var sizing=this.calcSizing(hClass,bTexture,pot,oppType,ip);
+    var shouldBarrel=Math.random()*100<freq;
+    
+    var reason='';
+    if(hClass.name==='NUTS'||hClass.name==='STRONG'){
+      reason='DB\u4ef7\u503c('+freq+'%)';
+    }else if(hClass.name==='DRAW'){
+      reason='DB\u534a\u8bc8\u543c('+freq+'%)';
+    }else if(hClass.name==='MEDIUM'){
+      reason='DB\u8584\u4ef7\u503c('+freq+'%)';
+    }else{
+      reason='DB\u8bc8\u543c('+freq+'%)';
+    }
+    
+    console.log('[DB\u7b56\u7565] '+hClass.name+' '+bTexture.category+' freq='+freq+'% sizing='+sizing+'BB \u2192 '+(shouldBarrel?'barrel':'check'));
+    
+    if(shouldBarrel){
+      return{a:'raise',v:sizing,r:reason,eq:eq,c:hClass.name==='AIR'?'l':hClass.name==='DRAW'?'m':'h',sizing:sizing};
+    }
+    return{a:'check',r:reason.replace(freq+'%','check'),eq:eq,c:'m'};
+  }
+};
+
 function postF(k){
   var h=G.hole;
   var hole=h.filter(function(c){return c;});
@@ -5145,142 +5281,6 @@ function postF(k){
         var bluffSizing2=Math.round(pot*0.55);
         var exploitBluff2=applyExploit(eq,'raise',G.opp,{pot:pot});
         return{a:'raise',v:bluffSizing2,r:'河牌bluff('+bluffFreq+'%)',eq:exploitBluff2.eq,c:'l',sizing:bluffSizing2,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-
-// V2.9.105: Double-barrel精细化策略——翻牌C-bet后转牌决策
-var DBStrategy={
-  // 是否是Double-barrel场景
-  isDBSpot:function(street,scene){
-    if(street!=='turn')return false;
-    if(scene!=='check')return false; // 对手过牌给我们行动权
-    if(!ActionLine.didFlopCBet())return false; // 没翻牌c-bet不算DB
-    return true;
-  },
-  // 转牌牌面变化评估——转牌是否改善了我们的范围/恶化了对手范围
-  turnCardEval:function(turnCard,bTexture){
-    if(!turnCard)return 'neutral';
-    var r=turnCard.rank||turnCard;
-    var rv={A:12,K:11,Q:10,J:9,T:8,9:7,8:6,7:5,6:4,5:3,4:2,3:1,2:0};
-    var v=rv[r]||0;
-    // 高牌(A/K/Q)通常改善PFR范围
-    if(v>=10)return 'good';
-    // 中牌(J/T)中性
-    if(v>=8)return 'neutral';
-    // 低牌通常帮助对手的听牌
-    if(bTexture.wetness>=2)return 'bad'; // 湿面低牌完成听牌
-    return 'neutral';
-  },
-  // 对手翻牌响应推断——对手跟了翻牌C-bet意味着什么
-  oppFlopResponse:function(oppType,bTexture){
-    // 对手跟了flop c-bet → 范围里有something
-    // 不同对手类型跟注范围不同
-    if(oppType==='nit')return {range:'strong',foldToDB:70}; // nit跟了=强牌，但DB能打走弱强牌
-    if(oppType==='tight')return {range:'medium_strong',foldToDB:55};
-    if(oppType==='tag')return {range:'medium',foldToDB:45};
-    if(oppType==='lag')return {range:'wide',foldToDB:35}; // lag跟flop很宽，DB不太有效
-    if(oppType==='maniac')return {range:'very_wide',foldToDB:20}; // maniac不弃牌
-    if(oppType==='calling_station')return {range:'any_pair',foldToDB:10}; // 几乎不弃
-    if(oppType==='fish')return {range:'any_pair_draw',foldToDB:25};
-    return {range:'unknown',foldToDB:40};
-  },
-  // DB频率——综合手牌/牌面/对手/位置
-  calcFreq:function(hClass,bTexture,oppType,ip,turnCard){
-    var baseFreq=0;
-    var cat=bTexture.category||'dry';
-    
-    // 基础频率
-    if(hClass.name==='NUTS') baseFreq=95;
-    else if(hClass.name==='STRONG') baseFreq=cat==='dry'?80:cat==='wet'?70:75;
-    else if(hClass.name==='MEDIUM') baseFreq=cat==='dry'?40:cat==='wet'?15:25;
-    else if(hClass.name==='DRAW') baseFreq=ip?55:35; // 有位半诈唬多
-    else baseFreq=cat==='dry'?30:cat==='wet'?5:15; // AIR
-    
-    // 转牌牌面变化
-    var turnEval=this.turnCardEval(turnCard,bTexture);
-    if(turnEval==='good') baseFreq=Math.min(baseFreq+8,95);
-    if(turnEval==='bad') baseFreq=Math.max(baseFreq-12,5);
-    
-    // 对手翻牌响应——最关键因素
-    var oppResp=this.oppFlopResponse(oppType,bTexture);
-    if(oppResp.foldToDB>=60) baseFreq=Math.min(baseFreq+10,95); // 容易被打走
-    if(oppResp.foldToDB<=25) baseFreq=Math.max(baseFreq-15,5); // 几乎不弃
-    
-    // 位置
-    if(!ip) baseFreq=Math.round(baseFreq*0.8); // OOP更谨慎
-    
-    // 多人池
-    if(G.act>=3) baseFreq=Math.round(baseFreq*0.6); // 多人池DB少
-    
-    // SPR
-    var spr=calcSPR();
-    if(spr<4) baseFreq=Math.round(baseFreq*0.7); // 短码DB少
-    
-    return Math.max(5,Math.min(95,baseFreq));
-  },
-  // DB尺度——根据目的(价值/保护/诈唬)区分
-  calcSizing:function(hClass,bTexture,pot,oppType,ip){
-    var cat=bTexture.category||'dry';
-    var baseSize=0;
-    
-    if(hClass.name==='NUTS'){
-      // 坚果：根据对手类型——vs跟注站大注，vs紧牌小注引诱
-      if(oppType==='calling_station'||oppType==='fish') baseSize=0.75;
-      else if(oppType==='nit'||oppType==='tight') baseSize=0.45; // 小注引诱
-      else baseSize=0.60;
-    }else if(hClass.name==='STRONG'){
-      // 强牌：价值+保护
-      baseSize=cat==='dry'?0.50:cat==='wet'?0.65:0.55;
-    }else if(hClass.name==='MEDIUM'){
-      // 中等：控池小注
-      baseSize=0.35;
-    }else if(hClass.name==='DRAW'){
-      // 听牌半诈唬：给压力
-      baseSize=ip?0.55:0.45;
-    }else{
-      // AIR诈唬：尺度要能打走对手
-      // vs nit小注就行, vs others需要更大
-      if(oppType==='nit'||oppType==='tight') baseSize=0.40;
-      else baseSize=0.55;
-    }
-    
-    return Math.max(2,Math.round(pot*baseSize));
-  },
-  // Triple-barrel(河牌第三桶)快速评估
-  isTripleBarrelSpot:function(street,hClass,oppType,bTexture){
-    if(street!=='river')return false;
-    if(!ActionLine.didFlopCBet())return false;
-    // 简化：强牌/坚果可以三桶，AIR vs紧牌可以诈唬三桶
-    if(hClass.name==='NUTS'||hClass.name==='STRONG')return true;
-    if(hClass.name==='AIR'&&(oppType==='nit'||oppType==='tight')&&bTexture.wetness<=1)return true;
-    return false;
-  },
-  // 完整DB决策
-  decide:function(hClass,bTexture,street,scene,eq,pot,oppType,ip){
-    if(!this.isDBSpot(street,scene))return null;
-    
-    var freq=this.calcFreq(hClass,bTexture,oppType,ip,null);
-    var sizing=this.calcSizing(hClass,bTexture,pot,oppType,ip);
-    var shouldBarrel=Math.random()*100<freq;
-    
-    var reason='';
-    if(hClass.name==='NUTS'||hClass.name==='STRONG'){
-      reason='DB\u4ef7\u503c('+freq+'%)';
-    }else if(hClass.name==='DRAW'){
-      reason='DB\u534a\u8bc8\u543c('+freq+'%)';
-    }else if(hClass.name==='MEDIUM'){
-      reason='DB\u8584\u4ef7\u503c('+freq+'%)';
-    }else{
-      reason='DB\u8bc8\u543c('+freq+'%)';
-    }
-    
-    console.log('[DB\u7b56\u7565] '+hClass.name+' '+bTexture.category+' freq='+freq+'% sizing='+sizing+'BB \u2192 '+(shouldBarrel?'barrel':'check'));
-    
-    if(shouldBarrel){
-      return{a:'raise',v:sizing,r:reason,eq:eq,c:hClass.name==='AIR'?'l':hClass.name==='DRAW'?'m':'h',sizing:sizing};
-    }
-    return{a:'check',r:reason.replace(freq+'%','check'),eq:eq,c:'m'};
-  }
-};
-
       }
     }
     // 河牌面对下注: STRONG/NUTS必跟, MEDIUM看赔率, DRAW/AIR必弃
@@ -5466,7 +5466,7 @@ var DBStrategy={
         return{a:'raise',v:_obResult.sizing,r:_obResult.reason,eq:exploitOB.eq,c:'h',sizing:_obResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
-        if(hClass.name==='NUTS'||hClass.name==='STRONG'){var exploitResult6b=applyExploit(eq,'raise',G.opp,{pot:pot});return{a:'raise',v:sizing,r:hClass.desc+'下注',eq:exploitResult6b.eq,c:'h',sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights},sizingOptions:getSizingOptions(eq,hClass.name,street,ip,G.opp,spr,bTexture,pot,bet)};}}if(eq>=cbetThresh){
+    if(eq>=cbetThresh){
       var exploitResult6=applyExploit(eq,'raise',G.opp,{pot:pot});
       return{a:'raise',v:sizing,r:'胜率'+eq.toFixed(0)+'%'+boardInfo,eq:exploitResult6.eq,c:'h',sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,evs:compareEVs(eq,pot,0,sizing),bTexture:bTexture,io:io,exploit:exploitResult6.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -5529,7 +5529,7 @@ var DBStrategy={
         return{a:'call',r:_crDec.reason,eq:exploitCRC.eq,c:'h',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
-    var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name)+(tiltInfo.tilt?(tiltInfo.adjustments.raiseThre
+    var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name)+(tiltInfo.tilt?(tiltInfo.adjustments.raiseThreshAdj||0):0)+(ceResult.detected?(ceResult.adjustments.raiseThreshAdj||0):0);
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
     if((G.opp==='maniac'||G.opp==='lag')&&_effectiveBet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
     // V2.9.35: outs跟注追需看下注大小,大注(>2/3池)不追弱听牌,超池(>1x)只追组合听牌
