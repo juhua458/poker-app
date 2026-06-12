@@ -115,7 +115,7 @@ class ScreenOptService : AccessibilityService() {
                             if (softwareBitmap != null) {
                                 // 4. 压缩为JPEG
                                 val stream = ByteArrayOutputStream()
-                                softwareBitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+                                softwareBitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
                                 val jpegBytes = stream.toByteArray()
                                 softwareBitmap.recycle()
 

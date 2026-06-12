@@ -89,6 +89,7 @@ class FloatingService : Service() {
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
     private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
+    private var _strategyTimeoutRunnable: Runnable? = null  // V2.9.124: 策略超时定时器引用
     private var _lastStrategyAdvice = ""   // V2.9.113: 最后策略结果
     private val pendingJsCalls = mutableListOf<String>()
     // V2.9.114: WebViewAssetLoader——Google官方推荐的本地HTML加载方案
@@ -119,6 +120,28 @@ class FloatingService : Service() {
         if (intent?.action == "STOP") {
             stopSelf()
             return START_NOT_STICKY
+        }
+        // V2.9.124: 处理START action——系统杀后台后重启走这里而非onCreate
+        // 如果窗口/悬浮球未创建，必须重新初始化，否则策略引擎链路断裂
+        if (floatingView == null || floatingBall == null) {
+            Log.i("FloatingService", "onStartCommand: window/ball null, re-initializing")
+            try {
+                showFloatingWindow()
+                showFloatingBall()
+            } catch (e: Exception) {
+                Log.e("FloatingService", "onStartCommand re-init failed", e)
+            }
+        }
+        // 确保前台服务通知存在
+        try {
+            val notification = createNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e("FloatingService", "onStartCommand startForeground failed", e)
         }
         return START_STICKY
     }
@@ -414,7 +437,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.123"
+            text = "青云 v2.9.124"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -578,7 +601,7 @@ class FloatingService : Service() {
                     }
                 }
                 // V2.9.114: 验证策略引擎是否真的加载了
-                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.123] ✅策略引擎就绪')}else{console.log('[V2.9.123] ❌策略引擎未加载！')}", null)
+                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.124] ✅策略引擎就绪')}else{console.log('[V2.9.124] ❌策略引擎未加载！')}", null)
             }
         }
         wv.webChromeClient = WebChromeClient()
@@ -623,6 +646,9 @@ class FloatingService : Service() {
                     // V2.9.113: 标记策略已回调
                     _lastStrategyAdvice = advice
                     _strategyReceived = true
+                    // V2.9.124: 策略正常返回→取消超时定时器，防止正常建议被覆盖
+                    _strategyTimeoutRunnable?.let { handler.removeCallbacks(it) }
+                    _strategyTimeoutRunnable = null
                     if (advice.isNotEmpty()) {
                         tvRecResult?.text = advice  // V2.9.64: 只显示最新建议,不累积
                         tvRecResult?.visibility = View.VISIBLE
@@ -1192,23 +1218,23 @@ class FloatingService : Service() {
                     } else {
                     val resultJson = VisionApiClient.toJson(result)
                     Log.d(TAG, "★ resultJson长度=${resultJson.length}, webViewReady=$webViewReady")
-                    // V2.9.113: 超时保险——3秒检查策略是否已回调，5秒强制恢复
+                    // V2.9.124: 策略超时保险——8秒超时+灰色等待（非红色FOLD）
+                    // 7000+行JS首次加载+MC模拟2-3秒，5秒根本不够
                     _strategyReceived = false
-                    handler.postDelayed({
+                    // 先取消之前的超时定时器（防止重复截图时叠加）
+                    _strategyTimeoutRunnable?.let { handler.removeCallbacks(it) }
+                    val timeoutRunnable = Runnable {
                         if (!_strategyReceived) {
-                            Log.w(TAG, "★ 策略引擎3s未回调")
+                            Log.w(TAG, "★ 策略引擎超时8s，标记等待状态（非FOLD）")
+                            updateBallAdvice("COLOR:CHECK|SIGNAL:TIMEOUT|EQ:0|REASON:策略计算中")
+                            updateAdviceNotification("⏳ 策略计算中", "8s未回调→等待而非FOLD")
                         }
-                    }, 3000)
-                    handler.postDelayed({
-                        if (floatingBall?.text == "⏳" || !_strategyReceived) {
-                            Log.w(TAG, "★ 策略引擎超时5s，强制恢复悬浮球")
-                            updateBallAdvice("COLOR:FOLD|SIGNAL:ERROR")
-                            updateAdviceNotification("⚠️ 策略超时", "5s未回调→强制FOLD")
-                        }
-                    }, 5000)
+                    }
+                    _strategyTimeoutRunnable = timeoutRunnable
+                    handler.postDelayed(timeoutRunnable, 8000)
                     handler.post {
                         // V2.9.113: 先检测WebView是否就绪，再调onVisionResult
-                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.123] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.123] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
+                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.124] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.124] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
@@ -1362,7 +1388,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.123\"")
+                append("{\"version\":\"2.9.124\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")

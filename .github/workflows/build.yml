@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.123
-        name: "V2.9.123 Ante修复+KK保护——Ante单位bug修复+翻前AA/KK/QQ绝不弃牌"
-        body: "V2.9.123: Ante感知单位bug修复(BB/chips→chips/chips) + 翻前AA/KK/QQ绝对保护 + 诊断日志增强"
+        tag_name: v2.9.124
+        name: "V2.9.124 全链路修复——启动竞态+超时8s+overlay权限+截图质量"
+        body: "V2.9.124: 全链路修复——启动竞态+超时8s+overlay权限+截图质量 — onStartCommand重启保护+超时8s灰色等待+overlay统一检查+截图quality=85"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
