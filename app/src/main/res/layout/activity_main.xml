@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.124 · 全链路修复——启动竞态+超时8s+overlay权限+截图质量"
+        android:text="V2.9.125 · 策略引擎修复——FourBetResponse未定义+翻前决策链路恢复"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />

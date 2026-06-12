@@ -199,7 +199,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "请先启动截屏", Toast.LENGTH_SHORT).show()
             return
         }
-        // V2.9.124: 隐身模式也需要overlay权限（1x1像素覆盖层仍需TYPE_APPLICATION_OVERLAY）
+        // V2.9.125: 隐身模式也需要overlay权限（1x1像素覆盖层仍需TYPE_APPLICATION_OVERLAY）
         val stealthMode = floatingPrefs?.getBoolean("stealth_mode", false) ?: false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             val hint = if (stealthMode) "隐身模式也需要「显示在其他应用上层」权限" else "需要授权「显示在其他应用上层」"

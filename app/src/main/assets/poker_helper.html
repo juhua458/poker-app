@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.124 · 全链路修复——启动竞态+超时8s+overlay权限+截图质量</title>
+<title>青云 v2.9.125 · 策略引擎修复——FourBetResponse未定义+翻前决策链路恢复</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.124',
+    version:'2.9.125',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.124',
+  CURRENT_VERSION:'2.9.125',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2755,6 +2755,34 @@ var FOURBET_RESPONSE={
   fivebet_shove:['AA','KK','QQ','AKs','AKo'],     // 5bet全下
   fourbet_call:['JJ','TT','99','AQs','AQo'],       // 4bet-call
   fourbet_fold:['A2s','A3s','A4s','A5s','76s','65s','54s','43s']  // 4bet-fold（诈唬被推回）
+};
+// V2.9.125: 补全FourBetResponse对象——驼峰命名版，preF()内部调用
+// 翻前open场景（没人加注）永远不面对5bet，默认返回false短路
+var FourBetResponse={
+  isFacing5bet:function(){
+    try{
+      if(typeof G==='undefined')return false;
+      if(!G.buttons||G.buttons.length===0)return false;
+      // 真正的5bet场景：5bet只可能出现在preflop + 多轮加注
+      // 简化判断：buttons中含"5-bet"或"再加注"且bet很大(>4BB)
+      var hasReraise=G.buttons.some(function(b){return b.indexOf('再加注')>=0;});
+      return G.phase==='pre' && hasReraise && (G.bet||0)>=8;
+    }catch(e){return false;}
+  },
+  decide:function(k,eq,oppType,pot,bet,stk){
+    try{
+      if(FOURBET_RESPONSE.fivebet_shove.indexOf(k)!==-1){
+        return{action:'raise',c:'h',reason:'5bet-shove: '+k+'坚果级别'};
+      }
+      if(FOURBET_RESPONSE.fourbet_call.indexOf(k)!==-1){
+        return{action:'call',c:'m',reason:'4bet-call: '+k+'边缘跟注'};
+      }
+      if(FOURBET_RESPONSE.fourbet_fold.indexOf(k)!==-1){
+        return{action:'fold',c:'l',reason:'4bet-fold: '+k+'诈唬被推回'};
+      }
+      return{action:'fold',c:'l',reason:'5bet默认弃牌'};
+    }catch(e){return{action:'fold',c:'l',reason:'4bet决策异常→弃牌'};}
+  }
 };
 
 // V2.9.105: 按位置+对手角色判断是否该3bet

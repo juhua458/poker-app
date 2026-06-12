@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.124
-        name: "V2.9.124 全链路修复——启动竞态+超时8s+overlay权限+截图质量"
-        body: "V2.9.124: 全链路修复——启动竞态+超时8s+overlay权限+截图质量 — onStartCommand重启保护+超时8s灰色等待+overlay统一检查+截图quality=85"
+        tag_name: v2.9.125
+        name: "V2.9.125 策略引擎修复——FourBetResponse未定义+翻前决策链路恢复"
+        body: "V2.9.125: 策略引擎修复——FourBetResponse对象补全+翻前决策链路恢复（KK/AA/QQ/AK全部正确返回raise+绿色悬浮球）"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
