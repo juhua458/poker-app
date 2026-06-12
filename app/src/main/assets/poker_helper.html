@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.119 · 翻后策略放宽</title>
+<title>青云 v2.9.120 · 位置以小博大+理智弃牌</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.119',
+    version:'2.9.120',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.119',
+  CURRENT_VERSION:'2.9.120',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4717,7 +4717,7 @@ function preF(k){
   var spr=calcSPR();
   var sprAdvice=getSPRAdvice(spr);
   var eq=eQ(k);
-  // V2.9.119: Speculative hand implied odds bonus
+  // V2.9.120: Speculative hand implied odds bonus
   if(k.length===2&&k[0]===k[1]&&'23456'.indexOf(k[0])>=0)eq+=8; // Small pairs: set mining
   if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined&&Math.abs(_r1-_r2)===1&&_r2<=8)eq+=5;if(_sr[0]==='A'&&_r2!==undefined&&_r2<=3)eq+=3;} // SC+suited ace low
   var pa=pA(p);
@@ -5149,7 +5149,7 @@ function postF(k){
   var _exactEq=sim.exact||false;
   var _exactCombos=sim.combos||0;
   // V2.9.46: MC虚高校准(基于实际牌谱对比,非经验值)
-  // V2.9.119: 放宽DRAW折扣——小听牌不该一律重打
+  // V2.9.120: 放宽DRAW折扣——小听牌不该一律重打
   // DRAW折扣: 组合听牌0.82, 强听8+outs 0.78, 中听4-7outs 0.72, 弱听<4outs 0.65
   if(hClass.name==='DRAW'){
     var drawDiscount=hClass.outs>=15?0.92:hClass.outs>=12?0.88:hClass.outs>=8?0.85:hClass.outs>=4?0.80:0.72;
@@ -5161,6 +5161,15 @@ function postF(k){
     var medDiscount=hClass.desc.indexOf('顶对')>=0?0.85:hClass.desc.indexOf('中对')>=0?0.80:0.75;
     eq=eq*medDiscount;
   }
+  // V2.9.120: 面对大牌保持理智——大注/超池/连续下注收紧
+  if(betPotRatio>=1.0&&hClass.name==='DRAW'){
+    eq=eq*0.85; // 超池下注时听牌额外折扣——对手极化(强或诈唬),但我们是小听牌不该追
+    console.log('[V2.9.120理智] 超池下注DRAW额外折扣*0.85 eq→'+eq.toFixed(1));
+  }
+  if(betPotRatio>=0.75&&hClass.name==='MEDIUM'&&hClass.desc.indexOf('底对')>=0){
+    eq=eq*0.80; // 大注面对底对额外折扣——对手不会用大注打空气
+    console.log('[V2.9.120理智] 大注+底对额外折扣*0.80 eq→'+eq.toFixed(1));
+  }
   // V2.9.47: 翻后eq衰减——2人桌不衰减,3人桌微调
   // 翻前act=桌位人数, 翻后act可能=桌位但实际进池人数更少
   // 2人桌(HU): opponents=1, 不衰减; 3-5人: 用act; 6人+: 近似
@@ -5169,7 +5178,16 @@ function postF(k){
   else if(G.act<=5)opponents=G.act;
   else opponents=Math.max(2,Math.min(G.act, Math.ceil(G.act*0.5)+1));
   eq=multiPlayerEquity(eq,opponents);
-  if(ip)eq+=3;else eq-=2;
+  // V2.9.120: 位置×手牌类型交互加成
+  if(ip){
+    eq+=5; // IP基础+5(原+3)
+    if(hClass.name==="DRAW")eq+=3; // IP听牌: 位置优势大，能免费看牌
+    if(hClass.name==="MEDIUM")eq+=2; // IP中对: 位置控制底池
+  }else{
+    eq-=3; // OOP基础-3(原-2)
+    if(hClass.name==="DRAW")eq-=2; // OOP听牌: 实现率低
+    if(hClass.name==="MEDIUM")eq-=1; // OOP中对: 难控制
+  }
   // V2.9.30: 已用非线性衰减替代旧的线性扣减，不再额外减eq
   if(bTexture.wetness>=2)eq-=2;else if(bTexture.wetness<0)eq+=2;
   if(bTexture.rangeAdv==='hero')eq+=2;else if(bTexture.rangeAdv==='villain')eq-=2;
@@ -5368,8 +5386,14 @@ function postF(k){
     return{a:'fold',r:'空气牌不追',eq:exploitAir.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(outs>0&&io&&hClass.name!=="NUTS"&&hClass.name!=="STRONG"){
+    // V2.9.120: 对手连续下注收紧——flop+turn都下注=范围强,听牌需8+outs才追
+    var _oppBarreled=street==='turn'&&(_prevOppAction==='bet-call'||_prevOppAction==='donk')&&bet>0;
+    if(_oppBarreled&&outs<8){
+      Multiway.log('Draw','对手连续下注outs='+outs+'<8→不追连续下注');
+      // 跳过draw跟注，走后面通用判断
+    } else
     // V2.9.105: 多人池听牌(原只追强听牌)
-    // V2.9.119: 放宽minOuts 8→6, nutOnly→false, 隐含赔率1.2→1.0
+    // V2.9.120: 放宽minOuts 8→6, nutOnly→false, 隐含赔率1.2→1.0
     var _mwDraw=Multiway.drawAdj();
     if(outs<_mwDraw.minOuts){
       Multiway.log('Draw','outs='+outs+'<'+_mwDraw.minOuts+'→不追');
@@ -5505,6 +5529,12 @@ function postF(k){
         return{a:'fold',r:_bcDec.reason,eq:eq,c:'l',po:Math.round(bet>0?bet/(pot+bet*2)*100:50),scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
+    // V2.9.120: 面对reraise/check-raise保持理智——MEDIUM/DRAW弱手弃牌
+    var _isBigRaise=betPotRatio>=0.5&&(scene==='reraise'||(G._crDetected));
+    if(_isBigRaise&&hClass.name==='MEDIUM'&&hClass.desc.indexOf('顶对')<0){
+      var exploitRR=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+      return{a:'fold',r:'面对加注'+hClass.desc+'理智弃',eq:exploitRR.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
     // V2.9.105: Check-raise——慢打后对手下注的CR决策
     if(G._slowplayed&&(hClass.name==='NUTS'||hClass.name==='STRONG')&&bet>0){
       var _betPotRatio=bet/(pot+bet);
@@ -5534,6 +5564,12 @@ function postF(k){
     var sprCallThresh=SPRZone.callThreshold(spr,nq+3,ip,hClass.name,street)+(tiltInfo.tilt?(tiltInfo.adjustments.callThreshAdj||0):0)+(ceResult.detected?(ceResult.adjustments.callThreshAdj||0):0);if(eq>=sprCallThresh){
       var exploitResult11=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
       return{a:'call',r:'胜率够跟',eq:exploitResult11.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult11.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+    }
+    // V2.9.120: IP Float策略——有位置+投机牌+接近赔率→float看下一街
+    var _isFloat=ip&&street!=='river'&&eq>=nq-5&&eq<nq+3&&betLevel!=='large'&&betPotRatio<0.75;
+    if(_isFloat&&(hClass.name==='DRAW'||(hClass.name==='MEDIUM'&&hClass.desc.indexOf('底对')<0))){
+      var exploitResultF=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      return{a:'call',r:'IP float('+(hClass.name==='DRAW'?hClass.outs+'outs':hClass.desc)+')',eq:exploitResultF.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResultF.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.35: MEDIUM手牌位好接近也不追(中对太松), 需要DRAW或STRONG才够
     if(eq>=nq-3&&ip&&hClass.name!=='MEDIUM'){
