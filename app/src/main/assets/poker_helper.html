@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.127 · 顶级保护扩展(JJ/TT/AK)+V2.9.125/126保护100%保留</title>
+<title>青云 v2.9.128 · 按池人数自适应(5-max多人池剥削落地)+V2.9.125/126/127保护100%保留</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.127',
+    version:'2.9.128',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.127',
+  CURRENT_VERSION:'2.9.128',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -7270,11 +7270,35 @@ var PoolStrategyMatrix = {
         return {action:'fold', reason:'3BP空气→弃', colorKey:'FOLD'};
       }
 
-      // ===== MP: 多人池（3+人） =====
+      // ===== MP: 多人池（3+人）=====
+      // V2.9.128: 按G.act细分剥削规则——5+人池0%bluff,4人池10%bluff,3人池20%bluff
+      //           这是"GG 5-max 玩家池 4 个剥削点"的核心数字（不抄别人的，是玩家池特征推算）
       if(poolType==='MP'){
+        var _act=G.act||3;
+        // 5+人池（5-max核心剥削场景）：0% bluff, 25% pot Cbet, 河牌绝不bluff
+        if(_act>=5){
+          if(thickness==='NUTS') return {action:'raise', sizing:'25%pot', reason:'5+人池坚果级→25%pot重锤', colorKey:'RAISE_BIG'};
+          if(thickness==='THICK') return {action:'raise', sizing:'25%pot', reason:'5+人池厚价值→25%pot', colorKey:'RAISE'};
+          if(thickness==='THIN') return {action:'check', reason:'5+人池薄价值→check(0%bluff场景)', colorKey:'CHECK'};
+          return {action:'check', reason:'5+人池空气/听牌→check(0%bluff)', colorKey:'CHECK'};
+        }
+        // 4人池：10% bluff, 25% pot Cbet
+        if(_act===4){
+          if(thickness==='NUTS') return {action:'raise', sizing:'33%pot', reason:'4人池坚果级→33%pot重锤', colorKey:'RAISE_BIG'};
+          if(thickness==='THICK') return {action:'raise', sizing:'25%pot', reason:'4人池厚价值→25%pot', colorKey:'RAISE'};
+          if(thickness==='THIN') return {action:'raise', sizing:'25%pot', reason:'4人池薄价值→25%pot薄bluff(10%bluff场景)', colorKey:'RAISE'};
+          return {action:'check', reason:'4人池空气→check', colorKey:'CHECK'};
+        }
+        // 3人池：20% bluff, 33% pot Cbet
+        if(_act===3){
+          if(thickness==='NUTS') return {action:'raise', sizing:'66%pot', reason:'3人池坚果级→66%pot重锤', colorKey:'RAISE_BIG'};
+          if(thickness==='THICK') return {action:'raise', sizing:'33%pot', reason:'3人池厚价值→33%pot', colorKey:'RAISE'};
+          if(thickness==='THIN') return {action:'raise', sizing:'25%pot', reason:'3人池薄价值→25%pot薄bluff(20%bluff场景)', colorKey:'RAISE'};
+          return {action:'check', reason:'3人池空气→check', colorKey:'CHECK'};
+        }
+        // 兜底（act<3或异常）
         if(thickness==='NUTS') return {action:'raise', sizing:'80%pot', reason:'MP坚果级→重锤', colorKey:'RAISE_BIG'};
         if(thickness==='THICK') return {action:'call', sizing:'pot', reason:'MP厚价值→跟注', colorKey:'CALL'};
-        // 多人池薄价值/空气/听牌全check
         if(thickness==='THIN') return {action:'check', reason:'MP薄价值→check down', colorKey:'CHECK'};
         return {action:'check', reason:'MP空气→check', colorKey:'CHECK'};
       }
@@ -7335,9 +7359,19 @@ var HeroCallGate = {
         return {allow:true, reason:'翻前无门控', hasShowdownValue:true};
       }
 
-      // 多人池不抓诈
+      // V2.9.128: 多人池按G.act细分hero call——5+/4人池禁止,3人池保留V2.9.126原行为
+      // 原理: 5+人池对手河牌bluff极少(0%bluff场景)→河牌被raise=99%是nuts,直接弃
+      //       4人池10%bluff场景→禁止hero call(避免被薄bluff抓鸡)
+      //       3人池20%bluff场景→继续走showdown value+赔率检查
       if(poolType==='MP'){
-        return {allow:false, reason:'多人池禁止hero call', hasShowdownValue:false};
+        var _hcAct=G.act||3;
+        if(_hcAct>=5){
+          return {allow:false, reason:'5+人池禁止hero call(0%bluff场景)', hasShowdownValue:false};
+        }
+        if(_hcAct===4){
+          return {allow:false, reason:'4人池禁止hero call(10%bluff场景)', hasShowdownValue:false};
+        }
+        // _hcAct===3时继续走下面的showdown value+赔率检查(V2.9.126原行为)
       }
 
       // 必须有showdown value

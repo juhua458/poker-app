@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.127
-        name: "V2.9.127 翻前顶级保护扩展——JJ/TT/AK绝不弃牌"
-        body: "V2.9.127: 翻前顶级保护扩展。原V2.9.123只覆盖AA/KK/QQ，5-max实战中JJ/TT/AK被EV护栏/对手偏移误降为fold，本版扩展到JJ/TT/AK。AA/KK/QQ/JJ/TT翻前→RAISE_BIG(青绿)，AKs/AKo翻前→RAISE(绿)。V2.9.125/126所有保护点(EV护栏/纠错/池驱反fold)100%保留。E2E 8/8 PASS。"
+        tag_name: v2.9.128
+        name: "V2.9.128 按池人数自适应——5-max 多人池剥削规则落地"
+        body: "V2.9.128: 按池人数自适应（5-max 多人池剥削规则落地）。原V2.9.126池子驱动框架是矩阵空架，本版按G.act（实际池人数）填入具体剥削规则：5+人池0%bluff+25%pot Cbet+河牌绝不bluff+被raise直接弃；4人池10%bluff+25%pot Cbet+禁止hero call；3人池20%bluff+33%pot Cbet+保留hero call。HeroCallGate按G.act细分（5+/4人池禁止，3人池保留V2.9.126原行为）。V2.9.123/125/126/127所有保护点100%保留。E2E 10/10 PASS。"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

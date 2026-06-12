@@ -437,7 +437,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.127"
+            text = "青云 v2.9.128"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -1388,7 +1388,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.127\"")
+                append("{\"version\":\"2.9.128\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")
