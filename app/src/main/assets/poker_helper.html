@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.126 · 池子驱动策略引擎——什么池子打什么牌(4模块+反fold接入decide)</title>
+<title>青云 v2.9.127 · 顶级保护扩展(JJ/TT/AK)+V2.9.125/126保护100%保留</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.125',
+    version:'2.9.127',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.125',
+  CURRENT_VERSION:'2.9.127',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4639,17 +4639,25 @@ function decide(){
       result._colorInfo.colorKey='FOLD';
       result._colorInfo.color=ColorStrategy.COLORS.FOLD;
     }
-    // V2.9.123: ★ 翻前顶级手牌绝对保护 ★
-    // AA/KK/QQ翻前绝不弃牌——任何护栏/纠错都不能把它们改成fold
+    // V2.9.123+: ★ 翻前顶级手牌绝对保护 ★
+    // AA/KK/QQ/JJ/TT/AK翻前绝不弃牌——任何护栏/纠错都不能把它们改成fold
+    // V2.9.127: 扩展至JJ/TT/AK (原V2.9.123只覆盖AA/KK/QQ, 5-max实战中JJ/TT/AK被EV护栏/对手偏移误降fold)
     var _cc=G.comm.filter(function(c){return c&&c.rank;}).length;
     if(_cc===0 && result.a==='fold'){
       var _pk=k.length===2&&k[0]===k[1]?k:'';
-      if(_pk==='AA'||_pk==='KK'||_pk==='QQ'){
+      if(_pk==='AA'||_pk==='KK'||_pk==='QQ'||_pk==='JJ'||_pk==='TT'){
         console.log('[顶级保护] '+_pk+'翻前被降为fold→强制raise');
         result.a='raise';
         result.r=_pk+'翻前绝不弃牌!';
         result._colorInfo.colorKey='RAISE_BIG';
         result._colorInfo.color=ColorStrategy.COLORS.RAISE_BIG;
+      }else if(k==='AKs'||k==='AKo'){
+        // V2.9.127: AK顶级保护——vs 3bet不一定超池,用RAISE(绿)而非RAISE_BIG(青绿)
+        console.log('[顶级保护] '+k+'翻前被降为fold→强制raise');
+        result.a='raise';
+        result.r=k+'翻前绝不弃牌!';
+        result._colorInfo.colorKey='RAISE';
+        result._colorInfo.color=ColorStrategy.COLORS.RAISE;
       }
     }
     // V2.9.126: ★ 池子驱动反fold——只解决"什么都弃牌"痛点 ★
