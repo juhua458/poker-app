@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.129 · 自己Tilt早期预警(4档状态机+命名空间隔离)+V2.9.128/127/126/125保护100%保留</title>
+<title>青云 v2.9.130 · 手牌历史自动归类(4维复盘:结果+牌力+决策+关键街)+V2.9.129/128/127/126/125保护100%保留</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -371,12 +371,19 @@ body.speed-mode .rec-label{font-size:10px}
 <button class="clr" style="background:#3a1a1a;font-size:9px;padding:3px 6px;display:none" id="revertBtn" onclick="revertLocal()">↩恢复本地</button>
 <button class="clr" style="background:#1a3a2c;font-size:9px;padding:3px 6px" id="exportBtn" onclick="exportLog()">📤导出日志</button>
 <button class="clr" style="background:#1a2a3a;font-size:9px;padding:3px 6px" id="statsBtn" onclick="showStats()">📊统计</button>
+<button class="clr" style="background:#3a2a1a;font-size:9px;padding:3px 6px" id="reviewBtn" onclick="openReview()">📊复盘</button>
 <div class="cam-mini"><button class="cam-mini-btn" id="camMiniBtn" onclick="toggleCamModal()">📷</button></div>
 <div class="modal" id="modal">
   <div class="mt" id="mTitle">选牌</div>
   <div class="ms-row" id="mSuit"></div>
   <div class="m-grid" id="mGrid"></div>
   <button class="m-cl" onclick="closeM()">关闭</button>
+</div>
+<!-- V2.9.130: 复盘弹窗 -->
+<div class="modal" id="reviewModal" style="display:none;z-index:9999;background:rgba(0,0,0,0.85);padding:10px;max-height:95vh;overflow-y:auto">
+  <div class="mt" style="background:linear-gradient(135deg,#1a237e,#0d47a1);color:#fff">📊 手牌复盘（V2.9.130）</div>
+  <div id="reviewContent" style="padding:6px 0;color:#fff"></div>
+  <button class="m-cl" onclick="closeReview()">关闭</button>
 </div>
 <div class="stats-modal" id="statsModal">
   <div class="stats-title">📊 Session统计</div>
@@ -943,6 +950,8 @@ var HandHistory={
     SessionStats.recordHand(rec);
     // V2.9.129: 自动推送结果到SelfTiltGuard（自己Tilt预警）
     if(typeof SelfTiltGuard!=='undefined')SelfTiltGuard.recordHand(rec);
+    // V2.9.130: 自动归类到HandClassifier（复盘金矿，不动result.r/悬浮球/通知栏）
+    if(typeof HandClassifier!=='undefined')HandClassifier.classify(rec);
   },
   getAll:function(){return this.records;},
   clear:function(){this.records=[];try{localStorage.removeItem(this.STORAGE_KEY);}catch(e){}}
@@ -1001,6 +1010,8 @@ var SessionStats={
     this.save();
     // V2.9.129: 重置SelfTiltGuard（保持session内一致性）
     if(typeof SelfTiltGuard!=='undefined')SelfTiltGuard.reset();
+    // V2.9.130: 重置HandClassifier（归类数据与session同步重置）
+    if(typeof HandClassifier!=='undefined')HandClassifier.reset();
   },
   recordHand:function(rec){
     var d=this.data;
@@ -2428,6 +2439,249 @@ var SelfTiltGuard={
       prefix:L===3?'[🔥TILT]':(L===2?'[⚠️DANGER]':''),
       notify:icons[L]+(evalResult.summary?' ('+evalResult.summary+')':''),
       summary:evalResult.summary
+    };
+  }
+};
+
+
+// ===== V2.9.130: HandClassifier — 手牌历史自动归类（复盘金矿）=====
+// 4维归类: RESULT(结果) + TYPE(牌力) + DECISION(决策质量) + STREET(关键街)
+// 命名空间隔离: 不动 result.r / 通知栏 / 悬浮球 / V2.9.129 SelfTiltGuard
+// 数据存内存, 一次 session 累积, 与 HandHistory.recordHand 联动
+// API: init() / reset() / classify(rec) / getStats() / getTopWeakHands(n) / getMistakes() / getReviewData() / openReview() / closeReview()
+var HandClassifier={
+  STORAGE_KEY:'poker_v29130_classify',
+  // 归类桶
+  _b:null,
+  // 复盘提醒
+  REVIEW_HINT_EVERY:20,
+  _lastReviewHint:0,
+
+  init:function(){
+    this._b={
+      // 按 RESULT 分: WIN_BIG(>=+50BB) / WIN_SMALL / CHOP / LOSE_SMALL / LOSE_BIG(<=-30BB)
+      byResult:{WIN_BIG:0,WIN_SMALL:0,CHOP:0,LOSE_SMALL:0,LOSE_BIG:0,
+                bbBy:{WIN_BIG:0,WIN_SMALL:0,CHOP:0,LOSE_SMALL:0,LOSE_BIG:0}},
+      // 按 TYPE 分
+      byType:{PREMIUM:{n:0,bb:0},STRONG:{n:0,bb:0},MEDIUM:{n:0,bb:0},WEAK:{n:0,bb:0}},
+      // 按 DECISION 分
+      byDecision:{GOOD:{n:0,bb:0},OK:{n:0,bb:0},MISTAKE:{n:0,bb:0},BLUNDER:{n:0,bb:0}},
+      // 弱手聚合（手牌+动作→累计BB）
+      weak:{},
+      // MISTAKE 列表（最近20）
+      mistakes:[],
+      // 总手数
+      total:0
+    };
+    this._lastReviewHint=0;
+    try{
+      var d=localStorage.getItem(this.STORAGE_KEY);
+      if(d){
+        var saved=JSON.parse(d);
+        if(saved&&saved.total>=0){
+          this._b=saved;
+          this._lastReviewHint=saved._lastReviewHint||0;
+        }
+      }
+    }catch(e){}
+  },
+
+  save:function(){
+    try{
+      var data=Object.assign({},this._b);
+      data._lastReviewHint=this._lastReviewHint;
+      localStorage.setItem(this.STORAGE_KEY,JSON.stringify(data));
+    }catch(e){}
+  },
+
+  reset:function(){
+    try{localStorage.removeItem(this.STORAGE_KEY);}catch(e){}
+    this.init();
+    console.log('[HandClassifier] 已重置');
+  },
+
+  // 核心：归类一条 HandHistory 记录
+  classify:function(rec){
+    if(!rec)return null;
+    if(!this._b)this.init();
+    var B=this._b;
+
+    var result=this._classifyResult(rec);
+    var type=this._classifyType(rec);
+    var decision=this._classifyDecision(rec);
+    var street=this._classifyStreet(rec);
+    var bb=rec.bbResult||0;
+
+    B.total++;
+
+    // RESULT
+    B.byResult[result]++;
+    B.byResult.bbBy[result]+=bb;
+
+    // TYPE
+    B.byType[type].n++;
+    B.byType[type].bb+=bb;
+
+    // DECISION
+    B.byDecision[decision].n++;
+    B.byDecision[decision].bb+=bb;
+
+    // 弱手聚合: 优先用 hClass+action（hand字符串可能拼错或残缺）
+    var holeKey=(rec.hole&&rec.hole[0]&&rec.hole[1])
+      ?(rec.hole[0].charAt(0)+rec.hole[0].charAt(1)+rec.hole[1].charAt(0)+rec.hole[1].charAt(1))
+      :'?';
+    var wKey=holeKey+'|'+rec.action;
+    if(!B.weak[wKey])B.weak[wKey]={key:wKey,hole:holeKey,action:rec.action,n:0,bb:0};
+    B.weak[wKey].n++;
+    B.weak[wKey].bb+=bb;
+
+    // MISTAKE 入栈
+    if(decision==='MISTAKE'||decision==='BLUNDER'){
+      B.mistakes.push({
+        ts:rec.ts,hole:rec.hole,comm:rec.comm,
+        action:rec.action,reason:rec.reason,
+        bb:bb,hClass:rec.hClass,eq:rec.eq,
+        phase:rec.phase,decision:decision
+      });
+      if(B.mistakes.length>20)B.mistakes=B.mistakes.slice(-20);
+    }
+
+    // 复盘提醒
+    var hint=null;
+    if(this._lastReviewHint===0&&B.total>=this.REVIEW_HINT_EVERY){
+      this._lastReviewHint=B.total;
+      hint='📊 复盘可看 '+B.total+' 手归类';
+    }else if(this._lastReviewHint>0&&B.total-this._lastReviewHint>=this.REVIEW_HINT_EVERY){
+      this._lastReviewHint=B.total;
+      hint='📊 复盘可看 '+B.total+' 手归类';
+    }
+
+    this.save();
+    return{result:result,type:type,decision:decision,street:street,hint:hint};
+  },
+
+  // RESULT: 5 档
+  _classifyResult:function(rec){
+    var bb=rec.bbResult||0;
+    if(bb>=50)return'WIN_BIG';
+    if(bb>0)return'WIN_SMALL';
+    if(bb===0&&rec.action!=='fold')return'CHOP';
+    if(bb>-30)return'LOSE_SMALL';
+    return'LOSE_BIG';
+  },
+
+  // TYPE: 4 档
+  _classifyType:function(rec){
+    var hClass=rec.hClass||'';
+    // V2.9.127+: 顶级牌 EP/STRONG/STRAIGHT/FLUSH/FULLHOUSE/QUADS/STFLUSH
+    if(hClass.indexOf('EP')>=0||hClass==='STRAIGHT'||hClass==='FLUSH'||
+       hClass==='FULLHOUSE'||hClass==='QUADS'||hClass==='STFLUSH')return'PREMIUM';
+    if(hClass.indexOf('TP')>=0||hClass.indexOf('PAIR')>=0||
+       hClass.indexOf('DRAW')>=0||hClass.indexOf('MEDIUM')>=0||
+       hClass.indexOf('OESD')>=0||hClass.indexOf('GUT')>=0)return'STRONG';
+    if(hClass.indexOf('WEAK')>=0||hClass.indexOf('TRASH')>=0||
+       hClass.indexOf('AIR')>=0||hClass.indexOf('HIGH')>=0)return'WEAK';
+
+    // 回退：按手牌 rank 推断
+    if(rec.hole&&rec.hole[0]&&rec.hole[1]&&rec.hole[0].length>=2&&rec.hole[1].length>=2){
+      var ranks='AKQJT98765432';
+      var r1=rec.hole[0].charAt(0);
+      var r2=rec.hole[1].charAt(0);
+      var i1=ranks.indexOf(r1);
+      var i2=ranks.indexOf(r2);
+      if(i1<0||i2<0)return'MEDIUM';
+      var minI=Math.min(i1,i2);
+      var maxI=Math.max(i1,i2);
+      if(minI<=2)return'PREMIUM';  // AA/KK/QQ
+      if(minI<=4)return'STRONG';   // JJ/TT/99
+      if(minI<=7)return'MEDIUM';   // 88-44
+      return'WEAK';
+    }
+    return'MEDIUM';
+  },
+
+  // DECISION: 4 档
+  _classifyDecision:function(rec){
+    var action=rec.action;
+    var eq=rec.eq||0;
+    var hClass=rec.hClass||'';
+    var phase=rec.phase||'';
+    var bb=rec.bbResult||0;
+    var isStrong=hClass.indexOf('STRONG')>=0||hClass.indexOf('EP')>=0;
+
+    // === BLUNDER 1: 河牌 80%+ 胜率弃牌 ===
+    if(phase==='river'&&action==='fold'&&eq>=0.75)return'BLUNDER';
+    // === BLUNDER 2: 翻牌 90%+ 顶对弃牌 ===
+    if(phase==='flop'&&action==='fold'&&eq>=0.85&&hClass.indexOf('TP')>=0)return'BLUNDER';
+    // === BLUNDER 3: 强手翻前 call 后大输 ===
+    if(phase==='pre'&&action==='call'&&isStrong&&bb<=-15)return'BLUNDER';
+
+    // === MISTAKE 1: 顶级牌翻前 limp（应加注）===
+    if(phase==='pre'&&action==='call'&&hClass.indexOf('EP')>=0)return'MISTAKE';
+    // === MISTAKE 2: 河牌 60-80% 胜率弃牌 ===
+    if(phase==='river'&&action==='fold'&&eq>=0.6&&eq<0.75)return'MISTAKE';
+    // === MISTAKE 3: 强手弃牌+输钱 ===
+    if(action==='fold'&&isStrong&&bb<=-5)return'MISTAKE';
+    // === MISTAKE 4: 转牌 70%+ 胜率弃牌 ===
+    if(phase==='turn'&&action==='fold'&&eq>=0.7)return'MISTAKE';
+
+    // === GOOD: 强牌强动作+赢 / 弱牌正确弃 / 大胜率跟注赢 ===
+    if((isStrong&&(action==='raise'||action==='reraise')&&bb>0)||
+       (hClass.indexOf('WEAK')>=0&&action==='fold'&&bb===0)||
+       (hClass.indexOf('TRASH')>=0&&action==='fold')||
+       (eq>=0.7&&(action==='call'||action==='raise')&&bb>0))return'GOOD';
+    // GOOD: 弃牌避免大损失
+    if(action==='fold'&&bb===0&&(hClass.indexOf('WEAK')>=0||hClass.indexOf('HIGH')>=0))return'GOOD';
+
+    return'OK';
+  },
+
+  // STREET: 4 街
+  _classifyStreet:function(rec){
+    var p=rec.phase||'';
+    if(p==='pre'||p==='翻牌前')return'preflop';
+    if(p==='flop'||p==='翻牌')return'flop';
+    if(p==='turn'||p==='转牌')return'turn';
+    if(p==='river'||p==='河牌')return'river';
+    return'preflop';
+  },
+
+  // Top N 弱手（输最多BB）
+  getTopWeakHands:function(n){
+    if(!this._b)this.init();
+    n=n||10;
+    var arr=[];
+    for(var k in this._b.weak){
+      if(this._b.weak.hasOwnProperty(k))arr.push(this._b.weak[k]);
+    }
+    arr.sort(function(a,b){return a.bb-b.bb;}); // bb 升序，输最多在前
+    return arr.slice(0,n);
+  },
+
+  getMistakes:function(){
+    if(!this._b)this.init();
+    return this._b.mistakes;
+  },
+
+  // 复盘弹窗数据
+  getReviewData:function(){
+    if(!this._b)this.init();
+    var B=this._b;
+    var winN=B.byResult.WIN_BIG+B.byResult.WIN_SMALL;
+    var loseN=B.byResult.LOSE_SMALL+B.byResult.LOSE_BIG;
+    var winRate=B.total>0?(winN/B.total*100).toFixed(0):'0';
+    var totalBB=B.byResult.bbBy.WIN_BIG+B.byResult.bbBy.WIN_SMALL+B.byResult.bbBy.CHOP+B.byResult.bbBy.LOSE_SMALL+B.byResult.bbBy.LOSE_BIG;
+    var bb100=B.total>0?(totalBB/B.total*100).toFixed(1):'0.0';
+    return{
+      total:B.total,
+      bb100:bb100,
+      winRate:winRate,
+      totalBB:totalBB,
+      byResult:B.byResult,
+      byType:B.byType,
+      byDecision:B.byDecision,
+      topWeak:this.getTopWeakHands(10),
+      mistakes:this.getMistakes()
     };
   }
 };
@@ -6215,6 +6469,108 @@ function clr(){
 }
 function pick(id){_pi=id;_ms='h';rM();document.getElementById('modal').classList.add('on');}
 function closeM(){document.getElementById('modal').classList.remove('on');_pi=null;}
+// V2.9.130: 复盘弹窗打开/关闭
+function openReview(){
+  var modal=document.getElementById('reviewModal');
+  var content=document.getElementById('reviewContent');
+  if(!modal||!content||typeof HandClassifier==='undefined')return;
+  var D=HandClassifier.getReviewData();
+  var B=D.byResult;
+  var BBy=B.bbBy;
+  var labels={WIN_BIG:'大胜',WIN_SMALL:'小胜',CHOP:'平局',LOSE_SMALL:'小负',LOSE_BIG:'大负'};
+  var colors={WIN_BIG:'#00E676',WIN_SMALL:'#69F0AE',CHOP:'#BDBDBD',LOSE_SMALL:'#FFAB91',LOSE_BIG:'#FF5252'};
+  var html='';
+  // 概览
+  html+='<div style="background:rgba(105,240,174,0.1);border-radius:8px;padding:8px;margin-bottom:8px">';
+  html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">📈 Session 概览</div>';
+  html+='<div style="display:flex;justify-content:space-around;text-align:center">';
+  html+='<div><div style="font-size:9px;color:#888">总手数</div><div style="font-size:20px;font-weight:900;color:#69F0AE">'+D.total+'</div></div>';
+  html+='<div><div style="font-size:9px;color:#888">BB/100</div><div style="font-size:20px;font-weight:900;color:'+(parseFloat(D.bb100)>=0?'#69F0AE':'#FF5252')+'">'+D.bb100+'</div></div>';
+  html+='<div><div style="font-size:9px;color:#888">胜率</div><div style="font-size:20px;font-weight:900;color:#FFAB40">'+D.winRate+'%</div></div>';
+  html+='</div></div>';
+  // 结果分布
+  html+='<div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px;margin-bottom:8px">';
+  html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">📊 结果分布</div>';
+  for(var k in labels){
+    var n=B[k]||0;
+    var bb=BBy[k]||0;
+    html+='<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px">';
+    html+='<span style="color:'+colors[k]+'">'+labels[k]+'</span>';
+    html+='<span style="color:#bbb">'+n+'手 / '+(bb>0?'+':'')+bb.toFixed(1)+'BB</span>';
+    html+='</div>';
+  }
+  html+='</div>';
+  // 牌力BB/100
+  html+='<div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px;margin-bottom:8px">';
+  html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">🎯 牌力BB/100</div>';
+  for(var t in D.byType){
+    var td=D.byType[t];
+    if(td.n>0){
+      var bb100t=(td.bb/td.n*100).toFixed(1);
+      html+='<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px">';
+      html+='<span>'+t+' ('+td.n+'手)</span>';
+      html+='<span style="color:'+(parseFloat(bb100t)>=0?'#69F0AE':'#FF5252')+'">'+bb100t+' BB/100</span>';
+      html+='</div>';
+    }
+  }
+  html+='</div>';
+  // 决策质量
+  html+='<div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:8px;margin-bottom:8px">';
+  html+='<div style="font-size:11px;color:#90caf9;margin-bottom:6px">✅ 决策质量</div>';
+  var dLabels={GOOD:'好决策',OK:'一般',MISTAKE:'错误',BLUNDER:'大错'};
+  var dColors={GOOD:'#00E676',OK:'#BDBDBD',MISTAKE:'#FFAB40',BLUNDER:'#FF5252'};
+  for(var dk in dLabels){
+    var dd=D.byDecision[dk];
+    html+='<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px">';
+    html+='<span style="color:'+dColors[dk]+'">'+dLabels[dk]+'</span>';
+    html+='<span style="color:#bbb">'+dd.n+'手 / '+(dd.bb>0?'+':'')+dd.bb.toFixed(1)+'BB</span>';
+    html+='</div>';
+  }
+  html+='</div>';
+  // Top 弱手
+  if(D.topWeak.length>0){
+    html+='<div style="background:rgba(255,82,82,0.1);border-radius:8px;padding:8px;margin-bottom:8px">';
+    html+='<div style="font-size:11px;color:#FFAB91;margin-bottom:6px">⚠️ Top 弱手（输最多）</div>';
+    var maxN=Math.min(10,D.topWeak.length);
+    for(var i=0;i<maxN;i++){
+      var w=D.topWeak[i];
+      html+='<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:10px">';
+      html+='<span>'+w.hole+' '+w.action+' ('+w.n+'手)</span>';
+      html+='<span style="color:#FF5252">'+w.bb.toFixed(1)+' BB</span>';
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+  // MISTAKE 列表
+  if(D.mistakes.length>0){
+    html+='<div style="background:rgba(255,171,64,0.1);border-radius:8px;padding:8px;margin-bottom:8px">';
+    html+='<div style="font-size:11px;color:#FFAB40;margin-bottom:6px">❌ 错误决策（最近 '+D.mistakes.length+' 个）</div>';
+    var mN=Math.min(8,D.mistakes.length);
+    for(var j=0;j<mN;j++){
+      var m=D.mistakes[j];
+      var hs=(m.hole||[]).filter(function(x){return x&&x!=='?';}).join('');
+      var mColor=m.decision==='BLUNDER'?'#FF5252':'#FFAB40';
+      html+='<div style="padding:4px 0;font-size:10px;border-top:1px solid rgba(255,255,255,0.05)">';
+      html+='<span style="color:'+mColor+';font-weight:bold">['+m.decision+']</span> ';
+      html+='<span>'+hs+'</span> ';
+      html+='<span style="color:#888">'+m.phase+' '+m.action+' eq='+(m.eq*100).toFixed(0)+'%</span><br/>';
+      html+='<span style="color:#FF5252">'+(m.bb>0?'+':'')+m.bb.toFixed(1)+'BB</span> ';
+      html+='<span style="color:#666;font-size:9px">'+(m.reason||'').slice(0,30)+'</span>';
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+  if(D.total===0){
+    html='<div style="text-align:center;padding:30px 10px;color:#888">暂无手牌数据<br/><span style="font-size:10px">完成 1 手后开始归类</span></div>';
+  }
+  content.innerHTML=html;
+  modal.classList.add('on');
+  modal.style.display='block';
+}
+function closeReview(){
+  var modal=document.getElementById('reviewModal');
+  if(modal){modal.classList.remove('on');modal.style.display='none';}
+}
 function rM(){
   var labels={h0:'手牌1',h1:'手牌2',c0:'翻牌1',c1:'翻牌2',c2:'翻牌3',c3:'转牌',c4:'河牌'};
   document.getElementById('mTitle').textContent='选'+(labels[_pi]||'牌');
@@ -7672,6 +8028,7 @@ CacheManager.init(); // V2.9.46: 缓存管理
 HandHistory.init(); // V2.9.46: 手牌历史
 SessionStats.init(); // V2.9.57: Session统计
 SelfTiltGuard.init(); // V2.9.129: 自己Tilt早期预警
+HandClassifier.init(); // V2.9.130: 手牌历史自动归类（复盘金矿）
 DRTA.init();
 _initMCWorker(); // V2.9.46: 预创建Worker
 mkMx();

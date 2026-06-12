@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.129 · 自己Tilt早期预警(4档状态机+命名空间隔离)+V2.9.128保护100%保留"
+        android:text="V2.9.130 · 手牌历史自动归类(4维复盘:结果+牌力+决策+关键街)+V2.9.129保护100%保留"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />

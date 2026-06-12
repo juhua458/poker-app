@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.129
-        name: "V2.9.129 自己Tilt早期预警——4档状态机+命名空间隔离"
-        body: "V2.9.129: 自己Tilt早期预警。V2.9.60 TiltDetector是检测对手Tilt给策略，V2.9.129 SelfTiltGuard是检测自己Tilt给警告，两层命名空间隔离。4档状态机：NORMAL/WARNING/DANGER/TILT。3个核心信号：亏损速度(亏100BB/150BB)、决策时间(<2秒连点3+/5+次)、翻前弃牌率(相对基线1.3/1.5倍)+报复模式(亏5+BB后两手全被动)。呈现：通知栏🟡/🟠/🔴+result.r前缀[⚠️DANGER]/[🔥TILT]+软横幅(建议暂停5分钟/立刻停止20分钟)。硬约束：7色悬浮球不动，V2.9.127顶级牌保护不动，V2.9.126池驱反fold不动。E2E 33/33+回归64/64 PASS。"
+        tag_name: v2.9.130
+        name: "V2.9.130 手牌历史自动归类——4维复盘金矿（结果+牌力+决策+关键街）"
+        body: "V2.9.130: 手牌历史自动归类。每手牌按 4 维自动分类: RESULT(结果WIN_BIG/WIN_SMALL/CHOP/LOSE_SMALL/LOSE_BIG) + TYPE(牌力PREMIUM/STRONG/MEDIUM/WEAK) + DECISION(决策质量GOOD/OK/MISTAKE/BLUNDER) + STREET(关键街preflop/flop/turn/river)。MISTAKE 检测: 河牌 80%+ 胜率弃牌/河牌 60-80% 弃牌/转牌 70%+ 弃牌/强手弃牌+输钱/顶级牌翻前 limp。复盘弹窗: 顶部 Session 概览(总手数/BB/100/胜率) + 中部结果分布 + 下部牌力 BB/100 对比 + 决策质量 + 底部 Top10 弱手 + MISTAKE 列表。每 20 手小提示复盘。命名空间隔离: 不动 result.r / 通知栏 / 7色悬浮球, 不动 V2.9.129 SelfTiltGuard。SessionStats.reset 联动 HandClassifier.reset。E2E ≥20 断言 + 4 套回归(V2.9.129/128/127/126) 80+ PASS。"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
