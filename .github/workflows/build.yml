@@ -40,10 +40,12 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.134
-        name: "V2.9.134 花色识别恢复+SuitProb删除"
-        body: "V2.9.134 变更:
-  - 删除 SuitProb 整段(V2.9.105花色概率推断+equity调整)
+        tag_name: v2.9.135
+        name: "V2.9.135 速度优化+计时日志"
+        body: "V2.9.135 变更:
+  - 图片压缩 1080px/Q85→960px/Q75 (体积减35%)
+  - MC模拟 2000→1000次基础 (策略快0.5-1s)
+  - 全链路计时日志 (Kotlin+JS)
   - Vision prompt加suit字段(h/d/c/s)
   - Kotlin端不再抹掉suit
   - 翻前手牌识别加强(prompt⚠️强调)
