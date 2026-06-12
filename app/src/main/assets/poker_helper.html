@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.118 · NO_TABLE增强检测</title>
+<title>青云 v2.9.119 · 翻后策略放宽</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.118',
+    version:'2.9.119',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.118',
+  CURRENT_VERSION:'2.9.119',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -3491,7 +3491,7 @@ var Multiway={
   cbetFreqAdj:function(){var m={hu:1.0,"3way":0.6,multiway:0.35,super:0.2};return m[this.level()]||1.0;},
   bluffFreqAdj:function(){var m={hu:1.0,"3way":0.5,multiway:0.2,super:0.05};return m[this.level()]||1.0;},
   valueThreshold:function(){var t={hu:{minEq:50,minClass:"MEDIUM"},"3way":{minEq:55,minClass:"MEDIUM"},multiway:{minEq:60,minClass:"STRONG"},super:{minEq:65,minClass:"STRONG"}};return t[this.level()]||t.hu;},
-  drawAdj:function(){var lv=this.level();if(lv==="hu")return{minOuts:4,nutOnly:false};if(lv==="3way")return{minOuts:6,nutOnly:false};return{minOuts:8,nutOnly:true};},
+  drawAdj:function(){var lv=this.level();if(lv==="hu")return{minOuts:4,nutOnly:false};if(lv==="3way")return{minOuts:5,nutOnly:false};return{minOuts:6,nutOnly:false};},
   callThresholdAdj:function(){var a={hu:0,"3way":3,multiway:6,super:10};return a[this.level()]||0;},
   isoRaiseAdj:function(){var m={hu:1.0,"3way":1.3,multiway:1.5,super:1.8};return m[this.level()]||1.0;},
   isMultiway:function(){return(G.act||2)>=3;},
@@ -4717,7 +4717,7 @@ function preF(k){
   var spr=calcSPR();
   var sprAdvice=getSPRAdvice(spr);
   var eq=eQ(k);
-  // V2.9.118: Speculative hand implied odds bonus
+  // V2.9.119: Speculative hand implied odds bonus
   if(k.length===2&&k[0]===k[1]&&'23456'.indexOf(k[0])>=0)eq+=8; // Small pairs: set mining
   if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined&&Math.abs(_r1-_r2)===1&&_r2<=8)eq+=5;if(_sr[0]==='A'&&_r2!==undefined&&_r2<=3)eq+=3;} // SC+suited ace low
   var pa=pA(p);
@@ -5149,15 +5149,16 @@ function postF(k){
   var _exactEq=sim.exact||false;
   var _exactCombos=sim.combos||0;
   // V2.9.46: MC虚高校准(基于实际牌谱对比,非经验值)
+  // V2.9.119: 放宽DRAW折扣——小听牌不该一律重打
   // DRAW折扣: 组合听牌0.82, 强听8+outs 0.78, 中听4-7outs 0.72, 弱听<4outs 0.65
   if(hClass.name==='DRAW'){
-    var drawDiscount=hClass.outs>=15?0.85:hClass.outs>=12?0.82:hClass.outs>=8?0.78:hClass.outs>=4?0.72:0.65;
+    var drawDiscount=hClass.outs>=15?0.92:hClass.outs>=12?0.88:hClass.outs>=8?0.85:hClass.outs>=4?0.80:0.72;
     eq=eq*drawDiscount;
   }
   // V2.9.46: MEDIUM折扣校准(中对/底对MC偏高低估对手范围)
   // 顶对中踢0.78, 中对0.72, 底对/弱对0.65
   if(hClass.name==='MEDIUM'){
-    var medDiscount=hClass.desc.indexOf('顶对')>=0?0.78:hClass.desc.indexOf('中对')>=0?0.72:0.65;
+    var medDiscount=hClass.desc.indexOf('顶对')>=0?0.85:hClass.desc.indexOf('中对')>=0?0.80:0.75;
     eq=eq*medDiscount;
   }
   // V2.9.47: 翻后eq衰减——2人桌不衰减,3人桌微调
@@ -5367,12 +5368,13 @@ function postF(k){
     return{a:'fold',r:'空气牌不追',eq:exploitAir.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(outs>0&&io&&hClass.name!=="NUTS"&&hClass.name!=="STRONG"){
-    // V2.9.105: 多人池只追强听牌
+    // V2.9.105: 多人池听牌(原只追强听牌)
+    // V2.9.119: 放宽minOuts 8→6, nutOnly→false, 隐含赔率1.2→1.0
     var _mwDraw=Multiway.drawAdj();
     if(outs<_mwDraw.minOuts){
       Multiway.log('Draw','outs='+outs+'<'+_mwDraw.minOuts+'→不追');
       // 跳过draw跟注，走后面通用判断
-    } else if(io.total>=io.breakeven*1.2){
+    } else if(io.total>=io.breakeven*1.0){
       var exploitResult5=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
       return{a:'call',r:outs+'outs·'+io.advice,eq:exploitResult5.eq,c:'m',po:parseFloat(io.total),scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult5.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }

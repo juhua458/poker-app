@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.118
-        name: "V2.9.118 范围表扩大+隐含赔率bonus+惩罚优化"
-        body: "V2.9.118: 扩大O6.utg/mp范围表+隐含赔率bonus(小对子+8/SC+5/SA+3)+6max惩罚-15→-8"
+        tag_name: v2.9.119
+        name: "V2.9.119 翻后策略放宽——DRAW/MEDIUM折扣降低+隐含赔率1.2→1.0+多人池minOuts 8→6"
+        body: "V2.9.119: DRAW折扣0.82→0.88/0.78→0.85/0.72→0.80 + MEDIUM折扣0.72→0.80/0.65→0.75 + 隐含赔率1.2→1.0 + 多人池minOuts 8→6 nutOnly→false"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
