@@ -38,6 +38,10 @@ import androidx.webkit.WebViewAssetLoader
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 
 class FloatingService : Service() {
@@ -786,10 +790,13 @@ class FloatingService : Service() {
 
         val ball = TextView(this).apply {
             text = "🎯"
-            textSize = 16f
+            // V2.9.132: 加粗+允许两行(EQ小字+动作大字), 字为王色为辅
+            setTypeface(Typeface.DEFAULT_BOLD)
+            textSize = 18f
             gravity = Gravity.CENTER
             setTextColor(0xFFFFFFFF.toInt())
-            setSingleLine(true)
+            setSingleLine(false)
+            setLineSpacing(0f, 0.85f)
             val shape = GradientDrawable()
             shape.shape = GradientDrawable.OVAL
             shape.setColor(0xDD1a1a2e.toInt())
@@ -923,7 +930,22 @@ class FloatingService : Service() {
      * V2.9.63: 7色信号系统 — 悬浮球颜色+闪烁信号
      * 🔴红=弃牌 🟠深橙=勉强跟 🟡黄=跟注 🟢绿=加注 💚青绿=重锤 🟣紫=全押 ⚪灰=过牌
      * 🔥慢闪=Tilt对手 ⚔️快闪=反剥削 ⚠️双闪=底池不确定
+     *
+     * V2.9.132: 7色保留+字为王 — 动作字18f加粗居中, EQ小字(0.5x)在上,
+     *           颜色作为情绪背景, 文字作为决策识别(用户原话:「悬浮球里有字, 就什么都清楚」)
      */
+    // V2.9.132: 动作字+EQ两行排版(EQ小字+动作大字), 集中管理
+    private fun setBallText(ball: TextView, action: String, eqText: String) {
+        if (eqText.isNotEmpty()) {
+            val text = eqText + "\n" + action
+            val sb = SpannableString(text)
+            sb.setSpan(RelativeSizeSpan(0.5f), 0, eqText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            ball.text = sb
+        } else {
+            ball.text = action
+        }
+        ball.textSize = 18f
+    }
     fun updateBallAdvice(advice: String) {
         Log.d(TAG, "updateBallAdvice: advice=$advice, ball=${if(floatingBall!=null)"存在" else "null"}")
         try {
@@ -937,73 +959,78 @@ class FloatingService : Service() {
             if (eqMatch != null) {
                 eqText = eqMatch.groupValues[1] + "%"
             }
-            // V2.9.63: 7色+3信号
+            // V2.9.63: 7色+3信号(V2.9.132: 颜色保留, 文字加大加粗)
             when {
                 advice.contains("COLOR:ALL_IN") -> {
                     shape.setColor(0xBBCE93D8.toInt()); shape.setStroke(stroke, 0xFFCE93D8.toInt())
+                    setBallText(ball, "全押", eqText)
                     startBallSignal(0) // 无闪烁
                 }
                 advice.contains("COLOR:RAISE_BIG") -> {
                     shape.setColor(0xBB00E676.toInt()); shape.setStroke(stroke, 0xFF00E676.toInt())
-                    ball.text=if(eqText.isNotEmpty())eqText+"\n重锤" else "重锤";ball.textSize=if(eqText.isNotEmpty())9f else 11f
+                    setBallText(ball, "重锤", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:RAISE") -> {
                     shape.setColor(0xBB69F0AE.toInt()); shape.setStroke(stroke, 0xFF69F0AE.toInt())
-                    ball.text=if(eqText.isNotEmpty())eqText+"\n加" else "加";ball.textSize=if(eqText.isNotEmpty())10f else 14f
+                    setBallText(ball, "加", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:CALL") -> {
                     shape.setColor(0xBBFFAB40.toInt()); shape.setStroke(stroke, 0xFFFFAB40.toInt())
-                    ball.text=if(eqText.isNotEmpty())eqText+"\n跟" else "跟";ball.textSize=if(eqText.isNotEmpty())10f else 14f
+                    setBallText(ball, "跟", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:WEAK_CALL") -> {
                     shape.setColor(0xBBFF8C00.toInt()); shape.setStroke(stroke, 0xFFFF8C00.toInt())
-                    ball.text=if(eqText.isNotEmpty())eqText+"\n弱跟" else "弱跟";ball.textSize=if(eqText.isNotEmpty())9f else 11f
+                    setBallText(ball, "弱跟", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:FOLD") -> {
                     shape.setColor(0xBBFF5252.toInt()); shape.setStroke(stroke, 0xFFFF5252.toInt())
-                    // V2.9.70: 悬浮球显示建议文字
-                    if(advice.contains("NO_TABLE")){ball.text=if(eqText.isNotEmpty())eqText else "❓";ball.textSize=if(eqText.isNotEmpty())10f else 20f}
-                    else{ball.text=if(eqText.isNotEmpty())eqText+"\n弃" else "弃";ball.textSize=if(eqText.isNotEmpty())10f else 14f}
+                    // V2.9.70: 悬浮球显示建议文字(V2.9.132: 加大加粗, NO_TABLE特殊)
+                    if(advice.contains("NO_TABLE")){
+                        ball.text = if(eqText.isNotEmpty()) eqText else "❓"
+                        ball.textSize = 20f
+                    } else {
+                        setBallText(ball, "弃", eqText)
+                    }
                     startBallSignal(0)
                 }
                 advice.contains("COLOR:CHECK") -> {
                     shape.setColor(0xBBBDBDBD.toInt()); shape.setStroke(stroke, 0xFFBDBDBD.toInt())
-                    ball.text=if(eqText.isNotEmpty())eqText+"\n过" else "过";ball.textSize=if(eqText.isNotEmpty())10f else 14f
+                    setBallText(ball, "过", eqText)
                     startBallSignal(0)
                 }
-                // fallback: 旧5色兼容
+                // fallback: 旧5色兼容(V2.9.132: 同样加大加粗)
                 advice.contains("全押") -> {
                     shape.setColor(0xBBCE93D8.toInt()); shape.setStroke(stroke, 0xFFCE93D8.toInt())
-                    ball.text=if(eqText.isNotEmpty())eqText+"\n全押" else "全押";ball.textSize=if(eqText.isNotEmpty())9f else 11f
+                    setBallText(ball, "全押", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("加注") -> {
                     shape.setColor(0xBB69F0AE.toInt()); shape.setStroke(stroke, 0xFF69F0AE.toInt())
-                    ball.text="加";ball.textSize=14f
+                    setBallText(ball, "加", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("跟注") -> {
                     shape.setColor(0xBBFFAB40.toInt()); shape.setStroke(stroke, 0xFFFFAB40.toInt())
-                    ball.text="跟";ball.textSize=14f
+                    setBallText(ball, "跟", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("弃牌") -> {
                     shape.setColor(0xBBFF5252.toInt()); shape.setStroke(stroke, 0xFFFF5252.toInt())
-                    ball.text="弃";ball.textSize=14f
+                    setBallText(ball, "弃", eqText)
                     startBallSignal(0)
                 }
                 advice.contains("让牌") || advice.contains("过牌") -> {
                     shape.setColor(0xBBBDBDBD.toInt()); shape.setStroke(stroke, 0xFFBDBDBD.toInt())
-                    ball.text="过";ball.textSize=14f
+                    setBallText(ball, "过", eqText)
                     startBallSignal(0)
                 }
                 else -> {
                     shape.setColor(0xBB4ade80.toInt()); shape.setStroke(stroke, 0xFF4ade80.toInt())
-                    ball.text="🎯";ball.textSize=16f
+                    ball.text="🎯";ball.textSize=18f
                     startBallSignal(0)
                 }
             }
@@ -1401,7 +1428,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.131\"")
+                append("{\"version\":\"2.9.132\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")

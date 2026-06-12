@@ -26,7 +26,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="V2.9.131 · 换桌建议+悬浮球闪烁(4阈值+3级:VPIP/WTSD/BB-100/3bet)+V2.9.130保护100%保留"
+        android:text="V2.9.132 · 7色策略色保留+字为王(动作18f加粗+EQ 0.5x小字)+V2.9.131保护100%保留"
         android:textSize="13sp"
         android:textColor="#86efac"
         android:layout_marginTop="4dp" />

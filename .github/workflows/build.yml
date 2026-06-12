@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.131
-        name: "V2.9.131 换桌建议+悬浮球闪烁——4阈值3级(VPIP/WTSD/BB-100/3bet)+7色策略色保留"
-        body: "V2.9.131: 换桌建议+悬浮球闪烁。打满 8 手后开始桌质评估, 4 个老手桌信号(整桌平均 VPIP<22% / 3+对手 WTSD<25% / BB/100 连续负 5+手 / 翻前 3bet>12%)。L1 建议换桌(1-2条件) → 2s 慢闪黄色 / L2 强建议换桌(3+条件) → 0.8s 快闪红色。颜色(7色策略色)=策略强度 frozen 不动, 闪烁=视觉层新维度正交。TableQualityMeter(4阈值+3级+命名空间 _q 隔离) + FloatBallBlink(2s/0.8s 视觉层 + AndroidBridge.setBlinkFreq 公开) + TableChangeDialog(复用 reviewModal 模式 + 知道了/现在换桌按钮) + TableChangeAdvisor(每 3 手 tick 一次)。TILT 状态(SelfTiltGuard.level=3)屏蔽换桌闪烁(铁律)。app 不主动换桌(反 RTA), 引导 Lobby 5-max/6-max 200/500 手动坐下。Kotlin 端 startBallSignal 新增 freqHz=2(2s 慢闪) 和 freqHz=4(0.8s 快闪)。E2E 73/73 + 6 套回归(V2.9.130/129/128/127/126) 129+ PASS。"
+        tag_name: v2.9.132
+        name: "V2.9.132 7色策略色保留+字为王——悬浮球动作字18f加粗,EQ小字(0.5x)在上,颜色作情绪字作决策"
+        body: "V2.9.132: 字为王色为辅(用户原话:「悬浮球里有字, 就什么都清楚, 比如弃呀, 有一个字就可以了」)。保留 V2.9.63 7色策略色硬约束(🔴红=弃 🟠深橙=弱跟 🟡黄=跟 🟢绿=加 💚青绿=重锤 🟣紫=全押 ⚪灰=过)不动, 只把悬浮球文字排版升级: 动作字 18f 加粗居中(Typeface.DEFAULT_BOLD), EQ% 用 SpannableString + RelativeSizeSpan 0.5x 缩小到上方, 允许两行(setSingleLine(false)+setLineSpacing(0,0.85)), V2.9.132 抽 setBallText(ball, action, eqText) 集中管理。新增 import android.text.SpannableString / Spanned / style.RelativeSizeSpan / android.graphics.Typeface。V2.9.131 桌质评估+换桌闪烁+V2.9.130 HandClassifier+V2.9.129 SelfTiltGuard+V2.9.128 PoolStrategyMatrix+V2.9.127 顶级保护+V2.9.126 池驱反 fold 100% 保留。E2E V2.9.132 ≥20 + 7 套回归(V2.9.131/130/129/128/127/126集成/翻前) 200+ PASS。"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
