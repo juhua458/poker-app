@@ -1012,8 +1012,19 @@ class FloatingService : Service() {
                 advice.contains("SIGNAL:COUNTER") -> startBallSignal(3)   // 快闪: 反剥削
                 advice.contains("SIGNAL:TILT") -> startBallSignal(1)     // 慢闪: Tilt对手
                 advice.contains("SIGNAL:UNCERTAIN") -> startBallSignal(-1) // 双闪: 底池不确定
+                // V2.9.131: 换桌建议信号
+                advice.contains("SIGNAL:CHANGE_TABLE_L1") -> startBallSignal(2) // 2s慢闪: 建议换桌
+                advice.contains("SIGNAL:CHANGE_TABLE_L2") -> startBallSignal(4) // 0.8s快闪: 强建议换桌
             }
         } catch (_: Exception) {}
+    }
+
+    // V2.9.131: 公开 setBlinkFreq 供 JS 端直接调用
+    @JavascriptInterface
+    fun setBlinkFreq(freq: Int) {
+        handler.post {
+            try { startBallSignal(freq) } catch (_: Exception) {}
+        }
     }
 
     // V2.9.63: 悬浮球信号闪烁
@@ -1035,7 +1046,9 @@ class FloatingService : Service() {
         val intervalMs = when {
             freqHz == -1 -> 150L  // 双闪
             freqHz == 1 -> 1000L  // 慢闪1Hz
+            freqHz == 2 -> 2000L  // V2.9.131: 2s慢闪(L1建议换桌)
             freqHz == 3 -> 167L   // 快闪3Hz
+            freqHz == 4 -> 800L   // V2.9.131: 0.8s快闪(L2强建议换桌)
             else -> return
         }
         val runnable = object : Runnable {
@@ -1388,7 +1401,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.130\"")
+                append("{\"version\":\"2.9.131\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")

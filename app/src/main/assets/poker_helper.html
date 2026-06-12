@@ -262,6 +262,19 @@ body.speed-mode .rec-card .rc-r{font-size:20px}
 body.speed-mode .rec-card .rc-s{font-size:14px}
 body.speed-mode .rec-info{font-size:12px;font-weight:bold}
 body.speed-mode .rec-label{font-size:10px}
+/* V2.9.131: 换桌建议 — 悬浮球闪烁动画（视觉层，不动7色策略色）*/
+@keyframes v29131-blink-slow {0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,0)}50%{box-shadow:0 0 0 6px rgba(255,215,0,0.6)}}
+@keyframes v29131-blink-fast {0%,100%{box-shadow:0 0 0 0 rgba(255,71,87,0)}50%{box-shadow:0 0 0 6px rgba(255,71,87,0.7)}}
+.v29131-blink-slow {animation: v29131-blink-slow 2s ease-in-out infinite}
+.v29131-blink-fast {animation: v29131-blink-fast 0.8s ease-in-out infinite}
+.tc-blink-icon {display:inline-block;margin-left:4px;font-size:14px}
+.tc-blink-icon.l1 {animation: v29131-blink-slow 2s ease-in-out infinite}
+.tc-blink-icon.l2 {animation: v29131-blink-fast 0.8s ease-in-out infinite}
+.tc-condition {padding:4px 8px;margin:3px 0;background:rgba(255,255,255,0.08);border-radius:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+.tc-condition.met {background:rgba(255,71,87,0.15);color:#ff6b7a}
+.tc-advice {padding:8px;margin:6px 0;background:rgba(255,215,0,0.12);border-radius:6px;font-size:12px;color:#ffd700}
+.tc-l2-banner {background:linear-gradient(135deg,#7a1a1a,#a82a1a);color:#fff;padding:6px 10px;border-radius:4px;font-weight:bold;text-align:center;margin-bottom:6px}
+.tc-l1-banner {background:linear-gradient(135deg,#3a3a1a,#5a4a1a);color:#ffd700;padding:6px 10px;border-radius:4px;font-weight:bold;text-align:center;margin-bottom:6px}
 </style>
 </head>
 <body class="speed-mode">
@@ -384,6 +397,15 @@ body.speed-mode .rec-label{font-size:10px}
   <div class="mt" style="background:linear-gradient(135deg,#1a237e,#0d47a1);color:#fff">📊 手牌复盘（V2.9.130）</div>
   <div id="reviewContent" style="padding:6px 0;color:#fff"></div>
   <button class="m-cl" onclick="closeReview()">关闭</button>
+</div>
+<!-- V2.9.131: 换桌建议弹窗 -->
+<div class="modal" id="tableChangeModal" style="display:none;z-index:9999;background:rgba(0,0,0,0.85);padding:10px;max-height:95vh;overflow-y:auto">
+  <div class="mt" style="background:linear-gradient(135deg,#3a3a1a,#5a4a1a);color:#ffd700">🔄 换桌建议（V2.9.131）</div>
+  <div id="tableChangeContent" style="padding:6px 0;color:#fff"></div>
+  <div style="display:flex;gap:6px;margin-top:6px">
+    <button class="m-cl" style="flex:1;background:#3a3a3a" onclick="TableChangeDialog.hide('know')">知道了</button>
+    <button class="m-cl" style="flex:1;background:linear-gradient(135deg,#7a1a1a,#a82a1a)" onclick="TableChangeDialog.hide('change')">现在换桌</button>
+  </div>
 </div>
 <div class="stats-modal" id="statsModal">
   <div class="stats-title">📊 Session统计</div>
@@ -952,6 +974,8 @@ var HandHistory={
     if(typeof SelfTiltGuard!=='undefined')SelfTiltGuard.recordHand(rec);
     // V2.9.130: 自动归类到HandClassifier（复盘金矿，不动result.r/悬浮球/通知栏）
     if(typeof HandClassifier!=='undefined')HandClassifier.classify(rec);
+    // V2.9.131: 桌质评估（触发换桌建议+悬浮球闪烁，不动7色策略色）
+    if(typeof TableQualityMeter!=='undefined'){TableQualityMeter.recordHand(rec);try{if(typeof TableChangeAdvisor!=='undefined')TableChangeAdvisor.tick();}catch(e){}}
   },
   getAll:function(){return this.records;},
   clear:function(){this.records=[];try{localStorage.removeItem(this.STORAGE_KEY);}catch(e){}}
@@ -1012,6 +1036,8 @@ var SessionStats={
     if(typeof SelfTiltGuard!=='undefined')SelfTiltGuard.reset();
     // V2.9.130: 重置HandClassifier（归类数据与session同步重置）
     if(typeof HandClassifier!=='undefined')HandClassifier.reset();
+    // V2.9.131: 重置TableQualityMeter（桌质评估随session重置）
+    if(typeof TableQualityMeter!=='undefined')TableQualityMeter.reset();
   },
   recordHand:function(rec){
     var d=this.data;
@@ -1131,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.129',
+    version:'2.9.131',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -2685,6 +2711,423 @@ var HandClassifier={
     };
   }
 };
+
+
+// ===== V2.9.131: TableQualityMeter — 桌质评分（换桌建议核心）=====
+// 4个评估条件（任一满足则记为"老手桌"信号）：
+//   1. 整桌平均 VPIP < 22%（全员紧，油水少）
+//   2. 3+ 对手 WTSD < 25%（看完翻牌看少，不愿付钱看）
+//   3. BB/100 持续为负 5+ 手（自己都打不赢）
+//   4. 翻前 3bet 频率 > 12%（被反扑多）
+// 严重程度分级：
+//   L0 正常（无建议或样本不足）/ L1 建议换桌（1-2条件）/ L2 强建议换桌（3+条件）
+// 命名空间隔离：不动 result.r / 通知栏 / 悬浮球颜色 / 7色策略色 / V2.9.129/130 保护点
+// 不污染 G / _tiltInfo / state / _b（其他模块数据）
+// API: init() / reset() / recordHand(rec) / eval() / getDisplay() / getStats()
+var TableQualityMeter={
+  // 状态（独立 namespace _q，不污染 _tiltInfo / _b）
+  _q:null,
+  // 评估阈值
+  THRESHOLDS:{
+    MIN_HANDS:8,          // 至少打满 8 手才开始评估
+    VPIP_TIGHT:22,        // 整桌平均 VPIP < 22% = 全员紧
+    WTSD_TIGHT:25,        // 3+ 对手 WTSD < 25% = 不愿付钱看
+    WTSD_OPPS:3,          // 至少 3 个对手有 WTSD 数据
+    BB100_NEG_HANDS:5,    // 连续 5+ 手 BB/100 为负
+    THREE_BET_HIGH:12     // 翻前 3bet > 12% = 被反扑多
+  },
+  init:function(){
+    if(this._q)return;
+    this._q={
+      hands:0,             // 累计手数
+      lastEval:null,       // 最近一次评估结果
+      negBBStreak:0,       // BB/100 连续为负手数
+      lastEvalHand:0       // 上次评估时的手数（避免重复评估）
+    };
+    console.log('[TableQualityMeter] 初始化完成（V2.9.131，4阈值+3级）');
+  },
+  reset:function(){
+    this._q={
+      hands:0,
+      lastEval:null,
+      negBBStreak:0,
+      lastEvalHand:0
+    };
+    try{if(typeof FloatBallBlink!=='undefined')FloatBallBlink.clear();}catch(e){}
+    console.log('[TableQualityMeter] 状态已重置');
+  },
+  recordHand:function(rec){
+    if(!this._q)this.init();
+    this._q.hands++;
+    // 追踪 BB/100 连续为负手数
+    var bb=rec&&typeof rec.bbResult==='number'?rec.bbResult:0;
+    if(bb<0)this._q.negBBStreak++;
+    else this._q.negBBStreak=0;
+  },
+  // 计算整桌平均 VPIP（从 G.players / DRTA 拿）
+  _avgVPIP:function(){
+    try{
+      if(typeof DRTA==='undefined'||!DRTA.players)return null;
+      var sum=0,n=0;
+      var keys=Object.keys(DRTA.players);
+      for(var i=0;i<keys.length;i++){
+        var p=DRTA.players[keys[i]];
+        if(p&&typeof p.hands==='number'&&p.hands>=3){
+          sum+=p.vpip||0;
+          n++;
+        }
+      }
+      return n>=3?sum/n:null;
+    }catch(e){return null;}
+  },
+  // 计算低 WTSD 对手数（< 25%）
+  _lowWTSDCnt:function(){
+    try{
+      if(typeof DRTA==='undefined'||!DRTA.players)return null;
+      var cnt=0,total=0;
+      var keys=Object.keys(DRTA.players);
+      for(var i=0;i<keys.length;i++){
+        var p=DRTA.players[keys[i]];
+        if(p&&typeof p.hands==='number'&&p.hands>=5){
+          total++;
+          if((p.wtsd||0)<this.THRESHOLDS.WTSD_TIGHT)cnt++;
+        }
+      }
+      return total>=this.THRESHOLDS.WTSD_OPPS?{low:cnt,total:total}:null;
+    }catch(e){return null;}
+  },
+  // 计算整桌 3bet 频率
+  _threeBetRate:function(){
+    try{
+      if(typeof DRTA==='undefined'||!DRTA.players)return null;
+      var sum3=0,sumOpp=0;
+      var keys=Object.keys(DRTA.players);
+      for(var i=0;i<keys.length;i++){
+        var p=DRTA.players[keys[i]];
+        if(p&&typeof p.hands==='number'&&p.hands>=5){
+          sum3+=p.threeBet||0;
+          sumOpp+=p.hands||0;
+        }
+      }
+      return sumOpp>0?(sum3/sumOpp*100):null;
+    }catch(e){return null;}
+  },
+  // 主评估函数
+  eval:function(){
+    if(!this._q)this.init();
+    var H=this._q.hands;
+    if(H<this.THRESHOLDS.MIN_HANDS){
+      return{level:0,sampleH:H,needH:this.THRESHOLDS.MIN_HANDS,conditions:[],summary:'样本不足',advice:'继续打满 '+this.THRESHOLDS.MIN_HANDS+' 手后再评估'};
+    }
+    var conds=[];
+    // 1. 整桌平均 VPIP < 22%
+    var avgVPIP=this._avgVPIP();
+    if(avgVPIP!==null&&avgVPIP<this.THRESHOLDS.VPIP_TIGHT){
+      conds.push({key:'tight_vpip',label:'整桌平均 VPIP '+avgVPIP.toFixed(0)+'% < 22%',met:true});
+    }else if(avgVPIP!==null){
+      conds.push({key:'tight_vpip',label:'整桌平均 VPIP '+avgVPIP.toFixed(0)+'%',met:false});
+    }else{
+      conds.push({key:'tight_vpip',label:'整桌 VPIP 样本不足',met:false});
+    }
+    // 2. 3+ 对手 WTSD < 25%
+    var wtsdInfo=this._lowWTSDCnt();
+    if(wtsdInfo!==null&&wtsdInfo.low>=this.THRESHOLDS.WTSD_OPPS){
+      conds.push({key:'low_wtsd',label:wtsdInfo.low+'/'+wtsdInfo.total+' 对手 WTSD < 25%',met:true});
+    }else if(wtsdInfo!==null){
+      conds.push({key:'low_wtsd',label:wtsdInfo.low+'/'+wtsdInfo.total+' 对手 WTSD < 25%',met:false});
+    }else{
+      conds.push({key:'low_wtsd',label:'WTSD 样本不足',met:false});
+    }
+    // 3. BB/100 持续为负 5+ 手
+    var negStreak=this._q.negBBStreak;
+    if(negStreak>=this.THRESHOLDS.BB100_NEG_HANDS){
+      conds.push({key:'losing_streak',label:'BB/100 连续负 '+negStreak+' 手',met:true});
+    }else{
+      conds.push({key:'losing_streak',label:'BB/100 连续负 '+negStreak+' 手（阈值 '+this.THRESHOLDS.BB100_NEG_HANDS+'）',met:false});
+    }
+    // 4. 翻前 3bet 频率 > 12%
+    var threeBet=this._threeBetRate();
+    if(threeBet!==null&&threeBet>this.THRESHOLDS.THREE_BET_HIGH){
+      conds.push({key:'high_3bet',label:'翻前 3bet '+threeBet.toFixed(1)+'% > 12%',met:true});
+    }else if(threeBet!==null){
+      conds.push({key:'high_3bet',label:'翻前 3bet '+threeBet.toFixed(1)+'%',met:false});
+    }else{
+      conds.push({key:'high_3bet',label:'3bet 样本不足',met:false});
+    }
+    var metN=0;
+    for(var i=0;i<conds.length;i++)if(conds[i].met)metN++;
+    var level=metN>=3?2:(metN>=1?1:0);
+    var summary='';
+    var advice='';
+    if(level===2){
+      summary=metN+' 个老手桌信号（强建议换桌）';
+      advice='桌风过紧/老手多，强烈建议退桌重开。在 Lobby 选 5-max/6-max 200/500 桌随机坐下。';
+    }else if(level===1){
+      summary=metN+' 个老手桌信号（建议换桌）';
+      advice='桌风偏紧/老手较多，建议换一桌。换桌后可重新评估。';
+    }else{
+      summary='桌风正常';
+      advice='当前桌风健康，继续打。';
+    }
+    var result={level:level,sampleH:H,conditions:conds,metN:metN,summary:summary,advice:advice,timestamp:Date.now()};
+    this._q.lastEval=result;
+    this._q.lastEvalHand=H;
+    return result;
+  },
+  getDisplay:function(evalResult){
+    var er=evalResult||this._q&&this._q.lastEval||this.eval();
+    if(!er)return{level:0,blinkClass:'',color:'',adviceText:'',recommendNow:false};
+    var blinkClass='';
+    var color='';
+    if(er.level===1){blinkClass='v29131-blink-slow';color='#ffd700';}
+    else if(er.level===2){blinkClass='v29131-blink-fast';color='#ff4757';}
+    return{
+      level:er.level,
+      blinkClass:blinkClass,
+      color:er.level===2?'#ff4757':(er.level===1?'#ffd700':''),
+      adviceText:er.advice||'',
+      recommendNow:er.level>=1,
+      summary:er.summary||'',
+      conditions:er.conditions||[]
+    };
+  },
+  getStats:function(){
+    if(!this._q)this.init();
+    return{
+      hands:this._q.hands,
+      negBBStreak:this._q.negBBStreak,
+      lastEval:this._q.lastEval
+    };
+  }
+};
+
+
+// ===== V2.9.131: FloatBallBlink — 悬浮球闪烁控制（视觉层）=====
+// 颜色（7色策略色 V2.9.63）= 策略强度（frozen，硬约束，不动）
+// 闪烁（本模块）= 视觉提醒（新维度，正交不冲突）
+// 实现：CSS class 切换 + AndroidBridge 通知 Kotlin 端 startBallSignal
+// TILT 状态（SelfTiltGuard.level===3）不闪（V2.9.129 命名空间）
+// 命名空间隔离：不动 floatingBall 颜色 / 7色策略色 / result.r / 通知栏文本
+// API: init() / setLevel(level, adviceText) / clear() / startBlink() / stopBlink()
+var FloatBallBlink={
+  _b:null,  // blink 状态
+  _intervalId:null,
+  init:function(){
+    if(this._b)return;
+    this._b={
+      currentLevel:0,      // 0=无 / 1=慢闪 / 2=快闪
+      adviceText:'',       // 当前建议文本
+      lastBlinkAt:0,       // 上次闪烁时间
+      tiltBlocked:false    // TILT 状态屏蔽
+    };
+    console.log('[FloatBallBlink] 初始化完成（V2.9.131，视觉层正交于7色策略色）');
+  },
+  // TILT 屏蔽检查（V2.9.129 联动）
+  _isTiltBlocked:function(){
+    try{
+      if(typeof SelfTiltGuard!=='undefined'&&SelfTiltGuard.state&&SelfTiltGuard.state.level>=3){
+        return true;
+      }
+    }catch(e){}
+    return false;
+  },
+  setLevel:function(level, adviceText){
+    if(!this._b)this.init();
+    // TILT 状态屏蔽（铁律：TILT 时不闪换桌）
+    if(this._isTiltBlocked()){
+      if(this._b.tiltBlocked===false){
+        console.log('[FloatBallBlink] TILT 状态屏蔽换桌闪烁（SelfTiltGuard.level>=3）');
+        this._b.tiltBlocked=true;
+      }
+      this.clear();
+      return;
+    }
+    this._b.tiltBlocked=false;
+    var newLevel=level||0;
+    var newText=adviceText||'';
+    // 状态未变→不重启动画
+    if(this._b.currentLevel===newLevel&&this._b.adviceText===newText)return;
+    this._b.currentLevel=newLevel;
+    this._b.adviceText=newText;
+    this._b.lastBlinkAt=Date.now();
+    if(newLevel===0){
+      this.stopBlink();
+    }else{
+      this.startBlink();
+    }
+    // V2.9.131: 通知 Android 端切换闪烁频率（不动 7色策略色）
+    try{
+      if(typeof AndroidBridge!=='undefined'){
+        // freqHz: 0=无 / 2=2s慢闪(L1) / 4=0.8s快闪(L2)
+        var freq=newLevel===2?4:(newLevel===1?2:0);
+        if(AndroidBridge.setBlinkFreq){
+          AndroidBridge.setBlinkFreq(freq);
+        }else if(AndroidBridge.showAdvice){
+          // 兼容模式：通过 showAdvice 推 SIGNAL:CHANGE_TABLE 触发 Kotlin 端
+          var sig=newLevel===2?'SIGNAL:CHANGE_TABLE_L2':'SIGNAL:CHANGE_TABLE_L1';
+          AndroidBridge.showAdvice('COLOR:NEUTRAL|'+sig+'|REASON:换桌建议');
+        }
+      }
+    }catch(e){}
+    console.log('[FloatBallBlink] 级别切换 L'+newLevel+(newText?' ('+newText.substring(0,30)+')':''));
+  },
+  startBlink:function(){
+    if(this._intervalId){
+      clearInterval(this._intervalId);
+      this._intervalId=null;
+    }
+    var self=this;
+    var intervalMs=this._b.currentLevel===2?800:2000;
+    // 视觉层：调用 HTML 端动画元素
+    var blinkEl=document.getElementById('v29131-blink-indicator');
+    if(blinkEl){
+      blinkEl.className='tc-blink-icon l'+this._b.currentLevel;
+    }
+    this._intervalId=setInterval(function(){
+      // V2.9.131: 视觉层脉冲（HTML 端），不影响 Android 端悬浮球
+      self._b.lastBlinkAt=Date.now();
+    },intervalMs);
+  },
+  stopBlink:function(){
+    if(this._intervalId){
+      clearInterval(this._intervalId);
+      this._intervalId=null;
+    }
+    var blinkEl=document.getElementById('v29131-blink-indicator');
+    if(blinkEl)blinkEl.className='';
+    try{
+      if(typeof AndroidBridge!=='undefined'&&AndroidBridge.setBlinkFreq){
+        AndroidBridge.setBlinkFreq(0);
+      }
+    }catch(e){}
+  },
+  clear:function(){
+    if(!this._b)this.init();
+    // V2.9.131: 直接停止闪烁+重置状态（不递归调用 setLevel）
+    this._b.currentLevel=0;
+    this._b.adviceText='';
+    this.stopBlink();
+  },
+  getState:function(){
+    if(!this._b)this.init();
+    return{
+      level:this._b.currentLevel,
+      adviceText:this._b.adviceText,
+      tiltBlocked:this._b.tiltBlocked
+    };
+  }
+};
+
+
+// ===== V2.9.131: TableChangeDialog — 换桌弹窗（复用 reviewModal 模式）=====
+// 复用 V2.9.130 reviewModal 模式：HTML 在 body 末尾（tableChangeModal），CSS 在头部
+// 触发条件：TableQualityMeter.eval().level >= 1
+// API: show(evalResult) / hide(action) / isVisible()
+var TableChangeDialog={
+  _d:null,
+  init:function(){
+    if(this._d)return;
+    this._d={visible:false,lastEval:null,lastAction:null,lastShowAt:0};
+    console.log('[TableChangeDialog] 初始化完成（V2.9.131，复用 reviewModal 模式）');
+  },
+  show:function(evalResult){
+    if(!this._d)this.init();
+    if(!evalResult||evalResult.level===0)return;
+    this._d.lastEval=evalResult;
+    this._d.visible=true;
+    this._d.lastShowAt=Date.now();
+    var modal=document.getElementById('tableChangeModal');
+    var content=document.getElementById('tableChangeContent');
+    if(!modal||!content)return;
+    var bannerClass=evalResult.level===2?'tc-l2-banner':'tc-l1-banner';
+    var bannerText=evalResult.level===2?'🔴 强建议换桌（'+evalResult.metN+' 个老手桌信号）':'🟡 建议换桌（'+evalResult.metN+' 个老手桌信号）';
+    var html='<div class="'+bannerClass+'">'+bannerText+'</div>';
+    html+='<div class="tc-advice">样本：'+evalResult.sampleH+' 手 | 摘要：'+evalResult.summary+'</div>';
+    if(evalResult.conditions&&evalResult.conditions.length){
+      html+='<div style="margin-top:6px;font-size:11px;color:#888">检测到的条件：</div>';
+      for(var i=0;i<evalResult.conditions.length;i++){
+        var c=evalResult.conditions[i];
+        var metCls=c.met?'tc-condition met':'tc-condition';
+        var icon=c.met?'⚠️':'✓';
+        html+='<div class="'+metCls+'"><span>'+icon+' '+c.label+'</span></div>';
+      }
+    }
+    html+='<div class="tc-advice" style="margin-top:8px">💡 '+evalResult.advice+'</div>';
+    html+='<div style="margin-top:6px;font-size:10px;color:#666">⚠️ app 不主动换桌，请在 Lobby 选 5-max/6-max 200/500 桌手动坐下</div>';
+    content.innerHTML=html;
+    modal.style.display='block';
+    // 联动 FloatBallBlink
+    try{
+      if(typeof FloatBallBlink!=='undefined'){
+        FloatBallBlink.setLevel(evalResult.level, evalResult.advice);
+      }
+    }catch(e){}
+  },
+  hide:function(action){
+    if(!this._d)this.init();
+    this._d.visible=false;
+    this._d.lastAction=action||null;
+    var modal=document.getElementById('tableChangeModal');
+    if(modal)modal.style.display='none';
+    // 用户操作后：清除闪烁提示（避免持续打扰）
+    try{
+      if(typeof FloatBallBlink!=='undefined'){
+        FloatBallBlink.clear();
+      }
+    }catch(e){}
+    console.log('[TableChangeDialog] 关闭（action='+action+'）');
+  },
+  isVisible:function(){
+    if(!this._d)this.init();
+    return this._d.visible;
+  },
+  getState:function(){
+    if(!this._d)this.init();
+    return{
+      visible:this._d.visible,
+      lastEval:this._d.lastEval,
+      lastAction:this._d.lastAction,
+      lastShowAt:this._d.lastShowAt
+    };
+  }
+};
+
+
+// ===== V2.9.131: 联动钩子 — 每次 TableQualityMeter.eval 后自动同步到 Blink/Dialog =====
+var TableChangeAdvisor={
+  // 触发间隔：每 3 手评估一次（避免过度打扰）
+  EVAL_INTERVAL_HANDS:3,
+  _a:null,
+  init:function(){
+    if(this._a)return;
+    this._a={lastEvalHands:0};
+    console.log('[TableChangeAdvisor] 初始化完成（V2.9.131，联动钩子）');
+  },
+  // 主入口：HandHistory.add 末调用 TableQualityMeter.recordHand 后再调用本函数
+  tick:function(){
+    if(!this._a)this.init();
+    if(typeof TableQualityMeter==='undefined')return;
+    var stats=TableQualityMeter.getStats();
+    if(!stats)return;
+    var h=stats.hands||0;
+    if(h<TableQualityMeter.THRESHOLDS.MIN_HANDS)return;
+    if(h-this._a.lastEvalHands<this.EVAL_INTERVAL_HANDS)return;
+    this._a.lastEvalHands=h;
+    var er=TableQualityMeter.eval();
+    if(!er||er.level===0){
+      try{if(typeof FloatBallBlink!=='undefined')FloatBallBlink.clear();}catch(e){}
+      return;
+    }
+    // L1/L2 同步到 FloatBallBlink
+    try{
+      if(typeof FloatBallBlink!=='undefined'){
+        FloatBallBlink.setLevel(er.level, er.advice);
+      }
+    }catch(e){}
+  }
+};
+// V2.9.131 初始化联动
+TableChangeAdvisor.init();
 
 
 // ===== V2.9.61: CounterExploit — 反剥削逻辑 =====
@@ -8029,6 +8472,7 @@ HandHistory.init(); // V2.9.46: 手牌历史
 SessionStats.init(); // V2.9.57: Session统计
 SelfTiltGuard.init(); // V2.9.129: 自己Tilt早期预警
 HandClassifier.init(); // V2.9.130: 手牌历史自动归类（复盘金矿）
+TableQualityMeter.init(); // V2.9.131: 桌质评估+换桌建议+悬浮球闪烁（不动7色策略色）
 DRTA.init();
 _initMCWorker(); // V2.9.46: 预创建Worker
 mkMx();

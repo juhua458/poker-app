@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.130
-        name: "V2.9.130 手牌历史自动归类——4维复盘金矿（结果+牌力+决策+关键街）"
-        body: "V2.9.130: 手牌历史自动归类。每手牌按 4 维自动分类: RESULT(结果WIN_BIG/WIN_SMALL/CHOP/LOSE_SMALL/LOSE_BIG) + TYPE(牌力PREMIUM/STRONG/MEDIUM/WEAK) + DECISION(决策质量GOOD/OK/MISTAKE/BLUNDER) + STREET(关键街preflop/flop/turn/river)。MISTAKE 检测: 河牌 80%+ 胜率弃牌/河牌 60-80% 弃牌/转牌 70%+ 弃牌/强手弃牌+输钱/顶级牌翻前 limp。复盘弹窗: 顶部 Session 概览(总手数/BB/100/胜率) + 中部结果分布 + 下部牌力 BB/100 对比 + 决策质量 + 底部 Top10 弱手 + MISTAKE 列表。每 20 手小提示复盘。命名空间隔离: 不动 result.r / 通知栏 / 7色悬浮球, 不动 V2.9.129 SelfTiltGuard。SessionStats.reset 联动 HandClassifier.reset。E2E ≥20 断言 + 4 套回归(V2.9.129/128/127/126) 80+ PASS。"
+        tag_name: v2.9.131
+        name: "V2.9.131 换桌建议+悬浮球闪烁——4阈值3级(VPIP/WTSD/BB-100/3bet)+7色策略色保留"
+        body: "V2.9.131: 换桌建议+悬浮球闪烁。打满 8 手后开始桌质评估, 4 个老手桌信号(整桌平均 VPIP<22% / 3+对手 WTSD<25% / BB/100 连续负 5+手 / 翻前 3bet>12%)。L1 建议换桌(1-2条件) → 2s 慢闪黄色 / L2 强建议换桌(3+条件) → 0.8s 快闪红色。颜色(7色策略色)=策略强度 frozen 不动, 闪烁=视觉层新维度正交。TableQualityMeter(4阈值+3级+命名空间 _q 隔离) + FloatBallBlink(2s/0.8s 视觉层 + AndroidBridge.setBlinkFreq 公开) + TableChangeDialog(复用 reviewModal 模式 + 知道了/现在换桌按钮) + TableChangeAdvisor(每 3 手 tick 一次)。TILT 状态(SelfTiltGuard.level=3)屏蔽换桌闪烁(铁律)。app 不主动换桌(反 RTA), 引导 Lobby 5-max/6-max 200/500 手动坐下。Kotlin 端 startBallSignal 新增 freqHz=2(2s 慢闪) 和 freqHz=4(0.8s 快闪)。E2E 73/73 + 6 套回归(V2.9.130/129/128/127/126) 129+ PASS。"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
