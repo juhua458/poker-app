@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.120 · 位置以小博大+理智弃牌</title>
+<title>青云 v2.9.121 · 对手感知策略</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.120',
+    version:'2.9.121',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.120',
+  CURRENT_VERSION:'2.9.121',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1605,6 +1605,68 @@ var OppProfiler={
   
   getProfile:function(nickname){
     return this._profiles[nickname]||null;
+  },
+  
+  // V2.9.121: 获取面对的具体对手类型——替代全桌统一G.opp
+  // 翻前: 面对raiser→用raiser画像
+  // 翻后: 面对下注者→用下注者画像
+  // 无明确对手→回退全桌平均
+  getFacingOppType:function(){
+    var facingNk=null;
+    var street=getCurrentStreet();
+    
+    if(street==='preflop'){
+      // 翻前: 找raiser
+      if(G._raiserRole && G._raiserRole!=='unknown'){
+        // _raiserRole是从opp_seats的bet推算出来的角色
+        // 通过SeatRole反查位置，再通过_posMap查nickname
+        for(var pos in this._posMap){
+          var role=SeatRole.getRole(pos);
+          if(role===G._raiserRole){
+            facingNk=this._posMap[pos];
+            break;
+          }
+        }
+      }
+      // 兜底: 找opp_seats中bet最大的
+      if(!facingNk && G.oppSeats && G.oppSeats.length>0){
+        var maxBet=0, maxNk=null;
+        for(var i=0;i<G.oppSeats.length;i++){
+          var s=G.oppSeats[i];
+          if(s.bet>maxBet && s.status==='active'){
+            maxBet=s.bet;
+            maxNk=s.nickname||s.pos;
+          }
+        }
+        facingNk=maxNk;
+      }
+    }else{
+      // 翻后: 找下注者(有bet且active的对手)
+      if(G.oppSeats && G.oppSeats.length>0){
+        var maxBet2=0, maxNk2=null;
+        for(var j=0;j<G.oppSeats.length;j++){
+          var os=G.oppSeats[j];
+          if(os.bet>maxBet2 && os.status==='active'){
+            maxBet2=os.bet;
+            maxNk2=os.nickname||os.pos;
+          }
+        }
+        facingNk=maxNk2;
+      }
+    }
+    
+    // 找到具体对手→用他的画像
+    if(facingNk && this._profiles[facingNk]){
+      var p=this._profiles[facingNk];
+      if(p.type && p.type!=='unknown'){
+        console.log('[V2.9.121对手感知] 面对:'+facingNk+'('+p.pos+') type='+p.type+' VPIP='+(p.hands>0?Math.round(p.entered/p.hands*100):0)+'%');
+        return {type:p.type, nickname:facingNk, pos:p.pos, vpip:p.hands>0?Math.round(p.entered/p.hands*100):0, foldToCBet:this.getFoldToCBetPct(facingNk), foldTo3bet:this.getFoldTo3betPct(facingNk), checkRaise:this.getCheckRaisePct(facingNk), stackType:p.stackType||'unknown'};
+      }
+    }
+    
+    // 回退: 全桌平均
+    var overall=this.getOverallType();
+    return {type:overall||G.opp||'unknown', nickname:null, pos:null, vpip:0, foldToCBet:null, foldTo3bet:null, checkRaise:null, stackType:'unknown'};
   },
   
   getOverallType:function(){
@@ -4710,14 +4772,17 @@ function preF(k){
   var scene=G.scene;
   // V2.9.18: 根据对手类型动态调整翻前范围
   var baseO=BvBStrategy.isBvB()?BvBStrategy.getOpenRange(p):gO(p),baseT=gT(p),baseC=gC(p);
-  var oppType=G.opp||'unknown';
+  // V2.9.121: 对手感知——面对具体对手而非全桌平均
+  var _facingOpp=OppProfiler.getFacingOppType();
+  var oppType=_facingOpp.type||G.opp||'unknown';
+  if(_facingOpp.nickname)G._facingNickname=_facingOpp.nickname;
   var oS=adjustPreflopRange(baseO,oppType,scene==='reraise'?'reraise':scene==='raise'?'raise':'open');
   var tS=adjustPreflopRange(baseT,oppType,scene==='reraise'?'reraise':scene==='raise'?'raise':'open');
   var cS=adjustPreflopRange(baseC,oppType,scene==='reraise'?'reraise':scene==='raise'?'raise':'open');
   var spr=calcSPR();
   var sprAdvice=getSPRAdvice(spr);
   var eq=eQ(k);
-  // V2.9.120: Speculative hand implied odds bonus
+  // V2.9.121: Speculative hand implied odds bonus
   if(k.length===2&&k[0]===k[1]&&'23456'.indexOf(k[0])>=0)eq+=8; // Small pairs: set mining
   if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined&&Math.abs(_r1-_r2)===1&&_r2<=8)eq+=5;if(_sr[0]==='A'&&_r2!==undefined&&_r2<=3)eq+=3;} // SC+suited ace low
   var pa=pA(p);
@@ -4736,11 +4801,11 @@ function preF(k){
   if(FourBetResponse.isFacing5bet()){
     var _5betDec=FourBetResponse.decide(k,eq,oppType,pot,bet,stk);
     if(_5betDec.action==='raise'){
-      var exploitResult5b=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot,facing3bet:true});
+      var exploitResult5b=applyExploit(eq,'raise',oppType,{bet:bet,pot:pot,facing3bet:true});
       return{a:'raise',v:stk,r:_5betDec.reason,eq:exploitResult5b.eq,c:'h',sizing:stk,scene:'面对5bet',spr:spr,exploit:exploitResult5b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     if(_5betDec.action==='call'){
-      var exploitResult5c=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResult5c=applyExploit(eq,'call',oppType,{bet:bet,pot:pot});
       return{a:'call',r:_5betDec.reason,eq:exploitResult5c.eq,c:_5betDec.c,scene:'面对5bet',spr:spr,evs:compareEVs(eq,pot,bet,0),exploit:exploitResult5c.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'fold',r:_5betDec.reason,eq:eq,c:_5betDec.c,scene:'面对5bet',spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -4760,7 +4825,7 @@ function preF(k){
     // 极短码: eq>=55才commit, 短码: eq>=50
     var preCommitThresh=sprZonePre==='ultra_short'?55:50;
     if(eq>=preCommitThresh){
-      var exploitResult=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot});
       return{a:'raise',v:stk,r:'SPR '+sprZonePre+'('+spr.toFixed(1)+')全下',eq:exploitResult.eq,c:eq>=65?'h':'m',sizing:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,exploit:exploitResult.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'fold',r:'SPR '+sprZonePre+'('+spr.toFixed(1)+')弃牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -4807,12 +4872,12 @@ function preF(k){
     var isBluff4b=f4b&&f4b.bluff&&is4betPos;
     if(f4b&&f4b.val>=50&&Math.random()*100<f4bVal){
       var rSz=Math.round(actualBet*2.5);
-      var exploitResult2=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
+      var exploitResult2=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot,facing3bet:true});
       G._heroDid4bet=true;return{a:'raise',v:stk<=rSz?stk:rSz,r:k+' 4bet反击!',eq:exploitResult2.eq,c:'h',sizing:stk<=rSz?stk:rSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz),exploit:exploitResult2.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     if(isBluff4b&&Math.random()*100<f4b.bluff){
       var rSz=Math.round(actualBet*2.5);
-      var exploitResult2b=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
+      var exploitResult2b=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot,facing3bet:true});
       G._heroDid4bet=true;return{a:'raise',v:stk<=rSz?stk:rSz,r:k+' 4bet诈唬!',eq:exploitResult2b.eq,c:'l',sizing:stk<=rSz?stk:rSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz),exploit:exploitResult2b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: BvB SB面对BB 3bet专用防守
@@ -4820,11 +4885,11 @@ function preF(k){
     if(_bvbSB){
       if(_bvbSB.action==='4bet'){
         var rSzBVB=Math.round(actualBet*2.5);
-        var exploitBVSB=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
+        var exploitBVSB=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot,facing3bet:true});
         G._heroDid4bet=true;return{a:'raise',v:stk<=rSzBVB?stk:rSzBVB,r:_bvbSB.reason,eq:exploitBVSB.eq,c:'h',sizing:stk<=rSzBVB?stk:rSzBVB,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSzBVB),exploit:exploitBVSB.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       if(_bvbSB.action==='call'){
-        var exploitBVSBC=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+        var exploitBVSBC=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
         return{a:'call',r:_bvbSB.reason,eq:exploitBVSBC.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitBVSBC.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       if(_bvbSB.action==='fold'){
@@ -4834,7 +4899,7 @@ function preF(k){
     // V2.9.71: 3bet跟注分两档
     // V2.9.79: 位置感知3bet响应——优先用位置范围表决定
     if(threebetDecision.action==='call'){
-      var exploitResult3c=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult3c=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:k+' 位置3bet跟('+G.pos+')',eq:exploitResult3c.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult3c.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     if(threebetDecision.action==='fold' && eq < 50){
@@ -4842,13 +4907,13 @@ function preF(k){
     }
     // 强牌: 范围表支持+eq>=55 → 跟注
     if(eq>=55&&(cS.indexOf(k)!==-1||tS.indexOf(k)!==-1)){
-      var exploitResult3=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult3=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:k+' 跟3bet',eq:exploitResult3.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult3.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.71: 赔率兜底——3bet池跟注价格/底池比例合理+eq>=45即可跟
     var po3bet=actualBet>0?actualBet/(pot+actualBet*2):0;
     if(eq>=45&&eq>=po3bet*100&&(cS.indexOf(k)!==-1||k.indexOf('A')===0||k.indexOf('K')===0||k.indexOf('Q')===0||parseInt(k)>=99)){
-      var exploitResult3b=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult3b=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:'3bet池赔率够',eq:exploitResult3b.eq,c:'m',po:po3bet*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult3b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'fold',r:k+' 弃牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -4858,11 +4923,11 @@ function preF(k){
     var _bvbBB=BvBStrategy.bbDefend(k,eq,actualBet,pot);
     if(_bvbBB){
       if(_bvbBB.action==='raise'){
-        var exploitBVB=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
+        var exploitBVB=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot});
         return{a:'raise',v:stk<=_bvbBB.sizing?stk:_bvbBB.sizing,r:_bvbBB.reason,eq:exploitBVB.eq,c:_bvbBB.type==='value'?'h':'l',sizing:stk<=_bvbBB.sizing?stk:_bvbBB.sizing,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,_bvbBB.sizing),exploit:exploitBVB.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       if(_bvbBB.action==='call'){
-        var exploitBVBc=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+        var exploitBVBc=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
         return{a:'call',r:_bvbBB.reason,eq:exploitBVBc.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitBVBc.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
@@ -4870,55 +4935,55 @@ function preF(k){
     var _3betDec=shouldThreebet(k,G.pos,oppType,G._raiserRole);
     if(_3betDec.action==='3bet'){
       var _3betSz=Math.round(Math.max(actualBet*3,pot*0.75));
-      var exploitResult3d=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult3d=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot});
       return{a:'raise',v:stk<=_3betSz?stk:_3betSz,r:_3betDec.reason+'('+G.pos+')',eq:exploitResult3d.eq,c:_3betDec.type==='value'?'h':'l',sizing:stk<=_3betSz?stk:_3betSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,_3betSz),exploit:exploitResult3d.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     var opp3betRange=gT(G.pos);
     // V2.9.35: 3bet需eq>=50, 否则跟注更合理(AQo/JJ等边缘手牌)
     if(opp3betRange.indexOf(k)!==-1&&eq>=50){
       var rSz2=Math.round(actualBet*2.5);
-      var exploitResult4=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult4=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot});
       return{a:'raise',v:rSz2,r:k+' 3bet反击',eq:exploitResult4.eq,c:'h',sizing:rSz2,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz2),exploit:exploitResult4.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.35: 面对raise跟注需eq>=48或范围支持, eq<45太松(KJo等不该跟)
     if(cS.indexOf(k)!==-1||eq>=48){
-      var exploitResult5=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult5=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:k+' 跟注',eq:exploitResult5.eq,c:eq>=55?'h':'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult5.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     var po=actualBet>0?actualBet/(pot+actualBet*2):0;
     var raiseContractList=(PREFLOP_OPP_ADJ[oppType]||PREFLOP_OPP_ADJ.unknown).facing_raise_contract;
     if(eq>=35&&eq>=po*100&&raiseContractList.indexOf(k)===-1){
-      var exploitResult6=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult6=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:'赔率够跟',eq:exploitResult6.eq,c:'m',po:po*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult6.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var exploitResult7=applyExploit(eq,'fold',G.opp,{bet:actualBet,pot:pot});
+    var exploitResult7=applyExploit(eq,'fold',oppType,{bet:actualBet,pot:pot});
     return{a:'fold',r:k+' 不够跟注',eq:exploitResult7.eq,c:'l',scene:sceneLabel,spr:spr,exploit:exploitResult7.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(scene==='call'){
     // V2.9.105: Squeeze挤压加注 - raise+callers场景
     var _sqDec=SqueezeStrategy.decide(k,scene,bet,G.act,G.pos,G.opp,eq,stk,pot);
     if(_sqDec&&_sqDec.action==='squeeze'){
-      var exploitSq=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot});
+      var exploitSq=applyExploit(eq,'raise',oppType,{bet:bet,pot:pot});
       return{a:'raise',v:_sqDec.sizing,r:_sqDec.reason,eq:exploitSq.eq,c:_sqDec.type==='value'?'h':'l',sizing:_sqDec.sizing,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,bet,_sqDec.sizing),exploit:exploitSq.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: 多人池iso-raise尺寸加大(非squeeze的隔离加注)
     if(oS.indexOf(k)!==-1&&pA(p)>=0.5){
       var _isoMul=Multiway.isoRaiseAdj();
       var rSz3=Math.round((pot*0.6+actualBet)*_isoMul);
-      var exploitResult8=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult8=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot});
       return{a:'raise',v:rSz3,r:k+' 隔离加注',eq:exploitResult8.eq,c:'h',sizing:rSz3,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz3),exploit:exploitResult8.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: 多人池跟注阈值提高
     var _mwCallThresh=48+Multiway.callThresholdAdj();
     if(cS.indexOf(k)!==-1&&eq>=_mwCallThresh){
-      var exploitResult9=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult9=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:k+' 多人底池跟注',eq:exploitResult9.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult9.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.71: 赔率兜底——limped pot跟注便宜，不该全弃
     var poCall=actualBet>0?actualBet/(pot+actualBet*2):0;
     var _mwOddsThresh=35+Multiway.callThresholdAdj();
     if(eq>=_mwOddsThresh&&eq>=poCall*100){
-      var exploitResult9b=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
+      var exploitResult9b=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:'limp池赔率够',eq:exploitResult9b.eq,c:'m',po:poCall*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult9b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'fold',r:k+' 多人池需强牌',eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -4927,11 +4992,11 @@ function preF(k){
   if(oS.indexOf(k)!==-1||eq>=50){
     // V2.9.47: 2人桌SB开池2x, 3人桌SB开池2.5x, 其他3x
     var rb=p==='bb'?2:(G.tt<=2&&p==='sb')?2:p==='sb'?2.5:3;
-    var exploitResult10=applyExploit(eq,'raise',G.opp,{pot:pot});
+    var exploitResult10=applyExploit(eq,'raise',oppType,{pot:pot});
     var sizing=betSizingAdv(eq,spr,null,pa>=0.5,G.opp,exploitResult10.sizingMod,"PRE","preflop");
     return{a:'raise',v:rb,r:oS.indexOf(k)!==-1?k+' '+pL(p)+'开池':k+' 位好',eq:exploitResult10.eq,c:eq>=55?'h':eq>=45?'m':'l',sizing:Math.max(rb,sizing),scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,0,rb),exploit:exploitResult10.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
-  var exploitResult11=applyExploit(eq,'fold',G.opp,{pot:pot});
+  var exploitResult11=applyExploit(eq,'fold',oppType,{pot:pot});
   return{a:'fold',r:k+' '+pL(p)+'弃牌',eq:exploitResult11.eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
 }
 
@@ -5149,7 +5214,7 @@ function postF(k){
   var _exactEq=sim.exact||false;
   var _exactCombos=sim.combos||0;
   // V2.9.46: MC虚高校准(基于实际牌谱对比,非经验值)
-  // V2.9.120: 放宽DRAW折扣——小听牌不该一律重打
+  // V2.9.121: 放宽DRAW折扣——小听牌不该一律重打
   // DRAW折扣: 组合听牌0.82, 强听8+outs 0.78, 中听4-7outs 0.72, 弱听<4outs 0.65
   if(hClass.name==='DRAW'){
     var drawDiscount=hClass.outs>=15?0.92:hClass.outs>=12?0.88:hClass.outs>=8?0.85:hClass.outs>=4?0.80:0.72;
@@ -5161,14 +5226,14 @@ function postF(k){
     var medDiscount=hClass.desc.indexOf('顶对')>=0?0.85:hClass.desc.indexOf('中对')>=0?0.80:0.75;
     eq=eq*medDiscount;
   }
-  // V2.9.120: 面对大牌保持理智——大注/超池/连续下注收紧
+  // V2.9.121: 面对大牌保持理智——大注/超池/连续下注收紧
   if(betPotRatio>=1.0&&hClass.name==='DRAW'){
     eq=eq*0.85; // 超池下注时听牌额外折扣——对手极化(强或诈唬),但我们是小听牌不该追
-    console.log('[V2.9.120理智] 超池下注DRAW额外折扣*0.85 eq→'+eq.toFixed(1));
+    console.log('[V2.9.121理智] 超池下注DRAW额外折扣*0.85 eq→'+eq.toFixed(1));
   }
   if(betPotRatio>=0.75&&hClass.name==='MEDIUM'&&hClass.desc.indexOf('底对')>=0){
     eq=eq*0.80; // 大注面对底对额外折扣——对手不会用大注打空气
-    console.log('[V2.9.120理智] 大注+底对额外折扣*0.80 eq→'+eq.toFixed(1));
+    console.log('[V2.9.121理智] 大注+底对额外折扣*0.80 eq→'+eq.toFixed(1));
   }
   // V2.9.47: 翻后eq衰减——2人桌不衰减,3人桌微调
   // 翻前act=桌位人数, 翻后act可能=桌位但实际进池人数更少
@@ -5178,7 +5243,7 @@ function postF(k){
   else if(G.act<=5)opponents=G.act;
   else opponents=Math.max(2,Math.min(G.act, Math.ceil(G.act*0.5)+1));
   eq=multiPlayerEquity(eq,opponents);
-  // V2.9.120: 位置×手牌类型交互加成
+  // V2.9.121: 位置×手牌类型交互加成
   if(ip){
     eq+=5; // IP基础+5(原+3)
     if(hClass.name==="DRAW")eq+=3; // IP听牌: 位置优势大，能免费看牌
@@ -5201,9 +5266,14 @@ function postF(k){
   var boardInfo=bTexture.desc;
   var outs=calcOuts(hole,comm);
   var io=null;
-  if(outs>0&&bet>0)io=ImpliedOddsCalc.calc(outs,spr,bet,pot,G.opp,ip,street,stk);
-  var exploitResult=applyExploit(eq,scene==='check'?'raise':scene==='allin'?'call':'call',G.opp,{bet:bet,pot:pot});
+  if(outs>0&&bet>0)io=ImpliedOddsCalc.calc(outs,spr,bet,pot,_facingOppType,ip,street,stk);
+  var exploitResult=applyExploit(eq,scene==='check'?'raise':scene==='allin'?'call':'call',_facingOppType,{bet:bet,pot:pot});
   // DRTA profile + Tilt检测 + 反剥削检测（必须在sizing计算之前）
+  // V2.9.121: 翻后对手感知——面对的具体对手
+  var _facingOpp=OppProfiler.getFacingOppType();
+  var _facingOppType=_facingOpp.type||G.opp||'unknown';
+  if(_facingOpp.nickname)G._facingNickname=_facingOpp.nickname;
+
   var profile=DRTA.getProfile();
   // V2.9.60: Tilt检测
   var tiltInfo=TiltDetector.detectTilt(profile);
@@ -5214,7 +5284,7 @@ function postF(k){
   // Tilt+反剥削尺度修正
   var _tiltSizingMod=tiltInfo.tilt?tiltInfo.adjustments.sizingAdj||1:1;
   var _ceSizingMod=ceResult.detected&&ceResult.adjustments.sizingAdj?ceResult.adjustments.sizingAdj:1;
-  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,G.opp,exploitResult.sizingMod||1*_tiltSizingMod*_ceSizingMod,hClass.name,street);
+  var sizing=betSizingAdv(eq,spr,bTexture,ip,false,_facingOppType,exploitResult.sizingMod||1*_tiltSizingMod*_ceSizingMod,hClass.name,street);
   var weights=DRTA.getDRTAWeight(profile);
   if(street==='turn'){eq=Math.max(5,eq-5);}
   else if(street==='river'){eq=Math.max(5,eq-3);}
@@ -5265,12 +5335,12 @@ function postF(k){
         if(betChoice===0){
           // 大注: 75-100%底池
           var bigSizing=Math.round(pot*0.88);
-          var exploitBigR=applyExploit(eq,'raise',G.opp,{pot:pot});
+          var exploitBigR=applyExploit(eq,'raise',_facingOppType,{pot:pot});
           return{a:'raise',v:bigSizing,r:'河牌'+hClass.desc+'大注',eq:exploitBigR.eq,c:'h',sizing:bigSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
         }else if(betChoice===1){
           // 中注: 40-60%底池
           var medSizing=Math.round(pot*0.50);
-          var exploitMedR=applyExploit(eq,'raise',G.opp,{pot:pot});
+          var exploitMedR=applyExploit(eq,'raise',_facingOppType,{pot:pot});
           return{a:'raise',v:medSizing,r:'河牌'+hClass.desc+'薄价值',eq:exploitMedR.eq,c:'m',sizing:medSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
         }
         // betChoice===2 → 过牌(继续走原有逻辑)
@@ -5278,22 +5348,22 @@ function postF(k){
     }
     // 河牌bluff频率与底池赔率挂钩(GTO: bluff频率≈底池赔率/(1+底池赔率))
     // V2.9.105: 多人池bluff频率大幅降低
-    if(scene==='check'&&hClass.name==='AIR'&&G.opp!=='calling_station'&&G.opp!=='fish'){
+    if(scene==='check'&&hClass.name==='AIR'&&_facingOppType!=='calling_station'&&_facingOppType!=='fish'){
       var potOdds=1/(1+pot);
       var bluffFreq=Math.round(potOdds/(1+potOdds)*100);
       bluffFreq=Math.max(10,Math.min(35,bluffFreq));
       bluffFreq=Math.round(bluffFreq*Multiway.bluffFreqAdj()); // 多人池bluff衰减
-      if(G.opp==='nit'||G.opp==='tight')bluffFreq=Math.min(bluffFreq+15,45);
+      if(_facingOppType==='nit'||_facingOppType==='tight')bluffFreq=Math.min(bluffFreq+15,45);
       if(Math.random()*100<bluffFreq){
         var bluffSizing2=Math.round(pot*0.55);
-        var exploitBluff2=applyExploit(eq,'raise',G.opp,{pot:pot});
+        var exploitBluff2=applyExploit(eq,'raise',_facingOppType,{pot:pot});
         return{a:'raise',v:bluffSizing2,r:'河牌bluff('+bluffFreq+'%)',eq:exploitBluff2.eq,c:'l',sizing:bluffSizing2,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
     // 河牌面对下注: STRONG/NUTS必跟, MEDIUM看赔率, DRAW/AIR必弃
     if(bet>0&&hClass.name==='MEDIUM'){
       if(eq>=nq+5){
-        var exploitRM=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+        var exploitRM=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
         return{a:'call',r:'河牌中对跟注',eq:exploitRM.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       return{a:'fold',r:'河牌中对不够赔率',eq:eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -5310,27 +5380,27 @@ function postF(k){
   // === DRTA层: 先检查战略撤退 ===
   var retreat=StrategicRetreat.check(eq,hClass,street,scene,profile,bTexture,spr,opponents,pot,bet);
   if(retreat.action){
-    var exploitR=applyExploit(eq,retreat.action,G.opp,{bet:bet,pot:pot});
+    var exploitR=applyExploit(eq,retreat.action,_facingOppType,{bet:bet,pot:pot});
     return{a:retreat.action,r:retreat.strategy,eq:exploitR.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,strategy:retreat.strategy,weights:weights}};
   }
   // === DRTA层: LAG trap检查 ===
   // V2.9.105: Slowplay策略——替代简单LagTrap
-  var _slowplay=SlowplayStrategy.decide(hClass,street,scene,bTexture,G.opp,ip,eq,spr);
+  var _slowplay=SlowplayStrategy.decide(hClass,street,scene,bTexture,_facingOppType,ip,eq,spr);
   var lagTrap=_slowplay?{action:_slowplay.action,strategy:_slowplay.reason,slowplay:true}:LagTrap.check(eq,hClass,street,scene,profile);
   if(lagTrap.action){G._slowplayed=!!lagTrap.slowplay;
-    var exploitT=applyExploit(eq,lagTrap.action,G.opp,{bet:bet,pot:pot});
+    var exploitT=applyExploit(eq,lagTrap.action,_facingOppType,{bet:bet,pot:pot});
     return{a:lagTrap.action,r:lagTrap.strategy,eq:exploitT.eq,c:hClass.name==='NUTS'?'h':'m',sizing:lagTrap.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,strategy:lagTrap.strategy,weights:weights}};
   }
   // === DRTA层: 诈唬检查 ===
   var bluff=StrategicBluff.check(eq,hClass,street,scene,profile,bTexture,opponents,pot,bet,sizing,tiltInfo,ceResult);
   if(bluff.action){
-    var exploitB=applyExploit(eq,bluff.action,G.opp,{bet:bet,pot:pot});
+    var exploitB=applyExploit(eq,bluff.action,_facingOppType,{bet:bet,pot:pot});
     return{a:bluff.action,r:bluff.strategy,eq:exploitB.eq,c:'m',sizing:bluff.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,strategy:bluff.strategy,weights:weights}};
   }
   // === DRTA层: 薄价值下注 ===
   var thinVal=StrategicBluff.thinValue(eq,hClass,street,scene,profile,opponents);
   if(thinVal.action){
-    var exploitV=applyExploit(eq,thinVal.action,G.opp,{bet:bet,pot:pot});
+    var exploitV=applyExploit(eq,thinVal.action,_facingOppType,{bet:bet,pot:pot});
     return{a:thinVal.action,r:thinVal.strategy,eq:exploitV.eq,c:'m',sizing:thinVal.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,strategy:thinVal.strategy,weights:weights}};
   }
   if(spr<3&&bet>0){
@@ -5341,151 +5411,151 @@ function postF(k){
       var maxAllin=pot*2.5;
       if(!isFacingAllin&&stk>maxAllin){
         var sizingSPR=Math.round(pot*0.75+bet);
-        var exploitStrongSPR=applyExploit(eq,"raise",G.opp,{bet:bet,pot:pot});
+        var exploitStrongSPR=applyExploit(eq,"raise",_facingOppType,{bet:bet,pot:pot});
         return{a:"raise",v:sizingSPR,r:hClass.name+"价值加注",eq:exploitStrongSPR.eq,c:"h",po:nq,sizing:sizingSPR,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitStrongSPR.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       var act2s=isFacingAllin?"call":"allin";
-      var exploitStrongSPR2=applyExploit(eq,act2s,G.opp,{bet:bet,pot:pot});
+      var exploitStrongSPR2=applyExploit(eq,act2s,_facingOppType,{bet:bet,pot:pot});
       return{a:act2s,v:isFacingAllin?bet:stk,r:hClass.name+"短码全下",eq:exploitStrongSPR2.eq,c:"h",po:nq,sizing:isFacingAllin?bet:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitStrongSPR2.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.35: 河牌不强牌不全下(跟注或弃牌), 翻/转才SPR全下
     if(eq>=nq-3&&stk<=bet*3&&street!=='river'){
       var isFacingAllin=bet>=stk||bet>=pot*2;
       var act2=isFacingAllin?'call':'allin';
-      var exploitResult2=applyExploit(eq,act2,G.opp,{bet:bet,pot:pot});
+      var exploitResult2=applyExploit(eq,act2,_facingOppType,{bet:bet,pot:pot});
       return{a:act2,v:isFacingAllin?bet:stk,r:isFacingAllin?'SPR短码跟':'SPR全下',eq:exploitResult2.eq,c:eq>=nq?'h':'m',po:nq,sizing:isFacingAllin?bet:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult2.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.35: 河牌SPR短码区跟注/fold而非全下
     if(eq>=nq+3&&street==='river'){
-      var exploitResultR=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResultR=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:'河牌短码跟',eq:exploitResultR.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResultR.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.74: AIR保护——短码也不追空气牌（6c2s短码call bug修复）
     if(hClass.name==='AIR'&&bet>0){
-      var exploitAirSPR=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+      var exploitAirSPR=applyExploit(eq,'fold',_facingOppType,{bet:bet,pot:pot});
       return{a:'fold',r:'短码空气牌不追',eq:exploitAirSPR.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     if(eq>=nq+5){
-      var exploitResult3=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResult3=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:'短码够赔率跟',eq:exploitResult3.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult3.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'fold',r:'短码弃牌',eq:eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(short&&bet>0&&eq>=nq-3&&stk<=bet*3){
-    var exploitResult4=applyExploit(eq,'allin',G.opp,{bet:bet,pot:pot});
+    var exploitResult4=applyExploit(eq,'allin',_facingOppType,{bet:bet,pot:pot});
     return{a:'allin',v:stk,r:'短筹码全下',eq:exploitResult4.eq,c:eq>=nq?'h':'m',po:nq,sizing:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult4.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(hClass.name==='AIR'&&bet>0){
     // V2.9.51: 底对额外防御——底对只有2outs(set)，面对>1/3池下注一律弃牌
     var isBottomPair=hClass.desc&&hClass.desc.indexOf('底对')>=0;
     if(isBottomPair&&_effectiveBet/pot>=0.33){
-      var exploitBp=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+      var exploitBp=applyExploit(eq,'fold',_facingOppType,{bet:bet,pot:pot});
       return{a:'fold',r:'底对不追大注',eq:exploitBp.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var exploitAir=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+    var exploitAir=applyExploit(eq,'fold',_facingOppType,{bet:bet,pot:pot});
     return{a:'fold',r:'空气牌不追',eq:exploitAir.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(outs>0&&io&&hClass.name!=="NUTS"&&hClass.name!=="STRONG"){
-    // V2.9.120: 对手连续下注收紧——flop+turn都下注=范围强,听牌需8+outs才追
+    // V2.9.121: 对手连续下注收紧——flop+turn都下注=范围强,听牌需8+outs才追
     var _oppBarreled=street==='turn'&&(_prevOppAction==='bet-call'||_prevOppAction==='donk')&&bet>0;
     if(_oppBarreled&&outs<8){
       Multiway.log('Draw','对手连续下注outs='+outs+'<8→不追连续下注');
       // 跳过draw跟注，走后面通用判断
     } else
     // V2.9.105: 多人池听牌(原只追强听牌)
-    // V2.9.120: 放宽minOuts 8→6, nutOnly→false, 隐含赔率1.2→1.0
+    // V2.9.121: 放宽minOuts 8→6, nutOnly→false, 隐含赔率1.2→1.0
     var _mwDraw=Multiway.drawAdj();
     if(outs<_mwDraw.minOuts){
       Multiway.log('Draw','outs='+outs+'<'+_mwDraw.minOuts+'→不追');
       // 跳过draw跟注，走后面通用判断
     } else if(io.total>=io.breakeven*1.0){
-      var exploitResult5=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResult5=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:outs+'outs·'+io.advice,eq:exploitResult5.eq,c:'m',po:parseFloat(io.total),scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult5.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
   }
   if(scene==='check'){
     // V2.9.105: Double-barrel精细化——替代旧硬编码3规则
-    var _dbResult=DBStrategy.decide(hClass,bTexture,street,scene,eq,pot,G.opp,ip);
+    var _dbResult=DBStrategy.decide(hClass,bTexture,street,scene,eq,pot,_facingOppType,ip);
     if(_dbResult){
       if(_dbResult.a==='raise'){
-        var exploitDB=applyExploit(eq,'raise',G.opp,{bet:0,pot:pot});
+        var exploitDB=applyExploit(eq,'raise',_facingOppType,{bet:0,pot:pot});
         return{a:'raise',v:_dbResult.v,r:_dbResult.r,eq:exploitDB.eq,c:_dbResult.c,sizing:_dbResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       // check: DB策略决定不barrel，继续走后面c-bet/通用逻辑
     }
     // V2.9.105: C-bet策略——统一模块替代旧GTO频率+CBET_FREQ双系统
     // 优先使用CBetStrategy(含PFR检测+牌面感知+对手适配+尺度优化)
-    var _cbetResult=CBetStrategy.decide(hClass,bTexture,street,scene,eq,pot,G.opp,ip);
+    var _cbetResult=CBetStrategy.decide(hClass,bTexture,street,scene,eq,pot,_facingOppType,ip);
     if(_cbetResult){
       if(_cbetResult.a==='raise'){
-        var exploitCB=applyExploit(eq,'raise',G.opp,{pot:pot});
-        OppProfiler.recordHeroCBet();return{a:'raise',v:_cbetResult.v,r:_cbetResult.r,eq:exploitCB.eq,c:_cbetResult.c,sizing:_cbetResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights},sizingOptions:getSizingOptions(eq,hClass.name,street,ip,G.opp,spr,bTexture,pot,bet)};
+        var exploitCB=applyExploit(eq,'raise',_facingOppType,{pot:pot});
+        OppProfiler.recordHeroCBet();return{a:'raise',v:_cbetResult.v,r:_cbetResult.r,eq:exploitCB.eq,c:_cbetResult.c,sizing:_cbetResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights},sizingOptions:getSizingOptions(eq,hClass.name,street,ip,_facingOppType,spr,bTexture,pot,bet)};
       }
       // check: 不是c-bet场景或决定不c-bet，继续走后面逻辑
     }
     // 非PFR场景的旧逻辑：AIR vs nit/tight诈唬(保留作为通用诈唬)
     var isBottomPair2=hClass.desc&&hClass.desc.indexOf('底对')>=0;
     // V2.9.105: Donk Lead——OOP非PFR主动下注
-    var _donkResult=DonkLeadStrategy.decide(hClass,bTexture,street,scene,eq,pot,G.opp,ip);
+    var _donkResult=DonkLeadStrategy.decide(hClass,bTexture,street,scene,eq,pot,_facingOppType,ip);
     if(_donkResult){
-      var exploitDL=applyExploit(eq,'raise',G.opp,{pot:pot});
+      var exploitDL=applyExploit(eq,'raise',_facingOppType,{pot:pot});
       return{a:'raise',v:_donkResult.sizing,r:_donkResult.reason,eq:exploitDL.eq,c:_donkResult.freq>=30?'m':'l',sizing:_donkResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: Probe bet——IP非PFR主动下注(CBet是非PFR跳过, DonkLead是IP跳过)
     var _didPFR4probe=ActionLine.didPreflopRaise();
     if(!_didPFR4probe&&ip&&street!=='river'){
-      var _probeResult=ProbeStrategy.decide(hClass,bTexture,street,scene,eq,pot,G.opp,ip);
+      var _probeResult=ProbeStrategy.decide(hClass,bTexture,street,scene,eq,pot,_facingOppType,ip);
       if(_probeResult){
-        var exploitProbe=applyExploit(eq,'raise',G.opp,{pot:pot});
+        var exploitProbe=applyExploit(eq,'raise',_facingOppType,{pot:pot});
         return{a:'raise',v:_probeResult.sizing,r:_probeResult.reason,eq:exploitProbe.eq,c:_probeResult.freq>=30?'m':'l',sizing:_probeResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
-            if(!isBottomPair2&&(hClass.name==='AIR'||(hClass.name==='DRAW'&&hClass.outs<=4))&&ip&&G.act<=3&&(G.opp==='nit'||G.opp==='tight')&&bTexture.wetness<=2){
+            if(!isBottomPair2&&(hClass.name==='AIR'||(hClass.name==='DRAW'&&hClass.outs<=4))&&ip&&G.act<=3&&(_facingOppType==='nit'||_facingOppType==='tight')&&bTexture.wetness<=2){
       var bluffSizing=Math.round(pot*0.5);
       if(bluffSizing>=2){
-        var exploitNitBluff=applyExploit(eq,'raise',G.opp,{bet:0,pot:pot});
-        return{a:'raise',v:bluffSizing,r:'vs'+G.opp+'诈唬C-bet',eq:exploitNitBluff.eq,c:'l',sizing:bluffSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+        var exploitNitBluff=applyExploit(eq,'raise',_facingOppType,{bet:0,pot:pot});
+        return{a:'raise',v:bluffSizing,r:'vs'+_facingOppType+'诈唬C-bet',eq:exploitNitBluff.eq,c:'l',sizing:bluffSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
     if(street==='river'&&hClass.name==='MEDIUM'){
       // V2.9.105: 薄价值策略替代硬编码过牌
-      var _tvResult=ThinValueStrategy.decide(eq,pot,hClass,G.opp,ip,bTexture,street,scene);
+      var _tvResult=ThinValueStrategy.decide(eq,pot,hClass,_facingOppType,ip,bTexture,street,scene);
       if(_tvResult){
-        var exploitTV=applyExploit(eq,'raise',G.opp,{pot:pot});
+        var exploitTV=applyExploit(eq,'raise',_facingOppType,{pot:pot});
         return{a:'raise',v:_tvResult.sizing,r:_tvResult.reason,eq:exploitTV.eq,c:'m',sizing:_tvResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
-      var exploitRiverMP=applyExploit(eq,'check',G.opp,{pot:pot});return{a:'check',r:'河牌中对过牌',eq:exploitRiverMP.eq,c:'m',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
+      var exploitRiverMP=applyExploit(eq,'check',_facingOppType,{pot:pot});return{a:'check',r:'河牌中对过牌',eq:exploitRiverMP.eq,c:'m',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.106: River极化诈唬——AIR/WEAK河牌匹配超池sizing
     if(street==='river'&&(hClass.name==='AIR'||hClass.name==='WEAK')){
-      var _rpResult=RiverPolarStrategy.decide(hClass,street,scene,eq,pot,G.opp,bTexture,ip,spr);
+      var _rpResult=RiverPolarStrategy.decide(hClass,street,scene,eq,pot,_facingOppType,bTexture,ip,spr);
       if(_rpResult){
-        var exploitRP=applyExploit(eq,'raise',G.opp,{pot:pot});
+        var exploitRP=applyExploit(eq,'raise',_facingOppType,{pot:pot});
         return{a:'raise',v:_rpResult.sizing,r:_rpResult.reason,eq:exploitRP.eq,c:'l',sizing:_rpResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
     if(street==='river'&&(hClass.name==='AIR'||hClass.name==='WEAK')){
-      if(G.opp==='tight'&&eq>=35){
-        var exploitRiverBluff=applyExploit(eq,'raise',G.opp,{pot:pot});
+      if(_facingOppType==='tight'&&eq>=35){
+        var exploitRiverBluff=applyExploit(eq,'raise',_facingOppType,{pot:pot});
         return{a:'raise',v:sizing,r:'紧被动可bluff',eq:exploitRiverBluff.eq,c:'m',sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
-      var exploitCheck=applyExploit(eq,'check',G.opp,{pot:pot});
+      var exploitCheck=applyExploit(eq,'check',_facingOppType,{pot:pot});
       return{a:'check',r:'过牌'+boardInfo,eq:exploitCheck.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: Overbet——NUTS/STRONG超池下注
     if(hClass.name==='NUTS'||hClass.name==='STRONG'){
-      var _obResult=OverbetStrategy.decide(eq,pot,hClass,street,G.opp,bTexture,ip,spr);
+      var _obResult=OverbetStrategy.decide(eq,pot,hClass,street,_facingOppType,bTexture,ip,spr);
       if(_obResult){
-        var exploitOB=applyExploit(eq,'raise',G.opp,{pot:pot});
+        var exploitOB=applyExploit(eq,'raise',_facingOppType,{pot:pot});
         return{a:'raise',v:_obResult.sizing,r:_obResult.reason,eq:exploitOB.eq,c:'h',sizing:_obResult.sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
     if(eq>=cbetThresh){
-      var exploitResult6=applyExploit(eq,'raise',G.opp,{pot:pot});
+      var exploitResult6=applyExploit(eq,'raise',_facingOppType,{pot:pot});
       return{a:'raise',v:sizing,r:'胜率'+eq.toFixed(0)+'%'+boardInfo,eq:exploitResult6.eq,c:'h',sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,evs:compareEVs(eq,pot,0,sizing),bTexture:bTexture,io:io,exploit:exploitResult6.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     if(eq>=40){
-      var exploitResult7=applyExploit(eq,'check',G.opp,{pot:pot});
+      var exploitResult7=applyExploit(eq,'check',_facingOppType,{pot:pot});
       return{a:'check',r:'过牌'+boardInfo,eq:exploitResult7.eq,c:'m',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult7.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'check',r:'过牌'+boardInfo,eq:eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -5493,7 +5563,7 @@ function postF(k){
   if(scene==='allin'){
     var raiseThresh=nq+(street==='turn'?15:street==='river'?12:10);
     if(eq>=raiseThresh){
-      var exploitResult8=applyExploit(eq,'call',G.opp,{bet:stk,pot:pot});
+      var exploitResult8=applyExploit(eq,'call',_facingOppType,{bet:stk,pot:pot});
       return{a:'call',r:'胜率够跟全下',eq:exploitResult8.eq,c:'h',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult8.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     return{a:'fold',r:'胜率不够',eq:eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -5504,79 +5574,79 @@ function postF(k){
     var _didHeroBetPrev3=ActionLine.getStreetAction(street)&&ActionLine.getStreetAction(street).heroAction==='raise';
     var _oppActionLabel2=OppPostFlopAction.getActionLabel(scene,street,_didPFR4,_didHeroBetPrev3);
     if(_oppActionLabel2==='donk'){
-      OppProfiler.recordOppDonk();var _donkAdj=OppPostFlopAction.donkBetAdj(eq,hClass,G.opp);
+      OppProfiler.recordOppDonk();var _donkAdj=OppPostFlopAction.donkBetAdj(eq,hClass,_facingOppType);
       eq+=_donkAdj.eqAdj;
       console.log('[Donk] PFR被donk eq'+(_donkAdj.eqAdj>0?'+':'')+_donkAdj.eqAdj+'%');
     }else if(_oppActionLabel2==='probe'){
-      var _probeAdj=OppPostFlopAction.probeBetAdj(eq,hClass,G.opp);
+      var _probeAdj=OppPostFlopAction.probeBetAdj(eq,hClass,_facingOppType);
       eq+=_probeAdj.eqAdj;
       console.log('[Probe] probe bet eq'+(_probeAdj.eqAdj>0?'+':'')+_probeAdj.eqAdj+'%');
     }
     // V2.9.51: ★ bet=0终极防御 ★ scene=bet但bet=0→数据矛盾，降级为check
     if(bet<=0&&scene==='bet'){
       console.log('[bet=0防御] scene=bet但bet=0，数据矛盾降级为check');
-      var exploitResult0=applyExploit(eq,'check',G.opp,{pot:pot});
+      var exploitResult0=applyExploit(eq,'check',_facingOppType,{pot:pot});
       return{a:'check',r:'数据异常-过牌',eq:exploitResult0.eq,c:'l',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: River Bluff-catcher——面对河牌下注的抓诈/弃牌
     if(BluffCatcher.isBCSpot(street,scene,hClass)){
-      var _bcDec=BluffCatcher.decide(eq,bet,pot,hClass,G.opp,ip,street,scene,bTexture,oppRange,k);
+      var _bcDec=BluffCatcher.decide(eq,bet,pot,hClass,_facingOppType,ip,street,scene,bTexture,oppRange,k);
       if(_bcDec){
         if(_bcDec.action==='call'){
-          var exploitBC=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+          var exploitBC=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
           return{a:'call',r:_bcDec.reason,eq:exploitBC.eq,c:'m',po:Math.round(bet>0?bet/(pot+bet*2)*100:50),scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
         }
         return{a:'fold',r:_bcDec.reason,eq:eq,c:'l',po:Math.round(bet>0?bet/(pot+bet*2)*100:50),scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
-    // V2.9.120: 面对reraise/check-raise保持理智——MEDIUM/DRAW弱手弃牌
+    // V2.9.121: 面对reraise/check-raise保持理智——MEDIUM/DRAW弱手弃牌
     var _isBigRaise=betPotRatio>=0.5&&(scene==='reraise'||(G._crDetected));
     if(_isBigRaise&&hClass.name==='MEDIUM'&&hClass.desc.indexOf('顶对')<0){
-      var exploitRR=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+      var exploitRR=applyExploit(eq,'fold',_facingOppType,{bet:bet,pot:pot});
       return{a:'fold',r:'面对加注'+hClass.desc+'理智弃',eq:exploitRR.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: Check-raise——慢打后对手下注的CR决策
     if(G._slowplayed&&(hClass.name==='NUTS'||hClass.name==='STRONG')&&bet>0){
       var _betPotRatio=bet/(pot+bet);
-      var _crDec=SlowplayStrategy.shouldCheckRaise(hClass,street,_betPotRatio,G.opp,bTexture);
+      var _crDec=SlowplayStrategy.shouldCheckRaise(hClass,street,_betPotRatio,_facingOppType,bTexture);
       if(_crDec.action==='raise'){
         var _crSizing=_crDec.sizing==='pot'?Math.round(pot+bet*2):Math.round(bet*2.5);
-        var exploitCR=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot});
+        var exploitCR=applyExploit(eq,'raise',_facingOppType,{bet:bet,pot:pot});
         return{a:'raise',v:_crSizing,r:_crDec.reason,eq:exploitCR.eq,c:'h',sizing:_crSizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
       if(_crDec.action==='call'){
-        var exploitCRC=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+        var exploitCRC=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
         return{a:'call',r:_crDec.reason,eq:exploitCRC.eq,c:'h',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
     var raiseEq=SPRZone.raiseThreshold(spr,nq+(street==="river"?(hClass.name==="NUTS"||hClass.name==="STRONG"?12:100):street==="turn"?15:12),hClass.name)+(tiltInfo.tilt?(tiltInfo.adjustments.raiseThreshAdj||0):0)+(ceResult.detected?(ceResult.adjustments.raiseThreshAdj||0):0);
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
-    if((G.opp==='maniac'||G.opp==='lag')&&_effectiveBet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
+    if((_facingOppType==='maniac'||_facingOppType==='lag')&&_effectiveBet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
     // V2.9.35: outs跟注追需看下注大小,大注(>2/3池)不追弱听牌,超池(>1x)只追组合听牌
     if(outs>0&&eq<nq+5&&eq>=nq-8&&!(betLevel==='large'&&outs<8)&&!(betPotRatio>=1.0&&outs<12)&&!(G.act>=4&&outs<6)){
-      var exploitResult9=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResult9=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:outs+'outs跟注追',eq:exploitResult9.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult9.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     if(eq>=raiseEq){
-      var exploitResult10=applyExploit(eq,'raise',G.opp,{bet:bet,pot:pot});
+      var exploitResult10=applyExploit(eq,'raise',_facingOppType,{bet:bet,pot:pot});
       return{a:'raise',v:sizing,r:'胜率足加注',eq:exploitResult10.eq,c:'h',po:nq,sizing:sizing,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,evs:compareEVs(eq,pot,bet,sizing),bTexture:bTexture,io:io,exploit:exploitResult10.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     var sprCallThresh=SPRZone.callThreshold(spr,nq+3,ip,hClass.name,street)+(tiltInfo.tilt?(tiltInfo.adjustments.callThreshAdj||0):0)+(ceResult.detected?(ceResult.adjustments.callThreshAdj||0):0);if(eq>=sprCallThresh){
-      var exploitResult11=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResult11=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:'胜率够跟',eq:exploitResult11.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult11.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    // V2.9.120: IP Float策略——有位置+投机牌+接近赔率→float看下一街
+    // V2.9.121: IP Float策略——有位置+投机牌+接近赔率→float看下一街
     var _isFloat=ip&&street!=='river'&&eq>=nq-5&&eq<nq+3&&betLevel!=='large'&&betPotRatio<0.75;
     if(_isFloat&&(hClass.name==='DRAW'||(hClass.name==='MEDIUM'&&hClass.desc.indexOf('底对')<0))){
-      var exploitResultF=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResultF=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:'IP float('+(hClass.name==='DRAW'?hClass.outs+'outs':hClass.desc)+')',eq:exploitResultF.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResultF.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.35: MEDIUM手牌位好接近也不追(中对太松), 需要DRAW或STRONG才够
     if(eq>=nq-3&&ip&&hClass.name!=='MEDIUM'){
-      var exploitResult12=applyExploit(eq,'call',G.opp,{bet:bet,pot:pot});
+      var exploitResult12=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:'位好+接近',eq:exploitResult12.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult12.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
-    var exploitResult13=applyExploit(eq,'fold',G.opp,{bet:bet,pot:pot});
+    var exploitResult13=applyExploit(eq,'fold',_facingOppType,{bet:bet,pot:pot});
     return{a:'fold',r:'胜率不够',eq:exploitResult13.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult13.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   return{a:'check',r:'过牌',eq:eq,c:'m',scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
@@ -6826,13 +6896,14 @@ function onVisionResult(data){
   if(data.opp_seats&&data.opp_seats.length>0){
     G.oppSeats=data.opp_seats;
     OppProfiler.update(data.opp_seats,G.stk,data.street||G.phase);
-    // 自动更新G.opp为整体对手类型
-    var _autoType=OppProfiler.getOverallType();
+    // V2.9.121: 自动更新G.opp为面对的具体对手类型(优先)或全桌平均
+    var _facingAuto=OppProfiler.getFacingOppType();
+    var _autoType=_facingAuto.type||OppProfiler.getOverallType();
     if(_autoType!=='unknown'&&_autoType!==G.opp){
       G.opp=_autoType;
       DRTA.setType(_autoType);
       setOppType(_autoType);
-      console.log('[OppProfiler] 自动设置对手类型: '+_autoType);
+      console.log('[OppProfiler] 自动设置对手类型: '+_autoType+(_facingAuto.nickname?' (面对:'+_facingAuto.nickname+')':' (全桌平均)'));
     }
     OppProfiler.updateUI();
     // V2.9.105: 从opp_seats的bet检测3bet和raiser角色
