@@ -413,7 +413,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.116"
+            text = "青云 v2.9.117"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -577,7 +577,7 @@ class FloatingService : Service() {
                     }
                 }
                 // V2.9.114: 验证策略引擎是否真的加载了
-                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.116] ✅策略引擎就绪')}else{console.log('[V2.9.116] ❌策略引擎未加载！')}", null)
+                view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.117] ✅策略引擎就绪')}else{console.log('[V2.9.117] ❌策略引擎未加载！')}", null)
             }
         }
         wv.webChromeClient = WebChromeClient()
@@ -650,9 +650,8 @@ class FloatingService : Service() {
             @JavascriptInterface
             fun updateNotification(title: String, detail: String) {
                 handler.post {
-                    if (isStealthMode) {
-                        updateAdviceNotification(title, detail)
-                    }
+                    // V2.9.116: 所有模式都更新通知栏——让用户看到策略动作
+                    updateAdviceNotification(title, detail)
                 }
             }
             // V2.9.113: onVisionResult执行成功回调
@@ -1207,7 +1206,7 @@ class FloatingService : Service() {
                     }, 5000)
                     handler.post {
                         // V2.9.113: 先检测WebView是否就绪，再调onVisionResult
-                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.116] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.116] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
+                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.117] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.117] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
@@ -1361,7 +1360,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.116\"")
+                append("{\"version\":\"2.9.117\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")

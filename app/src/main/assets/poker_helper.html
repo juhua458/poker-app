@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.116 · NO_TABLE增强检测</title>
+<title>青云 v2.9.117 · NO_TABLE增强检测</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.116',
+    version:'2.9.117',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.116',
+  CURRENT_VERSION:'2.9.117',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -4705,6 +4705,7 @@ function applyEquityGuard(action,eq,reliability){
 }
 
 function preF(k){
+  var street=getCurrentStreet();
   var p=G.pos,stk=G.stk,bet=G.bet,pot=G.pot;
   var scene=G.scene;
   // V2.9.18: 根据对手类型动态调整翻前范围
@@ -4718,7 +4719,7 @@ function preF(k){
   var eq=eQ(k);
   var pa=pA(p);
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
-  eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();eq+=BvBStrategy.eqAdj();
+  eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
   var profile=DRTA.getProfile();
   // V2.9.60: Tilt检测——对手情绪状态影响策略
   var tiltInfo=TiltDetector.detectTilt(profile);
@@ -4810,22 +4811,6 @@ function preF(k){
       var rSz=Math.round(actualBet*2.5);
       var exploitResult2b=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
       G._heroDid4bet=true;return{a:'raise',v:stk<=rSz?stk:rSz,r:k+' 4bet诈唬!',eq:exploitResult2b.eq,c:'l',sizing:stk<=rSz?stk:rSz,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSz),exploit:exploitResult2b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-    }
-    // V2.9.105: BvB SB面对BB 3bet专用防守
-    var _bvbSB=BvBStrategy.sbDefend3bet(k,eq,actualBet,pot);
-    if(_bvbSB){
-      if(_bvbSB.action==='4bet'){
-        var rSzBVB=Math.round(actualBet*2.5);
-        var exploitBVSB=applyExploit(eq,'raise',G.opp,{bet:actualBet,pot:pot,facing3bet:true});
-        G._heroDid4bet=true;return{a:'raise',v:stk<=rSzBVB?stk:rSzBVB,r:_bvbSB.reason,eq:exploitBVSB.eq,c:'h',sizing:stk<=rSzBVB?stk:rSzBVB,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,rSzBVB),exploit:exploitBVSB.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-      }
-      if(_bvbSB.action==='call'){
-        var exploitBVSBC=applyExploit(eq,'call',G.opp,{bet:actualBet,pot:pot});
-        return{a:'call',r:_bvbSB.reason,eq:exploitBVSBC.eq,c:'m',scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitBVSBC.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-      }
-      if(_bvbSB.action==='fold'){
-        return{a:'fold',r:_bvbSB.reason,eq:eq,c:'l',scene:sceneLabel,spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-      }
     }
     // V2.9.105: BvB SB面对BB 3bet专用防守
     var _bvbSB=BvBStrategy.sbDefend3bet(k,eq,actualBet,pot);

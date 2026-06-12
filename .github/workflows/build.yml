@@ -40,9 +40,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success()
       with:
-        tag_name: v2.9.116
-        name: "V2.9.116 策略引擎JS语法修复"
-        body: "V2.9.116: 修复3个JS语法错误导致策略引擎无法加载的根因Bug"
+        tag_name: v2.9.117
+        name: "V2.9.117 preF函数bug修复+通知栏显示策略动作"
+        body: "V2.9.117: 修preF函数street未定义/reraise崩溃+去重复BvB调用+通知栏显示策略动作"
         files: app/build/outputs/apk/debug/app-debug.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
