@@ -79,23 +79,28 @@ object VisionApiClient {
     fun analyzeScreenshot(jpegData: ByteArray): VisionResult? {
         if (apiKey.isEmpty()) { lastError = "未设置API Key"; return null }
         return try {
-            val compressedJpeg = compressImage(jpegData, maxWidth = 1080)
+            val t0 = System.currentTimeMillis()
+            val compressedJpeg = compressImage(jpegData, maxWidth = 960)
+            val t1 = System.currentTimeMillis()
             val base64Image = Base64.encodeToString(compressedJpeg, Base64.NO_WRAP)
+            val t2 = System.currentTimeMillis()
             val dataUri = "data:image/jpeg;base64,$base64Image"
-            Log.d(TAG, "Image compressed: ${jpegData.size / 1024}KB -> ${compressedJpeg.size / 1024}KB")
+            Log.d(TAG, "⏱ Image: ${jpegData.size/1024}KB→${compressedJpeg.size/1024}KB compress=${t1-t0}ms encode=${t2-t1}ms")
 
             var result: VisionResult? = null
             if (useCompactPrompt) {
                 try {
                     val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = true)
+                    val tApi0 = System.currentTimeMillis()
                     result = parseResponse(sendRequest(requestJson))
+                    val tApi1 = System.currentTimeMillis()
                     if (result != null && result.potSize == 0 && result.playerChips > 0 && result.communityCards.isNotEmpty()) {
                         Log.w(TAG, "紧凑格式pot=0(有公共牌)，尝试原格式重试")
                         result = null
                     }
                     if (result != null) {
                         compactSuccessCount++; lastPromptMode = "compact"
-                        Log.d(TAG, "紧凑格式成功(${compactSuccessCount}/${compactSuccessCount+compactFailCount})")
+                        Log.d(TAG, "⏱ compact API: ${tApi1-tApi0}ms 成功(${compactSuccessCount}/${compactSuccessCount+compactFailCount})")
                     }
                 } catch (e: Exception) { Log.w(TAG, "紧凑格式异常: ${e.message}") }
                 
@@ -104,18 +109,26 @@ object VisionApiClient {
                     Log.d(TAG, "紧凑格式失败，fallback原格式(${compactFailCount}次)")
                     try {
                         val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = false)
+                        val tFb0 = System.currentTimeMillis()
                         result = parseResponse(sendRequest(requestJson))
+                        val tFb1 = System.currentTimeMillis()
                         if (result != null) {
                             fallbackSuccessCount++; lastPromptMode = "legacy(fallback)"
+                            Log.d(TAG, "⏱ fallback API: ${tFb1-tFb0}ms")
                         }
                     } catch (e: Exception) { lastError = "API错误: ${e.message}"; return null }
                 }
             } else {
                 try {
                     val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = false)
+                    val tApi0 = System.currentTimeMillis()
                     result = parseResponse(sendRequest(requestJson)); lastPromptMode = "legacy"
+                    val tApi1 = System.currentTimeMillis()
+                    Log.d(TAG, "⏱ legacy API: ${tApi1-tApi0}ms")
                 } catch (e: Exception) { lastError = "API错误: ${e.message}"; return null }
             }
+            val t3 = System.currentTimeMillis()
+            Log.d(TAG, "⏱ 全链路: compress=${t1-t0}ms encode=${t2-t1}ms api+parse=${t3-t2}ms total=${t3-t0}ms")
             if (result == null) { lastError = "API返回空结果"; return null }
 
             val currentRankKey = result.holeCards.joinToString(",") { it.rank }
@@ -178,6 +191,7 @@ object VisionApiClient {
         return side(pos1) == side(pos2)
     }
 
+    // V2.9.135: 960px/Q75 (实测花色rank全通过，体积减35%→上传快)
     private fun compressImage(jpegData: ByteArray, maxWidth: Int): ByteArray {
         val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
         val cropTop = (bitmap.height * 0.02).toInt()
@@ -186,7 +200,7 @@ object VisionApiClient {
         val scale = if (cropped.width > maxWidth) maxWidth.toFloat() / cropped.width else 1f
         val scaled = if (scale < 1f) { val s = android.graphics.Bitmap.createScaledBitmap(cropped, (cropped.width * scale).toInt(), (cropped.height * scale).toInt(), true); cropped.recycle(); s } else cropped
         val stream = ByteArrayOutputStream()
-        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, stream); scaled.recycle()
+        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, stream); scaled.recycle()
         return stream.toByteArray()
     }
 

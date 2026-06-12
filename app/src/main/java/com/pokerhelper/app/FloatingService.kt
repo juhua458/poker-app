@@ -1288,9 +1288,12 @@ class FloatingService : Service() {
         tvStatus?.text = "🎯 API识别中..."
         tvAction?.alpha = 0.5f
         updateAdviceNotification("识别中...", "正在分析牌面")
+        val tAnalyzeStart = System.currentTimeMillis()
         Thread {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
+                val tAnalyzeEnd = System.currentTimeMillis()
+                Log.d(TAG, "⏱ analyzeScreenshot: ${tAnalyzeEnd-tAnalyzeStart}ms")
                 Log.d(TAG, "★ VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
                 if (result != null) {
                     // V2.9.111: NO_TABLE检测——优先看isPokerTable，其次3信号联合判断
