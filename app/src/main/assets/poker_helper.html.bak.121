@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.122 · EV护栏+Ante感知</title>
+<title>青云 v2.9.121 · 对手感知策略</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1109,7 +1109,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.122',
+    version:'2.9.121',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1227,7 +1227,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.122',
+  CURRENT_VERSION:'2.9.121',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -3765,8 +3765,87 @@ var OppPostFlopAction={
     return{eqAdj:-2,foldBoost:5};
   }
 };
+// V2.9.105: BvB(Blind vs Blind)专用策略
+var BvBStrategy={
+  isBvB:function(){
+    if(G.phase!=='pre')return false;
+    if(G.pos!=='sb'&&G.pos!=='bb')return false;
+    return(G.act||2)<=2;
+  },
+  heroRole:function(){
+    if(G.pos==='sb')return 'sb_bvb';
+    if(G.pos==='bb')return 'bb_bvb';
+    return '';
+  },
+  sbOpenExtra:['K7s','K6s','K5s','Q7s','Q6s','J7s','T7s','97s','96s','86s','85s','75s','74s','64s','63s','53s','43s','A7o','A6o','K8o','Q8o','J8o','T8o','98o'],
+  bbDefendWide:['44','33','22','K9s','K8s','K7s','K6s','Q9s','Q8s','Q7s','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','85s','76s','75s','65s','64s','54s','53s','43s','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','J9o','T9o','98o'],
+  bbThreebetValue:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','KQs','KJs','AKo','AQo','AJo','ATo'],
+  bbThreebetBluff:['A2s','A3s','A4s','A5s','76s','65s','54s','43s','K9s','Q9s','J9s','T8s'],
+  sbVsBB3betCall:['JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','JTs','T9s','AKo','AQo','AJo','ATo','KQo'],
+  sbVsBB3betFold:['55','44','33','22','A8s','A7s','A6s','A4s','A3s','A2s','K9s','K8s','QTs','J9s','98s','87s','76s','65s','54s','A9o','KJo','KTo','QJo','JTo','T9o'],
+  getOpenRange:function(pos){
+    var base=gO(pos);
+    if(!this.isBvB())return base;
+    if(pos==='sb'){
+      var extra=this.sbOpenExtra;
+      for(var i=0;i<extra.length;i++){
+        if(base.indexOf(extra[i])===-1)base.push(extra[i]);
+      }
+    }
+    return base;
+  },
+  getThreebetRange:function(pos){
+    if(!this.isBvB())return null;
+    if(pos==='bb')return{value:this.bbThreebetValue,bluff:this.bbThreebetBluff,call:this.bbDefendWide};
+    if(pos==='sb')return THREEBET_BY_POS.sb;
+    return null;
+  },
+  bbDefend:function(k,eq,bet,pot){
+    if(!this.isBvB()||G.pos!=='bb')return null;
+    if(this.bbThreebetValue.indexOf(k)!==-1&&eq>=50){
+      var sz=Math.round(Math.max(bet*3,pot*0.8));
+      return{action:'raise',sizing:sz,type:'value',reason:'BvB BB 3bet价值('+k+')'};
+    }
+    if(this.bbThreebetBluff.indexOf(k)!==-1&&Math.random()*100<25){
+      var sz2=Math.round(Math.max(bet*3,pot*0.75));
+      return{action:'raise',sizing:sz2,type:'bluff',reason:'BvB BB 3bet诈吼('+k+')'};
+    }
+    if(this.bbDefendWide.indexOf(k)!==-1&&eq>=35){
+      return{action:'call',reason:'BvB BB宽防守('+k+')'};
+    }
+    if(G.opp==='nit'||G.opp==='tight'){
+      if(eq>=30&&Math.random()*100<15){
+        var sz3=Math.round(Math.max(bet*2.5,pot*0.7));
+        return{action:'raise',sizing:sz3,type:'bluff',reason:'BvB vs紧牌BB偷取('+k+')'};
+      }
+    }
+    if(G.opp==='calling_station'||G.opp==='fish'){
+      if(eq>=30)return{action:'call',reason:'BvB vs跟注站BB宽跟('+k+')'};
+    }
+    return null;
+  },
+  sbDefend3bet:function(k,eq,bet,pot){
+    if(!this.isBvB()||G.pos!=='sb')return null;
+    if(this.bbThreebetValue.indexOf(k)!==-1&&eq>=55){
+      return{action:'4bet',reason:'BvB vs BB 3bet 4bet('+k+')'};
+    }
+    if(this.sbVsBB3betCall.indexOf(k)!==-1&&eq>=42){
+      return{action:'call',reason:'BvB SB跟BB 3bet('+k+')'};
+    }
+    if(this.sbVsBB3betFold.indexOf(k)!==-1){
+      return{action:'fold',reason:'BvB SB弃vs BB 3bet('+k+')'};
+    }
+    return null;
+  },
+  eqAdj:function(){
+    if(!this.isBvB())return 0;
+    if(G.pos==='bb')return 3;
+    if(G.pos==='sb')return -2;
+    return 0;
+  }
+};
 
-// V2.9.122: 清理重复BvBStrategy定义(保留更完整的第二版)
+
 // V2.9.105: BvB(Blind vs Blind)专用策略
 var BvBStrategy={
   // BvB场景检测：翻前+hero在盲注位+只有2人参与
@@ -4579,24 +4658,6 @@ function decide(){
       result._evs=_evs;
       result._evBest=EVCalc.best(_evs);
     }catch(e){}
-    // V2.9.122: EVCalc决策护栏——数学验证策略建议，负EV时降级
-    if(result._evs){
-      var _evAM={'fold':'fold','check':'check','call':'call','weak_call':'call','raise':'raise','raise_big':'raise','allin':'allin'};
-      var _evK=_evAM[result.a]||result.a;
-      var _curEV=result._evs[_evK]?result._evs[_evK].ev:null;
-      var _preEvA=result.a;
-      if(_curEV!==null&&_preEvA!=='fold'&&_preEvA!=='check'){
-        if(_curEV<-2){
-          console.log('[EV护栏] '+_preEvA+' EV='+_curEV.toFixed(1)+'<0 → fold');
-          result.a='fold';
-          result.r='[EV]'+_preEvA+'负EV→fold '+result.r;
-        }else if((_preEvA==='raise'||_preEvA==='raise_big')&&result._evs.call&&result._evs.call.ev>_curEV+3){
-          console.log('[EV护栏] '+_preEvA+' EV='+_curEV.toFixed(1)+' < call EV='+result._evs.call.ev.toFixed(1)+' → call');
-          result.a='call';
-          result.r='[EV]'+_preEvA+'不如call→call '+result.r;
-        }
-      }
-    }
     // 防御: check永远不变fold(过牌是免费的)
     if(result.a==='check'){
       result._colorInfo.colorKey='CHECK';
@@ -4727,15 +4788,6 @@ function preF(k){
   var pa=pA(p);
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
-  // V2.9.122: Ante感知——ante使底池赔率改善，降低跟注门槛
-  if(G.ante>0){
-    var _bbVal=window._lastVisionBB||500;
-    var _anteBB=G.ante/_bbVal;
-    var _anteTotal=_anteBB*(G.tt||6);
-    var _anteRatio=_anteTotal/Math.max(pot,1);
-    var _anteBonus=Math.min(Math.round(_anteRatio*12),5);
-    if(_anteBonus>0){eq+=_anteBonus;console.log('[Ante感知] 翻前 ante='+G.ante+'('+_anteBB.toFixed(2)+'BB)×'+G.tt+'人 占比'+Math.round(_anteRatio*100)+'% eq+'+_anteBonus);}
-  }
   var profile=DRTA.getProfile();
   // V2.9.60: Tilt检测——对手情绪状态影响策略
   var tiltInfo=TiltDetector.detectTilt(profile);
@@ -5203,15 +5255,6 @@ function postF(k){
   }
   // V2.9.30: 已用非线性衰减替代旧的线性扣减，不再额外减eq
   if(bTexture.wetness>=2)eq-=2;else if(bTexture.wetness<0)eq+=2;
-  // V2.9.122: Ante感知——ante已含在pot中(Vision读取),策略应更宽松
-  if(G.ante>0){
-    var _bbVal2=window._lastVisionBB||500;
-    var _anteBB2=G.ante/_bbVal2;
-    var _anteTotal2=_anteBB2*(G.tt||6);
-    var _anteRatio2=_anteTotal2/Math.max(pot,1);
-    var _antePostBonus=Math.min(Math.round(_anteRatio2*8),3);
-    if(_antePostBonus>0){eq+=_antePostBonus;console.log('[Ante感知] 翻后 ante='+G.ante+'('+_anteBB2.toFixed(2)+'BB) eq+'+_antePostBonus);}
-  }
   if(bTexture.rangeAdv==='hero')eq+=2;else if(bTexture.rangeAdv==='villain')eq-=2;
   // V2.9.59: SPR equity realization——深码边际牌实现率低，短码接近100%
   var sprRealization=SPRZone.eqRealization(spr,ip,hClass.name);
