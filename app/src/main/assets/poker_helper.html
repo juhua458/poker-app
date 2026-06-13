@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.141 · 投机动能+弱听退出</title>
+<title>青云 v2.9.142 · 对手建模+BetTell</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.141',
+    version:'2.9.142',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.141',
+  CURRENT_VERSION:'2.9.142',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1371,10 +1371,166 @@ var OppProfiler={
   _profiles:{},
   // pos→nickname映射，用于按位置查询
   _posMap:{},
+  // V2.9.142: localStorage持久化key
+  PROFILE_STORAGE_KEY:'poker_v2942_opp_profiles',
+  PROFILE_SAVE_INTERVAL:300000, // 5分钟自动保存
+  _lastSaveTime:0,
+  // V2.9.142: 对手下注大小追踪——bet sizing tells
+  // 每个对手记录: {small:0, medium:0, large:0, huge:0} (下注档位次数)
+  // + {showdown:{small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}}} (摊牌时各档位赢率)
+  
+  // V2.9.142: 保存对手画像到localStorage
+  saveProfiles:function(){
+    try{
+      // 清理不可序列化的临时字段
+      var toSave={};
+      for(var nk in this._profiles){
+        var p=this._profiles[nk];
+        toSave[nk]={
+          nickname:p.nickname, pos:p.pos, hands:p.hands,
+          entered:p.entered, folded:p.folded, type:p.type,
+          stackType:p.stackType,
+          // V2.9.105: 3bet/fold-to-3bet/cbet/CR/donk统计
+          _pfRaise:p._pfRaise||0, _pf3bet:p._pf3bet||0, _pfOpenOpp:p._pfOpenOpp||0,
+          _pos3bet:p._pos3bet||{}, _posPFR:p._posPFR||{},
+          _faced3bet:p._faced3bet||0, _foldTo3bet:p._foldTo3bet||0,
+          _facedCBet:p._facedCBet||0, _foldToCBet:p._foldToCBet||0,
+          _checkRaise:p._checkRaise||0, _sawFlopAsOOP:p._sawFlopAsOOP||0,
+          _donkBets:p._donkBets||0, _sawFlopAsNonPFR:p._sawFlopAsNonPFR||0,
+          // V2.9.142: bet sizing tells
+          _betSizes:p._betSizes||{small:0,medium:0,large:0,huge:0},
+          _betSizeShowdown:p._betSizeShowdown||{small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}},
+          _lastChips:p._lastChips||0,
+          _ts:Date.now() // 保存时间戳
+        };
+      }
+      localStorage.setItem(this.PROFILE_STORAGE_KEY,JSON.stringify(toSave));
+      this._lastSaveTime=Date.now();
+      console.log('[OppProfiler持久化] 保存'+Object.keys(toSave).length+'个对手画像');
+    }catch(e){console.log('[OppProfiler持久化] 保存失败: '+e.message);}
+  },
+  // V2.9.142: 从localStorage加载对手画像
+  loadProfiles:function(){
+    try{
+      var d=localStorage.getItem(this.PROFILE_STORAGE_KEY);
+      if(!d)return;
+      var loaded=JSON.parse(d);
+      var count=0;
+      var now=Date.now();
+      for(var nk in loaded){
+        var p=loaded[nk];
+        // 24小时过期——太久没见的对手数据不加载
+        if(now-p._ts>86400000)continue;
+        // 合并到当前_profiles（不覆盖已有运行时数据）
+        if(!this._profiles[nk]){
+          this._profiles[nk]=Object.assign({
+            chipsHistory:[],betHistory:[],_lastBet:0,_raiseCount:0,
+          // V2.9.142: bet sizing tells
+          _betSizes:{small:0,medium:0,large:0,huge:0},
+          _betSizeShowdown:{small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}},
+            _enteredThisHand:false,_foldedThisHand:false,_pfEnteredThisHand:false,_lastPfBet:0,
+            _heroDid3bet:false,_heroDidCBet:false
+          },p);
+          count++;
+        }else{
+          // 已有: 合并统计（运行时优先，但补充持久化中缺失的）
+          var existing=this._profiles[nk];
+          if(p.hands>existing.hands){
+            // 持久化数据更新→合并统计
+            existing.hands=Math.max(existing.hands,p.hands);
+            existing.entered=Math.max(existing.entered,p.entered);
+            existing.folded=Math.max(existing.folded,p.folded);
+            if(p._pfRaise)existing._pfRaise=Math.max(existing._pfRaise||0,p._pfRaise);
+            if(p._pf3bet)existing._pf3bet=Math.max(existing._pf3bet||0,p._pf3bet);
+            if(p._pfOpenOpp)existing._pfOpenOpp=Math.max(existing._pfOpenOpp||0,p._pfOpenOpp);
+            if(p._faced3bet)existing._faced3bet=Math.max(existing._faced3bet||0,p._faced3bet);
+            if(p._foldTo3bet)existing._foldTo3bet=Math.max(existing._foldTo3bet||0,p._foldTo3bet);
+            if(p._facedCBet)existing._facedCBet=Math.max(existing._facedCBet||0,p._facedCBet);
+            if(p._foldToCBet)existing._foldToCBet=Math.max(existing._foldToCBet||0,p._foldToCBet);
+            if(p._checkRaise)existing._checkRaise=Math.max(existing._checkRaise||0,p._checkRaise);
+            if(p._donkBets)existing._donkBets=Math.max(existing._donkBets||0,p._donkBets);
+          }
+          // V2.9.142: bet sizing tells合并
+          if(p._betSizes){
+            if(!existing._betSizes)existing._betSizes={small:0,medium:0,large:0,huge:0};
+            for(var sz in p._betSizes)existing._betSizes[sz]=(existing._betSizes[sz]||0)+(p._betSizes[sz]||0);
+          }
+          if(p._betSizeShowdown){
+            if(!existing._betSizeShowdown)existing._betSizeShowdown={small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}};
+            for(var sz2 in p._betSizeShowdown){
+              existing._betSizeShowdown[sz2].n+=p._betSizeShowdown[sz2].n||0;
+              existing._betSizeShowdown[sz2].w+=p._betSizeShowdown[sz2].w||0;
+            }
+          }
+        }
+      }
+      if(count>0)console.log('[OppProfiler持久化] 加载'+count+'个对手画像(跳过'+(Object.keys(loaded).length-count)+'个过期)');
+    }catch(e){console.log('[OppProfiler持久化] 加载失败: '+e.message);}
+  },
+  // V2.9.142: 定期保存（在update中调用）
+  _autoSave:function(){
+    var now=Date.now();
+    if(now-this._lastSaveTime>this.PROFILE_SAVE_INTERVAL){
+      this.saveProfiles();
+    }
+  },
+  // V2.9.142: 记录对手下注大小（bet sizing tells）
+  recordBetSize:function(nickname,betAmount,potSize,street){
+    if(!nickname||!this._profiles[nickname])return;
+    var p=this._profiles[nickname];
+    if(!p._betSizes)p._betSizes={small:0,medium:0,large:0,huge:0};
+    if(betAmount<=0||potSize<=0)return;
+    var ratio=betAmount/potSize;
+    var sizeKey;
+    if(ratio<0.33)sizeKey='small';
+    else if(ratio<0.66)sizeKey='medium';
+    else if(ratio<1.0)sizeKey='large';
+    else sizeKey='huge';
+    p._betSizes[sizeKey]++;
+    console.log('[V2.9.142 BetTell] '+nickname+' '+street+' bet/pot='+ratio.toFixed(2)+'('+sizeKey+') '+'sizes='+JSON.stringify(p._betSizes));
+  },
+  // V2.9.142: 记录摊牌结果（bet sizing tells验证——对手大注到底有没有牌）
+  recordShowdown:function(nickname,betSizeCategory,won){
+    if(!nickname||!this._profiles[nickname])return;
+    var p=this._profiles[nickname];
+    if(!p._betSizeShowdown)p._betSizeShowdown={small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}};
+    if(p._betSizeShowdown[betSizeCategory]){
+      p._betSizeShowdown[betSizeCategory].n++;
+      if(won)p._betSizeShowdown[betSizeCategory].w++;
+    }
+  },
+  // V2.9.142: 获取对手bet sizing tell——大注=强牌还是诈唬？
+  getBetSizeTell:function(nickname){
+    var p=this._profiles[nickname];
+    if(!p||!p._betSizeShowdown)return null;
+    var sd=p._betSizeShowdown;
+    // 样本不足→null
+    var totalN=0;
+    for(var sz in sd)totalN+=sd[sz].n;
+    if(totalN<3)return null;
+    // 大注摊牌赢率
+    var bigN=sd.large.n+sd.huge.n;
+    var bigW=sd.large.w+sd.huge.w;
+    var smallN=sd.small.n+sd.medium.n;
+    var smallW=sd.small.w+sd.medium.w;
+    if(bigN<2||smallN<2)return null;
+    var bigWinRate=bigW/bigN;
+    var smallWinRate=smallN>0?smallW/smallN:0.5;
+    // 大注赢率高→大注=强牌(honest)；大注赢率低→大注=诈唬(bluffy)
+    return{type:bigWinRate>0.6?'honest':bigWinRate<0.35?'bluffy':'polarized',
+           bigWinRate:Math.round(bigWinRate*100),smallWinRate:Math.round(smallWinRate*100),
+           bigN:bigN,smallN:smallN};
+  },
   
   // 更新画像：每次Vision结果调用
   update:function(oppSeats,myChips,street){
     if(!oppSeats||!oppSeats.length)return;
+    
+    // V2.9.142: 首次调用时加载持久化画像
+    if(!this._profilesLoaded){
+      this.loadProfiles();
+      this._profilesLoaded=true;
+    }
     
     // 检测新一手牌
     var handChanged=this._detectNewHand(oppSeats,street);
@@ -1404,7 +1560,10 @@ var OppProfiler={
           _facedCBet:0,_foldToCBet:0, // 面对cbet次数/弃牌次数
           _checkRaise:0,_sawFlopAsOOP:0, // check-raise次数/OOP看到flop次数
           _donkBets:0,_sawFlopAsNonPFR:0, // donk bet次数/非PFR看到flop次数
-          _heroDid3bet:false, _heroDidCBet:false // 英雄是否执3bet/cbet(用于检测对手响应)
+          _heroDid3bet:false, _heroDidCBet:false, // 英雄是否执3bet/cbet(用于检测对手响应)
+          // V2.9.142: bet sizing tells
+          _betSizes:{small:0,medium:0,large:0,huge:0},
+          _betSizeShowdown:{small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}}
         };
       }
       var p=this._profiles[nk];
@@ -1470,6 +1629,18 @@ var OppProfiler={
     this._updateStackTypes();
     G.oppSeats=oppSeats;
     this._updateTypes();
+    // V2.9.142: 定期自动保存对手画像
+    this._autoSave();
+    // V2.9.142: 记录对手下注大小(bet sizing tells)——从oppSeats的bet检测
+    for(var _bsi=0;_bsi<oppSeats.length;_bsi++){
+      var _bss=oppSeats[_bsi];
+      if(_bss.bet>0&&_bss.status==='active'){
+        var _bsNk=_bss.nickname||_bss.pos;
+        if(_bsNk&&this._profiles[_bsNk]){
+          this.recordBetSize(_bsNk,_bss.bet,G.pot||1,street);
+        }
+      }
+    }
   },
   
   _detectNewHand:function(oppSeats,street){
@@ -1750,7 +1921,17 @@ var OppProfiler={
       // V2.9.105: 显示3bet%
       var _3betPct=p._pfOpenOpp>=3?Math.round(p._pf3bet/p._pfOpenOpp*100):-1;
       var _3betStr=_3betPct>=0?' <span style="color:#FF6B6B">3b:'+_3betPct+'%</span>':'';
-      html+='<div style="font-size:9px;color:#aaa">'+displayName+'('+p.pos+'): '+p.type+roleStr+stackStr+' ('+p.hands+'手 VPIP:'+vpip+'%'+_3betStr+')'+betStr+'</div>';
+      // V2.9.142: bet sizing tell显示
+      var _tell=this.getBetSizeTell(nk);
+      var _tellStr='';
+      if(_tell){
+        var _tellColor=_tell.type==='honest'?'#69DB7C':_tell.type==='bluffy'?'#FF6B6B':'#FFD700';
+        var _tellLabel=_tell.type==='honest'?'稳':_tell.type==='bluffy'?'诈':'极';
+        _tellStr=' <span style="color:'+_tellColor+'">注:'+_tellLabel+'</span>';
+      }
+      // V2.9.142: 持久化标记
+      var _savedStr=p._ts?'<span style="color:#555">💾</span>':'';
+      html+='<div style="font-size:9px;color:#aaa">'+displayName+'('+p.pos+'): '+p.type+roleStr+stackStr+' ('+p.hands+'手 VPIP:'+vpip+'%'+_3betStr+_tellStr+')'+_savedStr+betStr+'</div>';
     }
     el.innerHTML=html||'<div style="font-size:9px;color:#555">等待数据...</div>';
   }
@@ -4057,7 +4238,26 @@ function handClassify(hole,comm){
   if(madeHand2==='sf'||madeHand2==='quads'||madeHand2==='fh'||madeHand2==='flush'||madeHand2==='straight'||madeHand2==='set'){
     madeType='NUTS';
   }else if(madeHand2==='twoPair'){
-    madeType='STRONG';pairSubType='两对';
+    // V2.9.142: 区分手牌参与的两对 vs 板面双对子面的弱两对
+    // 核心逻辑：板面自己就凑出两对(boardOnlyPairs>=2)→hero只是踢脚大战→MEDIUM
+    // 88在AA66面: 板面AA+66→hero的88只是踢脚→MEDIUM(实战eq=30%证实)
+    // AJ在A6J6面: 板面只有66一个对→hero参与AA+JJ→STRONG
+    // A6在AA66面: 不会走到这里→会是full house(NUTS)
+    if(boardOnlyPairs.length>=2){
+      // 双对子面: 板面自己就是两对,hero的任何两对都只是踢脚提升
+      var bestHoleRank2=holeRanks.length>0?Math.max.apply(null,holeRanks):-1;
+      if(bestHoleRank2>=11){
+        madeType='MEDIUM';pairSubType='双对子面+Q+踢';
+      }else{
+        madeType='MEDIUM';pairSubType='双对子面+差踢';
+      }
+    }else if(hasHolePair){
+      // 手牌参与了两对(板面最多1对)→真正两对→STRONG
+      madeType='STRONG';pairSubType='两对(手牌参与)';
+    }else{
+      // 板面1对+手牌没参与→其实只有1对
+      madeType='MEDIUM';pairSubType='板面对+差踢';
+    }
   }else if(madeHand2==='pair'){
     // V2.9.48-fix: 关键修正——区分"我的对子"和"公共牌对子"
     if(!hasHolePair&&hasBoardPair){
@@ -6282,6 +6482,26 @@ function postF(k){
   var _facingOpp=OppProfiler.getFacingOppType();
   var _facingOppType=_facingOpp.type||G.opp||'unknown';
   if(_facingOpp.nickname)G._facingNickname=_facingOpp.nickname;
+  // V2.9.142: Bet sizing tells——对手大注=强牌还是诈唬？
+  var _betTell=null;
+  if(_facingOpp.nickname){
+    _betTell=OppProfiler.getBetSizeTell(_facingOpp.nickname);
+  }
+  if(_betTell&&bet>0){
+    var _betPotR=bet/(pot+bet||1);
+    if(_betPotR>=0.66&&_betTell.type==='bluffy'){
+      // 对手大注习惯诈唬→面对大注eq加成(更敢跟)
+      eq+=5;
+      console.log('[V2.9.142 BetTell] 面对bluffy对手大注 eq+5→'+eq.toFixed(1)+'(大注赢率'+_betTell.bigWinRate+'%)');
+    }else if(_betPotR>=0.66&&_betTell.type==='honest'){
+      // 对手大注有牌→面对大注eq扣减(更谨慎)
+      eq-=5;
+      console.log('[V2.9.142 BetTell] 面对honest对手大注 eq-5→'+eq.toFixed(1)+'(大注赢率'+_betTell.bigWinRate+'%)');
+    }else if(_betPotR<0.33&&_betTell.type==='polarized'){
+      // 对手小注是两极化(有时弱有时强)→不过度解读
+      console.log('[V2.9.142 BetTell] 面对polarized对手小注 保持判断(大注赢率'+_betTell.bigWinRate+'%)');
+    }
+  }
 
   var profile=DRTA.getProfile();
   // V2.9.60: Tilt检测
@@ -6357,21 +6577,43 @@ function postF(k){
     }
     // 河牌bluff频率与底池赔率挂钩(GTO: bluff频率≈底池赔率/(1+底池赔率))
     // V2.9.105: 多人池bluff频率大幅降低
+    // V2.9.142: bluff频率根据对手类型+bet sizing tells动态调整
     if(scene==='check'&&hClass.name==='AIR'&&_facingOppType!=='calling_station'&&_facingOppType!=='fish'){
       var potOdds=1/(1+pot);
       var bluffFreq=Math.round(potOdds/(1+potOdds)*100);
       bluffFreq=Math.max(10,Math.min(35,bluffFreq));
       bluffFreq=Math.round(bluffFreq*Multiway.bluffFreqAdj()); // 多人池bluff衰减
       if(_facingOppType==='nit'||_facingOppType==='tight')bluffFreq=Math.min(bluffFreq+15,45);
+      // V2.9.142: 对手是calling_station/fish时完全bluff禁用(已排除)
+      // V2.9.142: bet sizing tells调整bluff——对手honest(大注=有牌)→多bluff，bluffy(大注=诈唬)→少bluff
+      if(_betTell){
+        if(_betTell.type==='honest')bluffFreq=Math.min(bluffFreq+10,50); // honest对手更容易弃
+        else if(_betTell.type==='bluffy')bluffFreq=Math.max(bluffFreq-10,5); // bluffy对手不会弃
+      }
       if(Math.random()*100<bluffFreq){
         var bluffSizing2=Math.round(pot*0.55);
+        // V2.9.142: bluff尺度——nit/honest对手用小bluff，lag对手用大bluff
+        if(_facingOppType==='nit'||(_betTell&&_betTell.type==='honest'))bluffSizing2=Math.round(pot*0.40); // 小bluff更经济
+        else if(_facingOppType==='lag'||(_betTell&&_betTell.type==='bluffy'))bluffSizing2=Math.round(pot*0.75); // 大bluff才有说服力
         var exploitBluff2=applyExploit(eq,'raise',_facingOppType,{pot:pot});
         return{a:'raise',v:bluffSizing2,r:'河牌bluff('+bluffFreq+'%)',eq:exploitBluff2.eq,c:'l',sizing:bluffSizing2,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
     }
     // 河牌面对下注: STRONG/NUTS必跟, MEDIUM看赔率, DRAW/AIR必弃
+    // V2.9.142: 面对bluffy对手→MEDIUM更敢跟(对手大注未必有牌)
     if(bet>0&&hClass.name==='MEDIUM'){
-      if(eq>=nq+5){
+      var _riverMedThresh=nq+5; // 基础阈值: eq需要比赔率高5
+      // V2.9.142: bet sizing tells——bluffy对手大注→降低跟注门槛
+      if(_betTell&&_betTell.type==='bluffy'&&betPotRatio>=0.5){
+        _riverMedThresh=nq; // bluffy对手大注，eq只需>=赔率就够
+        console.log('[V2.9.142河牌] bluffy对手大注 跟注门槛降低('+_riverMedThresh.toFixed(1)+')');
+      }
+      // V2.9.142: honest对手大注→提高跟注门槛
+      if(_betTell&&_betTell.type==='honest'&&betPotRatio>=0.5){
+        _riverMedThresh=nq+10; // honest对手大注需要更多eq
+        console.log('[V2.9.142河牌] honest对手大注 跟注门槛提高('+_riverMedThresh.toFixed(1)+')');
+      }
+      if(eq>=_riverMedThresh){
         var exploitRM=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
         return{a:'call',r:'河牌中对跟注',eq:exploitRM.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
       }
