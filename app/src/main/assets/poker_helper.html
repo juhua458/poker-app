@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.140 · Ax全系列+后门听牌</title>
+<title>青云 v2.9.141 · 投机动能+弱听退出</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.140',
+    version:'2.9.141',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.140',
+  CURRENT_VERSION:'2.9.141',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -5730,13 +5730,20 @@ function preF(k){
   var spr=calcSPR();
   var sprAdvice=getSPRAdvice(spr);
   var eq=eQ(k);
-  // V2.9.121: Speculative hand implied odds bonus
-  if(k.length===2&&k[0]===k[1]&&'23456'.indexOf(k[0])>=0)eq+=8; // Small pairs: set mining
-  // V2.9.139: 投机手牌隐含赔率加成——同花连张更愿看翻牌
+  // V2.9.141: 投机手牌隐含赔率加成（统一SPR+位置感知）
+  // 以小博大：深码多投机，短码少投机；位置好投机更便宜
+  var _specBonus=0;
+  // 小对子set mining——翻出set赢大池
+  if(k.length===2&&k[0]===k[1]&&'23456'.indexOf(k[0])>=0)_specBonus+=8;
   // 同花连张(SC)=顺子+同花双潜力; 同花隔一张=同花+顺子潜力; 纯同花=同花隐含赔率
   // 杂色连张=纯顺子潜力(弱于同花版)
-  if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined){var _gap=Math.abs(_r1-_r2);if(_gap===1)eq+=5;else if(_gap===2)eq+=4;else eq+=2;if(_sr[0]==='A')eq+=3;}}
-  if(k.indexOf('o')>=0&&k.length===3){var _sr2=k.slice(0,2),_r1b=RV[_sr2[0]],_r2b=RV[_sr2[1]];if(_r1b!==undefined&&_r2b!==undefined){if(Math.abs(_r1b-_r2b)===1&&_r2b<=9)eq+=2;if(_sr2[0]==='A'&&_r2b<=9)eq+=3;}}
+  if(k.indexOf('s')>=0&&k.length===3){var _sr=k.slice(0,2),_r1=RV[_sr[0]],_r2=RV[_sr[1]];if(_r1!==undefined&&_r2!==undefined){var _gap=Math.abs(_r1-_r2);if(_gap===1)_specBonus+=5;else if(_gap===2)_specBonus+=4;else _specBonus+=2;if(_sr[0]==='A')_specBonus+=3;}}
+  if(k.indexOf('o')>=0&&k.length===3){var _sr2=k.slice(0,2),_r1b=RV[_sr2[0]],_r2b=RV[_sr2[1]];if(_r1b!==undefined&&_r2b!==undefined){if(Math.abs(_r1b-_r2b)===1&&_r2b<=9)_specBonus+=2;if(_sr2[0]==='A'&&_r2b<=9)_specBonus+=3;}}
+  // V2.9.141: 投机动能系数——SPR感知(深码空间大投机值)+位置感知(BTN投机便宜)
+  var _specSPRMult={ultra_short:0.1,short:0.3,med_short:0.7,standard:1.0,deep:1.3}[SPRZone.getZone(spr)]||1.0;
+  var _specPosMult={utg:0.6,utg1:0.7,mp:0.8,mp1:0.85,hj:0.95,co:1.1,btn:1.2,sb:0.9,bb:1.0}[p]||1.0;
+  _specBonus=Math.round(_specBonus*_specSPRMult*_specPosMult);
+  if(_specBonus>0){eq+=_specBonus;console.log('[V2.9.141投机动能] bonus='+_specBonus+' SPR×'+_specSPRMult+' pos×'+_specPosMult+'('+p+')');}
   var pa=pA(p);
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
@@ -5769,7 +5776,10 @@ function preF(k){
     }
     return{a:'fold',r:_5betDec.reason,eq:eq,c:_5betDec.c,scene:'面对5bet',spr:spr,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
-  if(scene==='reraise'){eq-=12;sceneLabel='面对再raise';}
+  if(scene==='reraise'){eq-=12;sceneLabel='面对再raise';
+    // V2.9.141: 3bet池投机额外收紧——价格太贵，投机牌没空间
+    if(_specBonus>0){var _3betSpecPen=Math.round(_specBonus*0.5);eq-=_3betSpecPen;console.log('[V2.9.141] 3bet池投机收紧 eq-'+_3betSpecPen+'(specBonus='+_specBonus+')');}
+  }
   else if(scene==='raise'){eq-=4;sceneLabel='面对加注';}
   else if(scene==='call'){eq-=2;sceneLabel='多人跟注';}
   else{sceneLabel='开池';}
@@ -6211,6 +6221,21 @@ function postF(k){
       eq+=2;
       console.log('[V2.9.140] 后门听牌赔率好 eq+2→'+eq.toFixed(1));
     }
+  }
+  // V2.9.141: 转牌弱听退出——flop看一手，turn没改善面对下注果断弃
+  // 投机牌的核心逻辑：flop便宜看一手，turn没改善就走，不追到底
+  if(street==='turn'&&hClass.name==='DRAW'&&hClass.outs<=5&&bet>0){
+    var _turnDiscount=0.78;
+    // 面对大注更紧
+    if(betPotRatio>=0.5)_turnDiscount=0.68;
+    else if(betPotRatio>=0.33)_turnDiscount=0.73;
+    eq=eq*_turnDiscount;
+    console.log('[V2.9.141转牌退出] 弱听outs='+hClass.outs+' bet/pot='+betPotRatio.toFixed(2)+' eq*'+_turnDiscount+'→'+eq.toFixed(1));
+  }
+  // V2.9.141: 河牌未成听牌彻底退出——投机到此为止
+  if(street==='river'&&hClass.name==='DRAW'){
+    eq=eq*0.65;
+    console.log('[V2.9.141河牌退出] 听牌未成 eq*0.65→'+eq.toFixed(1));
   }
   // V2.9.47: 翻后eq衰减——2人桌不衰减,3人桌微调
   // 翻前act=桌位人数, 翻后act可能=桌位但实际进池人数更少
@@ -7446,10 +7471,10 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
   var hasReraise = buttons.some(function(b){return b.indexOf('再加注')>=0||b.indexOf('3-bet')>=0||b.indexOf('3bet')>=0;});
   if (hasReraise) return 'reraise';
   // 让牌/过牌检测：支持"让牌"/"过牌"/"让牌／弃牌"/"弃牌让牌"组合按钮
-  var hasCall = buttons.some(function(b){return b.indexOf('跟注')>=0||b.indexOf('Call')>=0;});
-  var hasCheck = buttons.some(function(b){return b.indexOf('过牌')>=0||b.indexOf('让牌')>=0||b.indexOf('Check')>=0;});
+  var hasCall = buttons.some(function(b){return b.indexOf('跟注')>=0||b.indexOf('Call')>=0||b.indexOf('call')>=0;});
+  var hasCheck = buttons.some(function(b){return b.indexOf('过牌')>=0||b.indexOf('让牌')>=0||b.indexOf('Check')>=0||b.indexOf('check')>=0;});
   var hasRaise = buttons.some(function(b){return b.indexOf('加注')>=0||b.indexOf('Raise')>=0||b.indexOf('下注')>=0||b.indexOf('Bet')>=0;});
-  // V2.9.139: "让牌/弃牌"组合按钮=有让牌选项→check场景，不是bet
+  // V2.9.141: "弃牌让牌"/"弃牌过牌"组合按钮=有让牌选项→check场景，不是bet
   var hasCheckFold = buttons.some(function(b){return (b.indexOf('让牌')>=0||b.indexOf('过牌')>=0)&&b.indexOf('弃牌')>=0;});
   if (hasCheckFold) hasCheck = true; // 组合按钮包含让牌选项
   // V2.9.71: 翻前有"跟注"按钮 = 有人下注/加注
@@ -7876,10 +7901,16 @@ function onVisionResult(data){
   // 翻后默认check，但按钮文字能告诉我们实际面对什么情况
   if(G.phase==='post' && data.buttons && data.buttons.length>0){
     var btns=data.buttons;
-    var hasAllin=btns.some(function(b){return b.indexOf('全押')>=0||b.indexOf('全下')>=0;});
-    var hasCall=btns.some(function(b){return b.indexOf('跟注')>=0;});
-    var hasCheck=btns.some(function(b){return b.indexOf('让牌')>=0||b.indexOf('过牌')>=0;});
-    var hasRaise=btns.some(function(b){return b.indexOf('加注')>=0;});
+    var hasAllin=btns.some(function(b){return b.indexOf('全押')>=0||b.indexOf('全下')>=0||b.indexOf('all-in')>=0||b.indexOf('ALL IN')>=0||b.indexOf('All-In')>=0;});
+    var hasCall=btns.some(function(b){return b.indexOf('跟注')>=0||b.indexOf('Call')>=0||b.indexOf('call')>=0;});
+    var hasCheck=btns.some(function(b){return b.indexOf('让牌')>=0||b.indexOf('过牌')>=0||b.indexOf('Check')>=0||b.indexOf('check')>=0;});
+    // V2.9.141: 弃牌让牌/弃牌过牌组合按钮=有让牌选项→check场景
+    var hasCheckFold=btns.some(function(b){return (b.indexOf('让牌')>=0||b.indexOf('过牌')>=0)&&b.indexOf('弃牌')>=0;});
+    if(hasCheckFold) hasCheck=true;
+    var hasRaise=btns.some(function(b){return b.indexOf('加注')>=0||b.indexOf('Raise')>=0||b.indexOf('下注')>=0||b.indexOf('Bet')>=0;});
+    // V2.9.141: "任意加注""最小加注""半池加注"等变体
+    var hasRaiseVariant=btns.some(function(b){return b.indexOf('加注')>=0||b.indexOf('加')>=0&&b.indexOf('弃')<0;});
+    if(hasRaiseVariant) hasRaise=true;
     var inferredScene='';
     if(hasAllin){
       inferredScene='allin';
@@ -7908,6 +7939,16 @@ function onVisionResult(data){
     if(hasCall && !hasCheck && G.bet===0){
       console.log('[bet=0防御] 有跟注按钮但bet=0，可能to_call提取失败，设最小bet=1BB');
       G.bet=1; // 至少1BB，防止误判raise
+    }
+    // V2.9.141: 反向校验——只有让牌没有跟注，但scene=bet→纠正为check
+    if(hasCheck && !hasCall && G.scene==='bet'){
+      console.log('[V2.9.141反向校验] 有让牌无跟注但scene=bet→纠正check, buttons='+JSON.stringify(btns));
+      G.scene='check';
+      if(G.bet>0){G.bet=0;} // check场景bet应为0
+      try{
+        document.querySelectorAll('#sceneBtnsPost .big-btn').forEach(function(b){b.classList.remove('on');});
+        var el2=document.getElementById('scCheck');if(el2)el2.classList.add('on');
+      }catch(e){}
     }
   }
   
