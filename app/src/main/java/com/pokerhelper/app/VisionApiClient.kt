@@ -70,11 +70,15 @@ object VisionApiClient {
         val ante: Int,
         val players: List<PlayerInfo>,
         val dButtonPosition: String,
-        val rawResponse: String
+        val rawResponse: String,
+        // V2.9.143: 摊牌检测——对手亮出的牌
+        val showdownCards: List<ShowdownInfo>
     )
 
     data class CardInfo(val rank: String, val suit: String)
     data class PlayerInfo(val position: String, val bet: Int, val chips: Int, val active: Boolean)
+    // V2.9.143: 摊牌信息——对手亮牌+输赢
+    data class ShowdownInfo(val seat: Int, val cards: List<CardInfo>, val won: Boolean)
 
     fun analyzeScreenshot(jpegData: ByteArray): VisionResult? {
         if (apiKey.isEmpty()) { lastError = "未设置API Key"; return null }
@@ -207,9 +211,10 @@ object VisionApiClient {
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
         val prompt = if (compact) {
             """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)，返回单行JSON(禁止换行禁止markdown)。格式:
-{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"Q","suit":"c"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3}
+{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"Q","suit":"c"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3,"showdown_cards":[{"seat":3,"cards":[{"rank":"K","suit":"s"},{"rank":"9","suit":"h"}],"won":true}]}
 ⚠️CRITICAL:buttons是决定策略的核心字段！必须完整识别屏幕底部所有操作按钮文字！包括:弃牌/让牌/过牌/跟注(含金额如"跟注1,500")/加注(含比例如"50%加注4,500"或"加注1,200")/下注(含比例如"33%下注726"或"下注500")/全押/全下/任意加注/最小加注/弃牌让牌(组合按钮=有让牌选项)。buttons识别不全会导致策略完全错误！
-is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，suit=h(红心♥)/d(方块♦)/c(梅花♣)/s(黑桃♠)，phase=preflop/flop/turn/river,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。⚠️hole_cards必须识别2张手牌(屏幕底部正面朝上的牌)，每张必须返回rank和suit！不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]"""
+⚠️showdown_cards:如果截图处于摊牌阶段(能看到对手翻开的牌)，必须识别每个亮牌对手的seat号+2张手牌+是否赢了(won)。如果不在摊牌阶段或看不到对手的牌，showdown_cards填[]。
+is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，suit=h(红心♥)/d(方块♦)/c(梅花♣)/s(黑桃♠)，phase=preflop/flop/turn/river/showdown,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。⚠️hole_cards必须识别2张手牌(屏幕底部正面朝上的牌)，每张必须返回rank和suit！不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]"""
         } else {
             """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)。
 
@@ -225,11 +230,12 @@ is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，su
 8. total_players总座位数，active_players活跃人数
 9. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
 10. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
+11. ⚠️摊牌showdown_cards：如果能看到对手翻开的牌(摊牌阶段)，识别每个亮牌对手的seat+2张手牌+是否赢了(won)。看不到对手牌则填[]
 
 ❌ pot_size不是你头像下数字（那是my_chips）
 
 返回JSON：
-{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"K","suit":"c"},{"rank":"T","suit":"s"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top"}
+{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"K","suit":"c"},{"rank":"T","suit":"s"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top","showdown_cards":[{"seat":3,"cards":[{"rank":"K","suit":"s"},{"rank":"9","suit":"h"}],"won":true}]}
 
 不是扑克桌面时is_poker_table必须false，其余字段填默认值。只返回JSON"""
         }
@@ -266,7 +272,9 @@ is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，su
         val potSize = if (isCompact) parseChipValue(data, "pot") else parsePotSize(data, "pot_size")
         val insuredPot = if (potSize == 0 && data.has("pot_size")) { val v = parsePotSize(data, "pot_size"); if (v > 0) v else potSize } else potSize
         val isPokerTable = data.optBoolean("is_poker_table", true) // V2.9.111: 默认true兼容旧格式
-return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content)
+        // V2.9.143: 解析摊牌信息
+        val showdownCards = parseShowdownCards(data.optJSONArray("showdown_cards"))
+return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content, showdownCards)
     }
 
     private fun parseOppSeats(arr: JSONArray?): List<PlayerInfo> {
@@ -276,6 +284,19 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
         }
     }
     private fun seatToPosition(s: Int) = when(s) { 1->"bottom"; 2->"left-bottom"; 3->"left-top"; 4->"top-center"; 5->"right-top"; 6->"right-bottom"; else->"seat_$s" }
+    // V2.9.143: 解析摊牌信息——对手亮出的牌
+    private fun parseShowdownCards(arr: JSONArray?): List<ShowdownInfo> {
+        if (arr == null) return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            try {
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val seat = o.optInt("seat", 0)
+                val cards = parseCards(o.optJSONArray("cards"))
+                val won = o.optBoolean("won", false)
+                if (seat > 0 && cards.isNotEmpty()) ShowdownInfo(seat, cards, won) else null
+            } catch (_: Exception) { null }
+        }
+    }
     private fun parseLegacyPlayers(arr: JSONArray?): List<PlayerInfo> {
         if (arr == null) return emptyList()
         return try { (0 until arr.length()).mapNotNull { i -> val o = arr.optJSONObject(i) ?: return@mapNotNull null; val p = o.optString("position", ""); if (p.isNotEmpty()) PlayerInfo(p, o.optInt("bet", 0), o.optInt("chips", 0), o.optBoolean("active", true)) else null } } catch (_: Exception) { emptyList() }
@@ -353,6 +374,14 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
             put("players", JSONArray(result.players.map { JSONObject().apply { put("position", it.position); put("bet", it.bet); put("chips", it.chips); put("active", it.active) } }))
             put("is_poker_table", result.isPokerTable); put("d_button_position", result.dButtonPosition); put("suit_uncertain", suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("lock_reason", lockReason)
             put("prompt_mode", lastPromptMode)
+            // V2.9.143: 摊牌信息
+            if (result.showdownCards.isNotEmpty()) {
+                put("showdown_cards", JSONArray(result.showdownCards.map { JSONObject().apply {
+                    put("seat", it.seat)
+                    put("cards", JSONArray(it.cards.map { c -> JSONObject().apply { put("rank", c.rank); put("suit", c.suit) } }))
+                    put("won", it.won)
+                } }))
+            }
             if (warnings.isNotEmpty()) put("_warnings", JSONArray(warnings))
         }.toString()
     }

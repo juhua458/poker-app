@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.142 · 对手建模+BetTell</title>
+<title>青云 v2.9.143 · 摊牌闭环+盈亏追踪</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.142',
+    version:'2.9.143',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.142',
+  CURRENT_VERSION:'2.9.143',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1487,6 +1487,8 @@ var OppProfiler={
     else if(ratio<1.0)sizeKey='large';
     else sizeKey='huge';
     p._betSizes[sizeKey]++;
+    // V2.9.143: 记录最近一次下注档位，供摊牌时recordShowdown使用
+    p._lastBetCategory=sizeKey;
     console.log('[V2.9.142 BetTell] '+nickname+' '+street+' bet/pot='+ratio.toFixed(2)+'('+sizeKey+') '+'sizes='+JSON.stringify(p._betSizes));
   },
   // V2.9.142: 记录摊牌结果（bet sizing tells验证——对手大注到底有没有牌）
@@ -7836,6 +7838,21 @@ function onVisionResult(data){
       if(_isNewHand){
         G._handLockKey='';
       }
+      // V2.9.143: 新一手牌开始→对比筹码差值算上一手盈亏
+      // 逻辑：上一手翻后记录了_prevRawChips，新一手preflop的my_chips就是这手开始时的筹码
+      // 差值=上一手赢/输了多少（非摊牌时也有效——比如我们fold后对手赢了）
+      var _newHandChips=parseInt(data.my_chips)||0;
+      if(G._prevRawChips && G._prevRawChips>0 && _newHandChips>0 && _isNewHand){
+        var _delta=_newHandChips-G._prevRawChips;
+        var _bbV=window._lastVisionBB||G._lockedBB||200;
+        if(_bbV>0){
+          var _bbR=Math.round(_delta/_bbV*10)/10;
+          if(Math.abs(_bbR)>=0.5){
+            SessionStats.setResult(_bbR);
+            console.log('[V2.9.143盈亏] 新一手: 筹码'+G._prevRawChips+'→'+_newHandChips+' Δ='+_delta+' = '+_bbR+'BB');
+          }
+        }
+      }
     } else {
       G.phase='post';
     }
@@ -8338,6 +8355,74 @@ function onVisionResult(data){
     }
   }
 
+  // V2.9.143: ★ 摊牌检测闭环 ★
+  // 当Vision识别到对手亮牌(showdown_cards)→自动调OppProfiler.recordShowdown()
+  // 同时用筹码差值自动算盈亏(bbResult)→补齐SessionStats/SelfTiltGuard
+  if(data.showdown_cards && data.showdown_cards.length>0){
+    var _sdLog=[];
+    for(var _sdi=0;_sdi<data.showdown_cards.length;_sdi++){
+      var _sd=data.showdown_cards[_sdi];
+      var _sdSeat=_sd.seat||0;
+      var _sdWon=_sd.won||false;
+      var _sdCards=_sd.cards||[];
+      // 从seat找OppProfiler里的nickname
+      var _sdNick=null;
+      if(OppProfiler._posMap){
+        for(var _pn in OppProfiler._posMap){
+          if(OppProfiler._posMap[_pn]==='seat_'+_sdSeat){
+            _sdNick=_pn;break;
+          }
+        }
+        // 也试seatToPosition映射
+        if(!_sdNick){
+          var _seatPositions=['','bottom','left-bottom','left-top','top-center','right-top','right-bottom'];
+          var _sdPos=_seatPositions[_sdSeat]||'';
+          for(var _pn2 in OppProfiler._posMap){
+            if(OppProfiler._posMap[_pn2]===_sdPos){
+              _sdNick=_pn2;break;
+            }
+          }
+        }
+      }
+      if(_sdNick && OppProfiler._profiles[_sdNick]){
+        // 找这个对手最近一次下注的档位(small/medium/large/huge)
+        var _sdProf=OppProfiler._profiles[_sdNick];
+        var _sdBetCat=_sdProf._lastBetCategory||'medium'; // 记录的最近下注档位
+        OppProfiler.recordShowdown(_sdNick,_sdBetCat,_sdWon);
+        _sdLog.push(_sdNick+':'+_sdBetCat+(_sdWon?'赢':'输'));
+      }
+    }
+    // 筹码差值算盈亏——摊牌时比较筹码变化
+    var _curChips=parseInt(data.my_chips)||0;
+    var _prevChips=G._prevRawChips||0;
+    if(_prevChips>0 && _curChips>0){
+      var _chipDelta=_curChips-_prevChips;
+      var _bbValue=window._lastVisionBB||G._lockedBB||200;
+      if(_bbValue>0){
+        var _bbResult=Math.round(_chipDelta/_bbValue*10)/10; // 保留1位小数
+        // 只在有意义的变化时记录(|bbResult|>0.5)
+        if(Math.abs(_bbResult)>=0.5){
+          SessionStats.setResult(_bbResult);
+          console.log('[V2.9.143盈亏] 筹码'+_prevChips+'→'+_curChips+' Δ='+_chipDelta+' = '+_bbResult+'BB');
+        }
+      }
+    }
+    if(_sdLog.length>0) console.log('[V2.9.143摊牌] '+_sdLog.join(', '));
+  }
+
+  // V2.9.143: 每次截图记录当前筹码（供下一手对比盈亏）
+  var _visionChipsNow=parseInt(data.my_chips)||0;
+  if(_visionChipsNow>0){
+    // 新一手牌(preflop)时才更新_prevRawChips（上一手结束时的筹码）
+    if(G.phase==='pre' && _isNewHand && G._prevRawChips===undefined){
+      // 第一次启动，记录初始筹码
+      G._prevRawChips=_visionChipsNow;
+    } else if(G.phase!=='pre'){
+      // 翻后持续更新，最后看到的筹码就是本手牌结束时的筹码
+      G._prevRawChips=_visionChipsNow;
+    }
+  }
+
   // 6. 更新UI
   uCards();
   
@@ -8392,6 +8477,15 @@ function onVisionResult(data){
     if(data.ante>0) info+=' | Ante:'+data.ante; // V2.9.43: 显示前注
     if(data.pot_size>0) info+=' | 底池'+data.pot_size;
     if(data.to_call>0) info+=' | 跟注'+data.to_call;
+    // V2.9.143: 摊牌信息显示
+    if(data.showdown_cards && data.showdown_cards.length>0){
+      info+=' | 🏆摊牌';
+      for(var _sdi=0;_sdi<data.showdown_cards.length;_sdi++){
+        var _sd=data.showdown_cards[_sdi];
+        var _sdStr=(_sd.cards||[]).map(function(c){return c.rank+(suitSymbol[c.suit]||'');}).join('');
+        if(_sdStr) info+=' '+(_sd.won?'✅':'❌')+_sdStr;
+      }
+    }
     recInfoEl.textContent=info;
   }
   if(recBannerEl){
