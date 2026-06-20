@@ -5716,14 +5716,16 @@ function _decideInner(){
       result._evBest=EVCalc.best(_evs);
     }catch(e){}
     // V2.9.123: EVCalc决策护栏——数学验证策略建议，负EV时降级
+    // V2.9.144 P4: 阈值从-2放宽到-4——考虑隐含赔率MC无法计算的部分
+    // MC算的EV不含隐含赔率(听牌成后额外赢的)，-2~-4BB的call可能有隐含价值
     if(result._evs){
       var _evAM={'fold':'fold','check':'check','call':'call','weak_call':'call','raise':'raise','raise_big':'raise','allin':'allin'};
       var _evK=_evAM[result.a]||result.a;
       var _curEV=result._evs[_evK]?result._evs[_evK].ev:null;
       var _preEvA=result.a;
       if(_curEV!==null&&_preEvA!=='fold'&&_preEvA!=='check'){
-        if(_curEV<-2){
-          console.log('[EV护栏] '+_preEvA+' EV='+_curEV.toFixed(1)+'<0 → fold');
+        if(_curEV<-4){
+          console.log('[EV护栏] '+_preEvA+' EV='+_curEV.toFixed(1)+'<-4 → fold');
           result.a='fold';
           result.r='[EV]'+_preEvA+'负EV→fold '+result.r;
         }else if((_preEvA==='raise'||_preEvA==='raise_big')&&result._evs.call&&result._evs.call.ev>_curEV+3){
@@ -5776,8 +5778,9 @@ function _decideInner(){
     //        V2.9.125/V2.9.72/V2.9.123所有保护点100%保留
     try{
       if(result.a==='fold' && _cc>0){
-        // EV护栏主动fold=数学负EV,不反fold(避免乱call新坑)
-        var _evGuardedFold=result._evs&&result._evs.fold&&result._evs.fold.ev<-2;
+        // V2.9.144: EV护栏主动fold=数学负EV,不反fold(避免乱call新坑)
+        // 阈值同步放宽到-4，与EV护栏一致
+        var _evGuardedFold=result._evs&&result._evs.fold&&result._evs.fold.ev<-4;
         if(_evGuardedFold){
           console.log('[V2.9.126] EV护栏主动fold→不反fold');
         }else{
@@ -6439,14 +6442,29 @@ function postF(k){
     eq=eq*0.65;
     console.log('[V2.9.141河牌退出] 听牌未成 eq*0.65→'+eq.toFixed(1));
   }
-  // V2.9.47: 翻后eq衰减——2人桌不衰减,3人桌微调
-  // 翻前act=桌位人数, 翻后act可能=桌位但实际进池人数更少
-  // 2人桌(HU): opponents=1, 不衰减; 3-5人: 用act; 6人+: 近似
+  // V2.9.144: ★ 翻后eq衰减修复★
+  // P0根因: MC模拟已基于oppRange计算1v1胜率，再用G.act(全桌5人)打折=双重折扣
+  // 5-max常见场景: 2人看翻牌,55%×0.63=34.7%→过度弃牌→负EV头号元凶
+  // 修复: 翻后用实际进池人数而非全桌人数; 默认HU(2人)不衰减; 只有多人池才衰减
   var opponents;
-  if(G.act<=2)opponents=2;
-  else if(G.act<=5)opponents=G.act;
-  else opponents=Math.max(2,Math.min(G.act, Math.ceil(G.act*0.5)+1));
-  eq=multiPlayerEquity(eq,opponents);
+  if(G.act<=2){
+    opponents=2; // HU桌
+  }else{
+    // V2.9.144: 翻后默认2人(HU),5-max大部分翻后都是HU
+    // 通过底池大小推断: 翻后底池>5BB通常意味着多人进池
+    opponents=2;
+    if(typeof G._inPotPlayers!=='undefined' && G._inPotPlayers>=3){
+      opponents=G._inPotPlayers;
+    }else if(pot>5 && G.act>=3){
+      // 大底池+多人桌→可能多人池，保守用3
+      opponents=3;
+    }
+  }
+  // 只有多人池(3+)才衰减,2人池(HU)不衰减——MC已是vs对手范围的1v1胜率
+  if(opponents>2){
+    eq=multiPlayerEquity(eq,opponents);
+    console.log('[V2.9.144多人池衰减] opponents='+opponents+' eq→'+eq.toFixed(1));
+  }
   // V2.9.121: 位置×手牌类型交互加成
   if(ip){
     eq+=5; // IP基础+5(原+3)
@@ -7701,6 +7719,11 @@ function onActionCapture(){
 // V2.9.43: 从按钮文字自动推导场景（全面GG适配）
 function detectSceneFromButtons(buttons, street, activePlayers) {
   if (!buttons || buttons.length === 0) {
+    // V2.9.144 P2: 按钮为空时，从全局状态反推——有bet说明面对下注
+    if(typeof G!=='undefined' && G.bet>0){
+      console.log('[场景检测] 按钮为空但G.bet='+G.bet+'→bet场景');
+      return street==='preflop'?'raise':'bet';
+    }
     return street === 'preflop' ? 'open' : 'check';
   }
   // V2.9.43: Straddle检测——GG任意位置可Straddle，straddle相当于翻前raise
@@ -7722,11 +7745,10 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
   var hasCheckFold = buttons.some(function(b){return (b.indexOf('让牌')>=0||b.indexOf('过牌')>=0)&&b.indexOf('弃牌')>=0;});
   if (hasCheckFold) hasCheck = true; // 组合按钮包含让牌选项
   // V2.9.71: 翻前有"跟注"按钮 = 有人下注/加注
-  // 关键判断：有"加注"按钮说明我们可以raise→面对的是bet/raise，不是limp
-  // 只有"跟注"没有"加注"时（极少见）才考虑call场景
+  // V2.9.144 P2: 翻前有跟注=面对加注，即使漏识别加注按钮也应该是raise场景
+  // GG扑克翻前面对加注永远可以3bet，不存在只能call不能raise的场景
   if (hasCall && street === 'preflop') {
-    if (hasRaise) return 'raise';  // 面对加注，可以跟注或3bet
-    return (activePlayers > 2) ? 'call' : 'raise';
+    return 'raise';  // 翻前有跟注=面对加注→永远是raise场景(可跟可3bet)
   }
   if (hasCall && street !== 'preflop') return 'bet';
   if (hasCheck && hasRaise) return 'check';
@@ -8047,9 +8069,16 @@ function onVisionResult(data){
     bbValue=Math.max(bbValue, sbVal*2);
     console.log('[盲注推断] BB='+bbValue+' (从SB推算，GG非标准比例)');
   } else {
-    // 降级：从筹码推算（假设100BB初始）
-    bbValue=Math.max(100,Math.round((parseInt(data.my_chips)||10000)/100));
-    console.log('[盲注降级] BB='+bbValue+' (从筹码推算，不精确)');
+    // V2.9.144 P1: 降级时优先用锁存BB，不再假设100BB买入
+    // 旧bug: chips/100假设100BB买入，50BB短码时BB=50→全算错
+    if(G._lockedBB && G._lockedBB>0){
+      bbValue=G._lockedBB;
+      console.log('[盲注降级] BB='+bbValue+' (用锁存值，非100BB假设)');
+    }else{
+      // 首次且Vision未识别→才用筹码推算(最后手段)
+      bbValue=Math.max(100,Math.round((parseInt(data.my_chips)||10000)/100));
+      console.log('[盲注降级] BB='+bbValue+' (从筹码推算，不精确，待锁存)');
+    }
   }
   // V2.9.48: 保存Vision原始值用于调试日志
   window._lastVisionPot=parseInt(data.pot_size)||0;
@@ -8067,8 +8096,13 @@ function onVisionResult(data){
   (function visionInsurance(){
     var insLog=[];
     // === 1. 盲注锁定：同一桌盲注不变 ===
+    // V2.9.144: 首次启动时从localStorage恢复锁存BB
+    if(!G._lockedBB){
+      try{var _savedBB=localStorage.getItem('poker_lockedBB');if(_savedBB)G._lockedBB=parseInt(_savedBB)||0;}catch(e){}
+    }
     if(!G._lockedBB && bbValue>0){
       G._lockedBB=bbValue;
+      try{localStorage.setItem('poker_lockedBB',String(bbValue));}catch(e){}
       insLog.push('盲注锁定BB='+bbValue);
     }else if(G._lockedBB && bbValue>0 && bbValue!==G._lockedBB){
       // 盲注突变→用锁定值
@@ -8155,6 +8189,34 @@ function onVisionResult(data){
   window._lastVisionBB=bbValue;
   // 新一手牌时重置底池连续性追踪
   if(G.phase==='pre'){G._lastPotBB=0;}
+  // V2.9.144: 追踪进池人数——翻前从底池推断，翻后沿用
+  // 规则: 翻前pot=3BB(1limper),4BB(2limpers),5+BB(多人/加注); 翻后沿用翻前值
+  if(G.phase==='pre'){
+    var _rawPot=parseInt(data.pot_size)||0;
+    var _potBB=_rawPot>0&&bbValue>0?Math.round(_rawPot/bbValue):0;
+    if(_potBB<=2){
+      G._inPotPlayers=2; // 只有SB+BB
+    }else if(_potBB<=4){
+      G._inPotPlayers=2; // 1人加注其他人弃牌=HU
+    }else if(_potBB<=6){
+      G._inPotPlayers=3; // 小加注+1人跟注=3人
+    }else if(_potBB<=10){
+      G._inPotPlayers=Math.min(4,G.act); // 中等底池
+    }else{
+      G._inPotPlayers=Math.min(5,G.act); // 大底池
+    }
+    // 如果scene=raise(有人加注)，进池人数通常<=3
+    if(G.scene==='raise'||G.scene==='reraise'){
+      G._inPotPlayers=Math.min(G._inPotPlayers,3);
+    }
+    console.log('[V2.9.144进池追踪] preflop pot='+_potBB+'BB → inPotPlayers='+G._inPotPlayers);
+  }
+  // 翻后沿用翻前值(不重置)，如果没有则从底池估算
+  if(G.phase==='post' && typeof G._inPotPlayers==='undefined'){
+    var _rawPot2=parseInt(data.pot_size)||0;
+    var _potBB2=_rawPot2>0&&bbValue>0?Math.round(_rawPot2/bbValue):0;
+    G._inPotPlayers=_potBB2>5?3:2;
+  }
   
   // V2.9.51: ★ 从按钮文字自动推断scene ★
   // 翻后默认check，但按钮文字能告诉我们实际面对什么情况
