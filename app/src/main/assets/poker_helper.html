@@ -4424,7 +4424,7 @@ function betSizingAdv(eq,spr,bTexture,ip,isAllIn,oppType,sizingMod,hClassName,st
 var CBET_FREQ={static:{nit:75,fish:55,lag:70,maniac:65,calling_station:50,tag:70,tight:80,unknown:65},dry:{nit:65,fish:55,lag:60,maniac:55,calling_station:45,tag:65,tight:75,unknown:60},'semi-wet':{nit:50,fish:60,lag:45,maniac:40,calling_station:55,tag:50,tight:60,unknown:50},paired:{nit:55,fish:50,lag:50,maniac:45,calling_station:45,tag:55,tight:60,unknown:50},wet:{nit:35,fish:70,lag:30,maniac:25,calling_station:65,tag:35,tight:45,unknown:40}};
 function blocker(hole,range){var h=hole.filter(function(c){return c;});if(h.length<2)return 1;var rank1=h[0].rank,rank2=h[1].rank;var blockerCount=0;range.forEach(function(key){if(key.indexOf(rank1)!==-1||key.indexOf(rank2)!==-1)blockerCount++;});return blockerCount/Math.max(range.length,1);}
 function getBlockerScore(k,oppRange){return blocker(G.hole.map(function(c){return{k:c.rank+(SS[c.suit]||'')};}).filter(function(x){return x.k;}).map(function(x){return{k:x.k[0]};}),oppRange);}
-function compareEVs(eq,pot,betToCall,raiseSz){var results={};if(betToCall>0){var callEV=eq*(pot+betToCall)/pot-(1-eq)*betToCall/pot;results.call=callEV;}if(raiseSz>0){var raiseEV=eq*(pot+raiseSz)/(pot+betToCall+raiseSz)*0.9;results.raise=raiseEV;}return results;}
+function compareEVs(eq,pot,betToCall,raiseSz){var results={};var eq01=eq/100;if(betToCall>0){results.call=eq01*(pot+betToCall)-(1-eq01)*betToCall;}if(raiseSz>0){results.raise=eq01*(pot+raiseSz)-(1-eq01)*raiseSz;}return results;}
 function getOppRange(phase,action,bTexture){if(phase==='preflop')return gO(G.pos);var wetness=bTexture?bTexture.wetness:0;if(action==='cbet')return gC(G.pos);return gO(G.pos);}
 function planStreets(hClass,eq,scene,opp,spr){
   // V2.9.59: SPR感知街道规划——不同深度策略不同
@@ -4555,11 +4555,11 @@ var StrategicRetreat={
     var rd=profile.rangeDist||{wide:0.20,medium:0.40,tight:0.40};
     var tightRatio=rd.tight||0.40;
     var ret={action:null,strategy:null};
-    // set/trap识别: 紧凶/紧被动在湿面raise→弃STRONG/MEDIUM
-    // V2.9.58: 对手范围偏紧时更容易set trap
+    // V2.9.58→145: set/trap识别: 紧凶/紧被动在湿面raise→弃MEDIUM(不弃STRONG)
+    // V2.9.145: STRONG手牌在湿面不触发陷阱弃牌——5-max顶对顶踢/超对太常被误弃
     if((type==='tag'||type==='tight'||type==='nit'||tightRatio>=0.50)&&conf>=0.4){
       if(bTexture&&bTexture.wetness>=2&&(scene==='bet'||scene==='raise'||scene==='allin')){
-        if(hClass.name==='STRONG'||hClass.name==='MEDIUM'){
+        if(hClass.name==='MEDIUM'){
           ret.action='fold';ret.strategy='陷阱弃牌(set/trap'+(tightRatio>=0.50?'·紧范围':'')+')';
           return ret;
         }
@@ -5988,8 +5988,10 @@ function preF(k){
   else if(scene==='raise'){eq-=4;sceneLabel='面对加注';}
   else if(scene==='call'){eq-=2;sceneLabel='多人跟注';}
   else{sceneLabel='开池';}
-  // V2.9.47: 翻前多人池范围收窄(2人桌不衰减, 3人微调)
-  if(G.act>=6)eq-=8;else if(G.act===5)eq-=5;else if(G.act===4)eq-=4;else if(G.act===3)eq-=2;
+  // V2.9.47→145: 翻前多人池范围收窄(2人桌不衰减, 3人微调)
+  // V2.9.145: 用_inPotPlayers替代G.act——5-max翻前G.act总=5但实际2-3人进池，-5eq过度弃牌
+  var _preAct=(typeof G._inPotPlayers!=='undefined'&&G._inPotPlayers>=2)?G._inPotPlayers:G.act;
+  if(_preAct>=6)eq-=8;else if(_preAct===5)eq-=5;else if(_preAct===4)eq-=4;else if(_preAct===3)eq-=2;
   var actualBet=bet;
   if(scene==='raise'&&bet===0)actualBet=3;
   else if(scene==='reraise'&&bet===0)actualBet=9;
@@ -6009,7 +6011,7 @@ function preF(k){
     var allinBet=bet||pot;
     var allinEq=eq;
     allinEq+=(posMod[p]!==undefined?posMod[p]:0);
-    if(G.act>=6)allinEq-=8;else if(G.act===5)allinEq-=5;else if(G.act===4)allinEq-=4;else if(G.act===3)allinEq-=2;
+    if(_preAct>=6)allinEq-=8;else if(_preAct===5)allinEq-=5;else if(_preAct===4)allinEq-=4;else if(_preAct===3)allinEq-=2;
     var callThresh=allinBet>0?Math.round(allinBet/(pot+allinBet*2)*100):50;
     callThresh=Math.max(callThresh,45);
     if(allinEq>=callThresh){
@@ -6394,10 +6396,11 @@ function postF(k){
     var drawDiscount=hClass.outs>=15?0.92:hClass.outs>=12?0.88:hClass.outs>=8?0.85:hClass.outs>=4?0.80:0.72;
     eq=eq*drawDiscount;
   }
-  // V2.9.46: MEDIUM折扣校准(中对/底对MC偏高低估对手范围)
-  // 顶对中踢0.78, 中对0.72, 底对/弱对0.65
+  // V2.9.46→145: MEDIUM折扣校准(中对/底对MC偏高低估对手范围)
+  // V2.9.145: 5-max放宽——顶对0.85→0.88, 中对0.80→0.83, 底对0.75→0.78
+  // 原折扣对5-max过重：顶对弱踢60%×0.85=51%→边缘，5-max顶对经常是最佳牌
   if(hClass.name==='MEDIUM'){
-    var medDiscount=hClass.desc.indexOf('顶对')>=0?0.85:hClass.desc.indexOf('中对')>=0?0.80:0.75;
+    var medDiscount=hClass.desc.indexOf('顶对')>=0?0.88:hClass.desc.indexOf('中对')>=0?0.83:0.78;
     eq=eq*medDiscount;
   }
   // V2.9.121: 面对大牌保持理智——大注/超池/连续下注收紧
