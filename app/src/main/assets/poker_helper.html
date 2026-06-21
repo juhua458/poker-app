@@ -4291,7 +4291,7 @@ function handClassify(hole,comm){
         else{madeType='MEDIUM';pairSubType=bestKicker>=7?'顶对中踢':'顶对弱踢';}
       }else{
         if(topPairR>=minCommRank){madeType='MEDIUM';pairSubType='中对';}
-        else{madeType='AIR';pairSubType='底对';}
+        else{madeType='MEDIUM';pairSubType='底对';}
       }
     }else{
       // 有对子但手牌没参与也不走上面的逻辑→fallback
@@ -6404,10 +6404,23 @@ function postF(k){
     var medDiscount=hClass.desc.indexOf('顶对')>=0?0.88:hClass.desc.indexOf('中对')>=0?0.83:0.78;
     eq=eq*medDiscount;
   }
-  // V2.9.121: 面对大牌保持理智——大注/超池/连续下注收紧
-  if(betPotRatio>=1.0&&hClass.name==='DRAW'){
-    eq=eq*0.85; // 超池下注时听牌额外折扣——对手极化(强或诈唬),但我们是小听牌不该追
-    console.log('[V2.9.121理智] 超池下注DRAW额外折扣*0.85 eq→'+eq.toFixed(1));
+  // V2.9.147: DRAW折扣防叠加——超池折扣和turn弱听退出取max(更严者)而非乘法
+  // 根因: 4折扣乘法叠加极端场景过于激进，4out gutshot turn超池从40%被压到18%=强制弃牌
+  if(hClass.name==='DRAW'&&bet>0){
+    var _overbetFactor=1.0;
+    var _turnExitFactor=1.0;
+    if(betPotRatio>=1.0) _overbetFactor=0.85; // 超池下注DRAW折扣——对手极化(强或诈唬)
+    if(street==='turn'&&hClass.outs<=5){
+      if(betPotRatio>=0.5) _turnExitFactor=0.68;
+      else if(betPotRatio>=0.33) _turnExitFactor=0.73;
+      else _turnExitFactor=0.78;
+    }
+    var _combinedFactor=Math.min(_overbetFactor,_turnExitFactor);
+    if(_combinedFactor<1.0){
+      eq=eq*_combinedFactor;
+      var _reason=_overbetFactor<1.0&&_turnExitFactor<1.0?'超池+turn弱听取更严*'+_combinedFactor.toFixed(2):_overbetFactor<1.0?'超池DRAW*0.85':'turn弱听*'+_turnExitFactor.toFixed(2);
+      console.log('[V2.9.147DRAW折扣] '+_reason+' eq→'+eq.toFixed(1));
+    }
   }
   if(betPotRatio>=0.75&&hClass.name==='MEDIUM'&&hClass.desc.indexOf('底对')>=0){
     eq=eq*0.80; // 大注面对底对额外折扣——对手不会用大注打空气
@@ -6431,16 +6444,7 @@ function postF(k){
       console.log('[V2.9.140] 后门听牌赔率好 eq+2→'+eq.toFixed(1));
     }
   }
-  // V2.9.141: 转牌弱听退出——flop看一手，turn没改善面对下注果断弃
-  // 投机牌的核心逻辑：flop便宜看一手，turn没改善就走，不追到底
-  if(street==='turn'&&hClass.name==='DRAW'&&hClass.outs<=5&&bet>0){
-    var _turnDiscount=0.78;
-    // 面对大注更紧
-    if(betPotRatio>=0.5)_turnDiscount=0.68;
-    else if(betPotRatio>=0.33)_turnDiscount=0.73;
-    eq=eq*_turnDiscount;
-    console.log('[V2.9.141转牌退出] 弱听outs='+hClass.outs+' bet/pot='+betPotRatio.toFixed(2)+' eq*'+_turnDiscount+'→'+eq.toFixed(1));
-  }
+  // V2.9.141 turn弱听退出已合并至V2.9.147 DRAW折扣取max逻辑
   // V2.9.141: 河牌未成听牌彻底退出——投机到此为止
   if(street==='river'&&hClass.name==='DRAW'){
     eq=eq*0.65;
