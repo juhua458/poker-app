@@ -4560,7 +4560,7 @@ var StrategicRetreat={
     // V2.9.145: STRONG手牌在湿面不触发陷阱弃牌——5-max顶对顶踢/超对太常被误弃
     if((type==='tag'||type==='tight'||type==='nit'||tightRatio>=0.50)&&conf>=0.4){
       if(bTexture&&bTexture.wetness>=2&&(scene==='bet'||scene==='raise'||scene==='allin')){
-        if(hClass.name==='MEDIUM'){
+        if(hClass.name==='MEDIUM'&&(hClass.desc.indexOf('中对')>=0||hClass.desc.indexOf('底对')>=0)){
           ret.action='fold';ret.strategy='陷阱弃牌(set/trap'+(tightRatio>=0.50?'·紧范围':'')+')';
           return ret;
         }
