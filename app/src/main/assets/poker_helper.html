@@ -5847,7 +5847,7 @@ function applyOppActionShift(action,eq,oppType,tiltInfo,ceResult,pulse){
   var _raiserStack=G._raiserStackType||'unknown';
   // vs短筹码: 不bluff他（他容易全下），缩紧加注
   if(_raiserStack==='short'){
-    if(a==='raise'&&eq<55)a='call'; // 中等牌不加注vs短码
+    if(a==='raise'&&eq<50)a='call'; // V2.9.149: vs短码55%eq面对raise callEV正→不该降call，收紧到50%
     if(a==='weak_call')a='fold'; // 弱跟注vs短码直接弃
   }
   // vs深筹码: 可以多施压，bluff效率高
@@ -6089,7 +6089,7 @@ function preF(k){
     }
     // V2.9.71: 赔率兜底——3bet池跟注价格/底池比例合理+eq>=45即可跟
     var po3bet=actualBet>0?actualBet/(pot+actualBet*2):0;
-    if(eq>=45&&eq>=po3bet*100&&(cS.indexOf(k)!==-1||k.indexOf('A')===0||k.indexOf('K')===0||k.indexOf('Q')===0||parseInt(k)>=99)){
+    if(eq>=45&&eq>=po3bet*100&&(cS.indexOf(k)!==-1||k.indexOf('K')===0||k.indexOf('Q')===0||(k.length===2&&k[0]===k[1]&&parseInt(k[0]+k[1])>=99))){
       var exploitResult3b=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:'3bet池赔率够',eq:exploitResult3b.eq,c:'m',po:po3bet*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult3b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -6726,12 +6726,7 @@ function postF(k){
     return{a:'allin',v:stk,r:'短筹码全下',eq:exploitResult4.eq,c:eq>=nq?'h':'m',po:nq,sizing:stk,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult4.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
   if(hClass.name==='AIR'&&bet>0){
-    // V2.9.51: 底对额外防御——底对只有2outs(set)，面对>1/3池下注一律弃牌
-    var isBottomPair=hClass.desc&&hClass.desc.indexOf('底对')>=0;
-    if(isBottomPair&&_effectiveBet/pot>=0.33){
-      var exploitBp=applyExploit(eq,'fold',_facingOppType,{bet:bet,pot:pot});
-      return{a:'fold',r:'底对不追大注',eq:exploitBp.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
-    }
+    // V2.9.149: 底对已由V2.9.148(P8)走MEDIUM路径，此处AIR不再匹配底对，isBottomPair死代码已清理
     var exploitAir=applyExploit(eq,'fold',_facingOppType,{bet:bet,pot:pot});
     return{a:'fold',r:'空气牌不追',eq:exploitAir.eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
   }
