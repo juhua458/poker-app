@@ -1,448 +1,24 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<script>var API_BASE="http://127.0.0.1:8666";</script>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.143 · 摊牌闭环+盈亏追踪</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
-body.speed-mode{max-width:none;background:transparent;min-height:auto}
-.res{background:linear-gradient(135deg,#0f1b2e,#16213e);border-radius:14px;padding:12px;text-align:center;margin-bottom:4px;min-height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.r-a{font-size:60px;font-weight:900;letter-spacing:3px;line-height:1}
-.r-a.raise{color:#69F0AE;text-shadow:0 0 25px rgba(105,240,174,.6)}
-.r-a.raise_big{color:#00E676;text-shadow:0 0 30px rgba(0,230,118,.8)}
-.r-a.call{color:#FFAB40;text-shadow:0 0 25px rgba(255,171,64,.6)}
-.r-a.weak_call{color:#FF8C00;text-shadow:0 0 25px rgba(255,140,0,.6)}
-.r-a.fold{color:#FF5252;text-shadow:0 0 25px rgba(255,82,82,.6)}
-.r-a.check{color:#BDBDBD}
-.r-a.allin{color:#CE93D8;text-shadow:0 0 25px rgba(206,147,216,.6)}
-/* V2.9.63: 7色信号闪烁动画 */
-@keyframes signal-slow{0%,100%{opacity:1}50%{opacity:.3}}
-@keyframes signal-fast{0%,100%{opacity:1}25%{opacity:.2}75%{opacity:1}}
-@keyframes signal-double{0%{opacity:1}15%{opacity:.2}30%{opacity:1}45%{opacity:.2}100%{opacity:1}}
-.signal-tilt{animation:signal-slow 1s ease-in-out infinite}
-.signal-counter{animation:signal-fast .33s ease-in-out infinite}
-.signal-uncertain{animation:signal-double 1.5s ease-in-out infinite}
-.r-v{font-size:22px;color:#ccc;margin-top:2px;font-weight:bold}
-.r-d{font-size:11px;color:#888;margin-top:2px;line-height:1.4}
-.r-tip{font-size:10px;color:#2ed573;margin-top:4px;font-weight:bold;padding:3px 12px;background:rgba(46,213,115,.1);border-radius:20px;display:inline-block}
-body.speed-mode .r-tip.fold-tip{color:#FF5252;background:rgba(255,82,82,.12)}
-body.speed-mode .r-tip.weak_call-tip{color:#FF8C00;background:rgba(255,140,0,.12)}
-body.speed-mode .r-tip.call-tip{color:#FFAB40;background:rgba(255,171,64,.12)}
-body.speed-mode .r-tip.raise-tip{color:#69F0AE;background:rgba(105,240,174,.12)}
-body.speed-mode .r-tip.raise_big-tip{color:#00E676;background:rgba(0,230,118,.15)}
-body.speed-mode .r-tip.check-tip{color:#BDBDBD;background:rgba(189,189,189,.1)}
-body.speed-mode .r-tip.allin-tip{color:#CE93D8;background:rgba(206,147,216,.12)}
-.r-exploit{font-size:9px;padding:2px 8px;border-radius:10px;margin-top:3px;display:inline-block}
-.r-exploit.fish{background:rgba(46,213,115,.15);color:#2ed573}
-.r-exploit.tp{background:rgba(93,173,226,.15);color:#5dade2}
-.r-exploit.lag{background:rgba(255,71,87,.15);color:#ff6b7a}
-.r-exploit.maniac{background:rgba(200,50,150,.15);color:#c83296}
-.r-exploit.calling_station{background:rgba(100,180,220,.15);color:#64b4dc}
-.r-exploit.nit{background:rgba(180,180,50,.15);color:#b4b432}
-.r-drta{font-size:9px;padding:2px 8px;border-radius:8px;margin-top:3px;display:inline-block;background:rgba(199,125,255,.15);color:#c77dff}
-.r-plan{font-size:9px;color:#c77dff;margin-top:3px;padding:2px 8px;background:rgba(199,125,255,.1);border-radius:8px;display:inline-block}
-.r-ev-sm{font-size:10px;color:#555;margin-top:3px}
-.r-spr{font-size:9px;padding:2px 6px;border-radius:3px;margin-top:2px;display:inline-block}
-.r-spr.lo{background:rgba(255,71,87,.15);color:#ff4757}
-.r-spr.us{background:rgba(200,50,50,.25);color:#e03030}
-.r-spr.ms{background:rgba(255,140,0,.15);color:#ff8c00}
-.r-spr.sd{background:rgba(46,213,115,.15);color:#2ed573}
-.r-spr.dp{background:rgba(100,149,237,.15);color:#6495ed}
-.r-spr.md{background:rgba(255,215,0,.15);color:#ffd700}
-.r-spr.hi{background:rgba(46,213,115,.15);color:#2ed573}
-.r-class{font-size:8px;padding:2px 6px;border-radius:10px;margin-top:2px;display:inline-block}
-.r-class.nuts{background:rgba(168,85,247,.2);color:#c77dff}
-.r-class.strong{background:rgba(46,213,115,.2);color:#2ed573}
-.r-class.medium{background:rgba(255,215,0,.2);color:#ffd700}
-.r-class.weak{background:rgba(255,71,87,.2);color:#ff6b6b}
-.r-class.draw{background:rgba(93,173,226,.2);color:#5dade2}
-.r-class.air{background:rgba(100,100,100,.2);color:#888}
-.tracker-wrap{margin-bottom:4px;padding:6px;background:linear-gradient(135deg,rgba(199,125,255,.08),rgba(168,85,247,.05));border-radius:10px;border:1px solid rgba(199,125,255,.15)}
-.tracker-title{font-size:10px;color:#c77dff;font-weight:bold;margin-bottom:4px;display:flex;align-items:center;gap:4px}
-.tracker-title .t-icon{font-size:14px}
-.tracker-stats{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}
-.t-stat{flex:1;min-width:45%;background:rgba(0,0,0,.2);padding:4px 6px;border-radius:6px}
-.t-stat-l{font-size:8px;color:#555}
-.t-stat-v{font-size:11px;font-weight:bold;color:#fff}
-.t-conf{width:100%;height:4px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden;margin-top:3px}
-.t-conf-fill{height:100%;background:linear-gradient(90deg,#5dade2,#c77dff);transition:width .3s}
-.tracker-actions{display:flex;gap:3px;margin-top:4px}
-.t-btn{flex:1;padding:4px 6px;border:none;border-radius:4px;font-size:9px;font-weight:bold;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .08s}
-.t-btn:active{transform:scale(.95)}
-.t-btn.on{background:rgba(199,125,255,.2);color:#c77dff}
-.t-btn.rst{background:rgba(255,71,87,.1);color:#ff4757}
-.scene-wrap{margin-bottom:4px}
-.scene-tabs{display:flex;gap:2px;margin-bottom:3px}
-.s-tab{flex:1;padding:8px 0;border:none;border-radius:6px;font-size:11px;font-weight:900;cursor:pointer;background:rgba(255,255,255,.04);color:#444;transition:all .1s}
-.s-tab.on{color:#fff}
-.s-tab.pre.on{background:linear-gradient(135deg,#1a4d2e,#0d2818);color:#2ed573}
-.s-tab.post.on{background:linear-gradient(135deg,#4d2600,#2d1800);color:#ffa502}
-.scene-btns{display:flex;gap:3px;flex-wrap:wrap}
-.big-btn{flex:1;min-width:48%;padding:12px 8px;border:none;border-radius:10px;font-size:13px;font-weight:900;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .08s;text-align:center}
-.big-btn:active{transform:scale(.95)}
-.big-btn.on{color:#fff;box-shadow:0 0 15px rgba(255,255,255,.1)}
-.big-btn.open.on{background:linear-gradient(135deg,#1a5c30,#0d3d1f);color:#2ed573}
-.big-btn.raise.on{background:linear-gradient(135deg,#8b1a1a,#5c1010);color:#ff6b6b}
-.big-btn.call.on{background:linear-gradient(135deg,#8b5a00,#5c3a00);color:#ffa502}
-.big-btn.reraise.on{background:linear-gradient(135deg,#5c1a8b,#3d105c);color:#c77dff}
-.big-btn.check.on{background:linear-gradient(135deg,#3d3d3d,#2a2a2a);color:#aaa}
-.big-btn.bet.on{background:linear-gradient(135deg,#8b1a1a,#5c1010);color:#ff6b6b}
-.big-btn.allin.on{background:linear-gradient(135deg,#5c1a8b,#3d105c);color:#c77dff}
-.big-btn .b-emoji{font-size:18px;display:block;margin-bottom:2px}
-.cards-row{display:flex;gap:3px;margin-bottom:4px;justify-content:center;align-items:flex-end}
-.card-slot{width:38px;height:52px;border:1.5px dashed rgba(255,255,255,.1);border-radius:5px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:7px;color:#333;background:rgba(0,0,0,.12);transition:all .08s}
-.card-slot:active{transform:scale(.9)}
-.card-slot.f{border:none;background:#f5f5f0;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-.card-slot .cr{font-size:16px;font-weight:900;line-height:1}
-.card-slot .cs{font-size:11px;line-height:1}
-.card-slot.red{color:#c41e3a}.card-slot.blk{color:#1a1a1a}
-.card-label{font-size:7px;color:#444;text-align:center;margin-top:1px}
-.card-group{display:flex;flex-direction:column;align-items:center}
-.card-sep{width:1px;height:36px;background:rgba(255,255,255,.05);margin:0 2px}
-.mx-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:2px}
-.mx-wrap.collapsed{display:none}
-.mx-info{display:flex;justify-content:center;gap:6px;font-size:8px;color:#888;margin-bottom:2px;flex-wrap:wrap}
-.mx-info span{background:rgba(255,255,255,.05);padding:1px 5px;border-radius:6px}
-.mx-badge{font-size:7px;padding:1px 4px;border-radius:4px;font-weight:700;margin-right:2px}
-.mx-badge.short{background:#ff4757;color:#fff}
-.mx-badge.standard{background:#2ed573;color:#000}
-.mx-badge.deep{background:#5dade2;color:#fff}
-.mx-badge.opp{background:#a855f7;color:#fff}
-.mx-badge.limp{background:#ffa502;color:#000}
-.mx{border-collapse:collapse;margin:0 auto}
-.mx th,.mx td{width:26px;height:26px;text-align:center;font-size:7px;font-weight:700;border:1px solid rgba(255,255,255,.04)}
-.mx th{color:#555;font-size:7px;background:rgba(0,0,0,.2)}
-.mx td{cursor:pointer;transition:all .06s;border-radius:2px;position:relative}
-.mx td:active{transform:scale(.85)}
-.mx td.sel{outline:2px solid #ffd700;outline-offset:-1px;z-index:2}
-.mx td .cell-label{font-size:6px;line-height:1;display:block}
-.mx td .cell-action{font-size:5.5px;opacity:.7;line-height:1;display:block;margin-top:1px}
-.c-r{background:rgba(46,213,115,.5);color:#fff}.c-c{background:rgba(255,165,2,.4);color:#fff}
-.c-b{background:rgba(93,173,226,.4);color:#fff}.c-f{background:rgba(255,255,255,.02);color:#333}
-.c-p{font-weight:900}
-/* V2.9.55: 场景感知范围颜色——强度分3档 */
-.c-r3{background:rgba(46,213,115,.7);color:#fff}.c-r2{background:rgba(46,213,115,.5);color:#fff}.c-r1{background:rgba(46,213,115,.3);color:#ccc}
-.c-b3{background:rgba(93,173,226,.7);color:#fff}.c-b2{background:rgba(93,173,226,.5);color:#fff}.c-b1{background:rgba(93,173,226,.3);color:#ccc}
-.c-c3{background:rgba(255,165,2,.6);color:#fff}.c-c2{background:rgba(255,165,2,.4);color:#fff}.c-c1{background:rgba(255,165,2,.25);color:#ccc}
-.c-v3{background:rgba(168,85,247,.6);color:#fff}.c-v2{background:rgba(168,85,247,.4);color:#fff}.c-v1{background:rgba(168,85,247,.25);color:#ccc}
-.c-s3{background:rgba(255,107,107,.6);color:#fff}.c-s2{background:rgba(255,107,107,.4);color:#fff}.c-s1{background:rgba(255,107,107,.25);color:#ccc}
-.c-hand{outline:2px solid #ffd700;outline-offset:-1px;z-index:2}
-.mx-legend{display:flex;gap:5px;justify-content:center;font-size:8px;color:#444;margin:1px 0 3px}
-.ml{width:6px;height:6px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:1px}
-.hint{font-size:9px;color:#555;text-align:center;padding:3px;background:rgba(255,255,255,.02);border-radius:4px;margin-bottom:3px}
-.cam-mini{position:fixed;bottom:8px;right:8px;z-index:50}
-.cam-mini-btn{width:36px;height:36px;border:none;border-radius:50%;font-size:16px;cursor:pointer;background:rgba(0,0,0,.7);color:#888;transition:all .1s;box-shadow:0 2px 8px rgba(0,0,0,.5)}
-.cam-mini-btn.on{background:rgba(46,213,115,.8);color:#fff}
-.cam-mini-btn:active{transform:scale(.9)}
-.adv-t{font-size:10px;color:#555;text-align:center;padding:6px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);background:rgba(0,0,0,.15);border-radius:6px}
-.adv{display:none;padding:6px;background:rgba(0,0,0,.25);border-radius:6px;margin-bottom:4px}
-.adv.show{display:block}
-.adv-row{display:flex;gap:3px;align-items:center;margin-bottom:5px;flex-wrap:wrap}
-.adv-l{font-size:9px;color:#555;min-width:40px}
-.adv-btn{padding:5px 8px;border:none;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .06s}
-.adv-btn.on{background:rgba(168,85,247,.12);color:#a855f7}
-.adv-inp{width:50px;padding:4px 6px;border:1px solid rgba(255,255,255,.08);border-radius:4px;background:rgba(0,0,0,.2);color:#fff;font-size:11px;font-weight:bold;text-align:center}
-.adv-sub{font-size:9px;color:#666;margin-bottom:4px}
-.exploit-row{display:flex;gap:3px;margin-bottom:4px}
-.ex-btn{flex:1;padding:8px 0;border:none;border-radius:8px;font-size:10px;font-weight:900;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .08s;text-align:center}
-.ex-btn:active{transform:scale(.95)}
-.ex-btn.on{color:#fff}
-.ex-btn.fish.on{background:linear-gradient(135deg,#1a5c30,#0d3d1f)}
-.ex-btn.maniac.on{background:linear-gradient(135deg,#5c1a4a,#3d0d30)}
-.ex-btn.cs.on{background:linear-gradient(135deg,#1a3d5c,#0d2d3d)}
-.ex-btn.nit.on{background:linear-gradient(135deg,#3d3d1a,#2d2d0d)}
-.ex-btn.tp.on{background:linear-gradient(135deg,#1a3d5c,#0d2840)}
-.ex-btn.lag.on{background:linear-gradient(135deg,#5c1a1a,#3d0d0d)}
-.ex-btn.unknown.on{background:linear-gradient(135deg,#333,#222);color:#888}
-.ex-btn .e-emoji{font-size:16px;display:block;margin-bottom:1px}
-.clr{display:block;width:100%;padding:8px;border:1px solid rgba(255,71,87,.15);border-radius:8px;background:transparent;color:#ff4757;font-size:11px;font-weight:bold;cursor:pointer;margin-top:4px}
-.modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:100;padding:8px;overflow-y:auto}
-.modal.on{display:block}
-.mt{text-align:center;font-size:14px;color:#ffd700;margin-bottom:6px;font-weight:bold}
-.ms-row{display:flex;justify-content:center;gap:4px;margin-bottom:6px}
-.ms-btn{padding:6px 14px;border:none;border-radius:12px;font-size:16px;cursor:pointer;background:rgba(255,255,255,.06);transition:all .06s}
-.ms-btn.on{background:#ffd700}
-.m-grid{display:grid;grid-template-columns:repeat(13,1fr);gap:2px;max-width:460px;margin:0 auto}
-.m-c{aspect-ratio:.75;border:none;border-radius:2px;font-size:10px;font-weight:bold;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f5f5f0;transition:all .05s;padding:1px 0}
-.m-c:active{transform:scale(.85)}
-.m-c.red{color:#c41e3a}.m-c.blk{color:#1a1a1a}
-.m-c.dis{opacity:.12;pointer-events:none}
-.m-c .mr{font-size:11px;line-height:1}.m-c .ms{font-size:8px;line-height:1}
-.m-cl{display:block;margin:8px auto;padding:6px 20px;border:none;border-radius:10px;background:rgba(255,255,255,.06);color:#fff;font-size:11px;cursor:pointer}
-/* V2.9.57: Session统计弹窗 */
-.stats-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.95);z-index:150;padding:8px;overflow-y:auto}
-.stats-modal.on{display:block}
-.stats-title{text-align:center;font-size:13px;color:#ffd700;margin-bottom:6px;font-weight:bold}
-.stats-card{background:rgba(255,255,255,.05);border-radius:8px;padding:8px;margin-bottom:6px}
-.stats-card h3{font-size:10px;color:#888;margin-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:2px}
-.stats-row{display:flex;justify-content:space-between;font-size:9px;padding:2px 0;color:#ccc}
-.stats-row .val{font-weight:bold;color:#fff}
-.stats-row .val.pos{color:#2ed573}
-.stats-row .val.neg{color:#ff4757}
-.stats-row .val.neu{color:#ffa502}
-.stats-bar{height:14px;background:rgba(255,255,255,.04);border-radius:3px;margin:2px 0;position:relative;overflow:hidden}
-.stats-bar-fill{height:100%;border-radius:3px;transition:width .3s}
-.stats-bar-label{position:absolute;right:4px;top:0;font-size:7px;line-height:14px;color:#fff;font-weight:bold}
-.stats-chart{height:60px;display:flex;align-items:flex-end;gap:1px;margin:4px 0;padding:0 2px}
-.stats-chart-bar{flex:1;min-width:2px;border-radius:1px 1px 0 0;transition:height .2s}
-.stats-pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.cam-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.95);z-index:200;padding:8px}
-.cam-modal.on{display:block}
-.cam-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.cam-title{font-size:14px;color:#ffd700;font-weight:bold}
-.cam-close{padding:6px 14px;border:none;border-radius:6px;background:rgba(255,71,87,.2);color:#ff4757;font-size:11px;cursor:pointer}
-.cam-wrap{position:relative;border-radius:10px;overflow:hidden;background:#000}
-.cam-wrap video{width:100%;display:block;border-radius:10px}
-.cam-wrap canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-.cam-hint{position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:10px;color:rgba(255,255,255,.6);background:rgba(0,0,0,.6);padding:4px;border-radius:0 0 10px 10px}
-.cam-result{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;justify-content:center;align-items:center}
-.cam-card{padding:5px 10px;border-radius:5px;font-size:13px;font-weight:bold;cursor:pointer}
-.cam-card.hi{background:rgba(46,213,115,.2);color:#2ed573;border:1px solid rgba(46,213,115,.3)}
-.cam-card.ok{background:rgba(255,215,0,.2);color:#ffd700;border:1px solid rgba(255,215,0,.4)}
-.cam-card.add{background:rgba(255,255,255,.05);color:#888;border:1px dashed rgba(255,255,255,.1)}
-.cam-card .cf{font-size:9px;color:#888;margin-left:2px}
-.set-panel{margin-top:6px;padding:6px;background:rgba(0,0,0,.3);border-radius:6px}
-.set-row{display:flex;gap:4px;align-items:center;margin-bottom:4px}
-.set-lbl{color:#666;font-size:10px;min-width:50px}
-.set-inp{flex:1;padding:5px 8px;border:1px solid rgba(255,255,255,.1);border-radius:5px;background:rgba(0,0,0,.3);color:#fff;font-size:11px}
-.set-btn{padding:5px 10px;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer}
-.set-btn.save{background:#2ed573;color:#000}
-.set-btn.test{background:rgba(93,173,226,.2);color:#5dade2}
-.set-info{font-size:9px;color:#555;margin-top:3px}
-.yolo-badge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:900}
-.yolo-badge.on{background:rgba(46,213,115,.15);color:#2ed573}
-.yolo-badge.off{background:rgba(255,255,255,.05);color:#444}
-/* === V1.5 极速模式 === */
-body.speed-mode .tracker-wrap,
-body.speed-mode .scene-wrap,
-body.speed-mode .cards-row,
-body.speed-mode .hint,
-body.speed-mode .mx-wrap,
-body.speed-mode .adv-t,
-body.speed-mode .adv,
-body.speed-mode .cam-mini{display:none!important}
-body.speed-mode .res{position:fixed;top:0;left:0;right:0;z-index:999;min-height:auto;border-radius:8px;padding:4px 8px;background:rgba(10,20,40,.92);border:1px solid rgba(46,213,115,.3);justify-content:flex-start}
-body.speed-mode .r-a{font-size:22px;letter-spacing:2px;padding:2px 6px;border-radius:6px;display:inline-block;margin-bottom:2px}
-body.speed-mode .r-v{font-size:14px;margin-top:1px}
-body.speed-mode .r-d{font-size:11px;margin-top:1px}
-body.speed-mode .r-tip{font-size:20px;padding:4px 10px;margin-top:4px;font-weight:900;border-radius:8px;display:inline-block;text-shadow:0 1px 4px rgba(0,0,0,.5)}
-body.speed-mode .r-class{font-size:9px;margin-top:2px}
-body.speed-mode .r-drta,
-body.speed-mode .r-spr,
-body.speed-mode .r-ev-sm,
-body.speed-mode .r-plan,
-body.speed-mode .r-exploit{display:none!important}
-body.speed-mode .speed-exit{display:inline-block!important}
-.speed-exit{display:none!important;font-size:10px;color:#555;padding:3px 10px;border-radius:12px;background:rgba(255,255,255,.05);cursor:pointer;margin-top:6px}
-.speed-exit:active{background:rgba(255,255,255,.15)}
-@keyframes resultPulse{0%{transform:scale(1)}25%{transform:scale(1.06)}50%{transform:scale(1)}75%{transform:scale(1.03)}100%{transform:scale(1)}}
-.result-pulse{animation:resultPulse .4s ease-out}
-@keyframes borderFlash{0%{box-shadow:0 0 0 0 rgba(255,255,255,.6)}50%{box-shadow:0 0 20px 4px rgba(255,255,255,.3)}100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}}
-.border-flash{animation:borderFlash .5s ease-out}
-/* API处理中状态 */
-.api-processing .res{opacity:.6}
-.api-processing .res::after{content:'⏳ 识别中...';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:18px;color:#ffd700;font-weight:900}
-.api-processing .res{position:relative}
-/* === V2.0 识别结果展示 === */
-.rec-banner{display:none;background:linear-gradient(135deg,#1a237e,#0d47a1);border-radius:10px;padding:8px;margin-bottom:4px;text-align:center;border:1px solid rgba(144,202,249,.3)}
-.rec-banner.on{display:block}
-.rec-label{font-size:9px;color:#90caf9;margin-bottom:3px;font-weight:bold}
-.rec-cards{display:flex;justify-content:center;gap:2px;align-items:center;flex-wrap:wrap;margin-bottom:3px}
-.rec-card{display:inline-flex;flex-direction:column;align-items:center;padding:2px 5px;background:rgba(255,255,255,.12);border-radius:4px;min-width:28px}
-.rec-card .rc-r{font-size:16px;font-weight:900;line-height:1}
-.rec-card .rc-s{font-size:12px;line-height:1}
-.rec-card.red{color:#ff6b6b}.rec-card.blk{color:#e0e0e0}
-.rec-sep{width:1px;height:24px;background:rgba(255,255,255,.2);margin:0 3px}
-.rec-info{font-size:10px;color:#90caf9;margin-top:2px}
-body.speed-mode .rec-banner{padding:10px;border-radius:14px;border-width:2px}
-body.speed-mode .rec-card .rc-r{font-size:20px}
-body.speed-mode .rec-card .rc-s{font-size:14px}
-body.speed-mode .rec-info{font-size:12px;font-weight:bold}
-body.speed-mode .rec-label{font-size:10px}
-/* V2.9.131: 换桌建议 — 悬浮球闪烁动画（视觉层，不动7色策略色）*/
-@keyframes v29131-blink-slow {0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,0)}50%{box-shadow:0 0 0 6px rgba(255,215,0,0.6)}}
-@keyframes v29131-blink-fast {0%,100%{box-shadow:0 0 0 0 rgba(255,71,87,0)}50%{box-shadow:0 0 0 6px rgba(255,71,87,0.7)}}
-.v29131-blink-slow {animation: v29131-blink-slow 2s ease-in-out infinite}
-.v29131-blink-fast {animation: v29131-blink-fast 0.8s ease-in-out infinite}
-.tc-blink-icon {display:inline-block;margin-left:4px;font-size:14px}
-.tc-blink-icon.l1 {animation: v29131-blink-slow 2s ease-in-out infinite}
-.tc-blink-icon.l2 {animation: v29131-blink-fast 0.8s ease-in-out infinite}
-.tc-condition {padding:4px 8px;margin:3px 0;background:rgba(255,255,255,0.08);border-radius:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
-.tc-condition.met {background:rgba(255,71,87,0.15);color:#ff6b7a}
-.tc-advice {padding:8px;margin:6px 0;background:rgba(255,215,0,0.12);border-radius:6px;font-size:12px;color:#ffd700}
-.tc-l2-banner {background:linear-gradient(135deg,#7a1a1a,#a82a1a);color:#fff;padding:6px 10px;border-radius:4px;font-weight:bold;text-align:center;margin-bottom:6px}
-.tc-l1-banner {background:linear-gradient(135deg,#3a3a1a,#5a4a1a);color:#ffd700;padding:6px 10px;border-radius:4px;font-weight:bold;text-align:center;margin-bottom:6px}
-</style>
-</head>
-<body class="speed-mode">
-<div class="rec-banner" id="recBanner">
-  <div class="rec-label">🔍 识别结果</div>
-  <div class="rec-cards" id="recCards"></div>
-  <div class="rec-info" id="recInfo"></div>
-</div>
-<div class="res" id="res"><div style="color:#555;font-size:14px">📷 截图即可开始分析</div></div>
-<div class="tracker-wrap" id="trackerWrap">
-  <div class="tracker-title"><span class="t-icon">🎯</span>对手追踪 <span id="oppTypeTag" style="font-size:9px;padding:1px 5px;background:rgba(199,125,255,.2);border-radius:3px;color:#c77dff">unknown</span></div>
-  <div id="oppProfileInfo" style="padding:2px 8px;"><div style="font-size:9px;color:#555">等待数据...</div></div>
-  <div class="tracker-stats" id="trackerStats">
-    <div class="t-stat"><div class="t-stat-l">手数</div><div class="t-stat-v" id="tHands">0</div></div>
-    <div class="t-stat"><div class="t-stat-l">VPIP</div><div class="t-stat-v" id="tVpip">--</div></div>
-    <div class="t-stat"><div class="t-stat-l">PFR</div><div class="t-stat-v" id="tPfr">--</div></div>
-    <div class="t-stat"><div class="t-stat-l">AF</div><div class="t-stat-v" id="tAf">--</div></div>
-    <div class="t-stat"><div class="t-stat-l">弃牌率</div><div class="t-stat-v" id="tFtB">--</div></div>
-    <div class="t-stat"><div class="t-stat-l">近侵</div><div class="t-stat-v" id="tRagg">--</div></div>
-    <div class="t-stat"><div class="t-stat-l">3bet</div><div class="t-stat-v" id="t3bet">--</div></div>
-    <div class="t-stat"><div class="t-stat-l">CBet</div><div class="t-stat-v" id="tCbet">--</div></div>
-    <div class="t-stat"><div class="t-stat-l">偷盲</div><div class="t-stat-v" id="tSteal">--</div></div>
-  </div>
-  <div style="font-size:8px;color:#888;text-align:center;padding:1px 4px">范围推断: <span id="tRangeDist" style="color:#c77dff">--</span></div>
-  <div class="t-conf"><div class="t-conf-fill" id="tConfFill" style="width:0%"></div></div>
-  <div class="tracker-actions">
-    <button class="t-btn" id="tBtnUnknown" onclick="setTrackerType('unknown')">❓未知</button>
-    <button class="t-btn" id="tBtnFish" onclick="setTrackerType('fish')">🐟鱼</button>
-    <button class="t-btn" id="tBtnTP" onclick="setTrackerType('tight')">🎯紧被动</button>
-    <button class="t-btn" id="tBtnLAG" onclick="setTrackerType('lag')">🔥松凶</button>
-    <button class="t-btn rst" onclick="resetTracker()">🔄重置</button>
-  </div>
-</div>
-<div class="scene-wrap" id="sceneWrap">
-  <div class="scene-tabs">
-    <button class="s-tab pre on" id="tabPre" onclick="setPhase('pre')">🌱 翻前</button>
-    <button class="s-tab post" id="tabPost" onclick="setPhase('post')">🌿 翻后</button>
-  </div>
-  <div id="sceneBtnsPre" class="scene-btns">
-    <button class="big-btn open on" id="scOpen" onclick="setScene('open')"><span class="b-emoji">🟢</span>开池</button>
-    <button class="big-btn raise" id="scRaise" onclick="setScene('raise')"><span class="b-emoji">🔴</span>面对加注</button>
-    <button class="big-btn call" id="scCall" onclick="setScene('call')"><span class="b-emoji">🟡</span>多人跟注</button>
-    <button class="big-btn reraise" id="scReraise" onclick="setScene('reraise')"><span class="b-emoji">🟣</span>面对再raise</button>
-  </div>
-  <div id="sceneBtnsPost" class="scene-btns" style="display:none">
-    <button class="big-btn check on" id="scCheck" onclick="setScene('check')"><span class="b-emoji">⚪</span>对手过牌</button>
-    <button class="big-btn bet" id="scBet" onclick="setScene('bet')"><span class="b-emoji">🔴</span>对手下注</button>
-    <button class="big-btn allin" id="scAllin" onclick="setScene('allin')"><span class="b-emoji">🟡</span>对手全下</button>
-  </div>
-</div>
-<div class="exploit-row" id="exploitRow">
-  <button class="ex-btn unknown on" id="exUnknown" onclick="setOppType('unknown')"><span class="e-emoji">❓</span>未知</button>
-  <button class="ex-btn fish" id="exFish" onclick="setOppType('fish')"><span class="e-emoji">🐟</span>鱼</button>
-  <button class="ex-btn tp" id="exTP" onclick="setOppType('tight')"><span class="e-emoji">🎯</span>紧被动</button>
-  <button class="ex-btn lag" id="exLAG" onclick="setOppType('lag')"><span class="e-emoji">🔥</span>松凶</button>
-</div>
-<div class="cards-row" id="cardsRow">
-  <div class="card-group"><div class="card-slot" id="h0" onclick="pick('h0')"><span>手1</span></div><div class="card-label">手牌</div></div>
-  <div class="card-group"><div class="card-slot" id="h1" onclick="pick('h1')"><span>手2</span></div><div class="card-label">&nbsp;</div></div>
-  <div class="card-sep"></div>
-  <div class="card-group"><div class="card-slot" id="c0" onclick="pick('c0')"><span>翻1</span></div><div class="card-label">公共</div></div>
-  <div class="card-group"><div class="card-slot" id="c1" onclick="pick('c1')"><span>翻2</span></div><div class="card-label">&nbsp;</div></div>
-  <div class="card-group"><div class="card-slot" id="c2" onclick="pick('c2')"><span>翻3</span></div><div class="card-label">&nbsp;</div></div>
-  <div class="card-group"><div class="card-slot" id="c3" onclick="pick('c3')"><span>转牌</span></div><div class="card-label">&nbsp;</div></div>
-  <div class="card-group"><div class="card-slot" id="c4" onclick="pick('c4')"><span>河牌</span></div><div class="card-label">&nbsp;</div></div>
-</div>
-<div class="hint" id="hint">👆 点击格子选牌，或点右上角📷开摄像头</div>
-<div class="mx-info" id="mxInfo"></div>
-<div class="mx-wrap" id="mxWrap"><table class="mx" id="mx"></table></div>
-<div class="mx-legend" id="mxLegend">
-  <span><span class="ml" style="background:#2ed573"></span>加注</span>
-  <span><span class="ml" style="background:#5dade2"></span>3bet</span>
-  <span><span class="ml" style="background:#ffa502"></span>跟注</span>
-  <span><span class="ml" style="background:#222"></span>弃牌</span>
-</div>
-<div class="adv-t" onclick="togAdv()">⚙ 高级设置（默认无需打开）▼</div>
-<div class="adv" id="adv">
-  <div class="adv-sub">以下可默认不动，高级玩家自调</div>
-  <div class="adv-row">
-    <span class="adv-l">位置</span>
-    <button class="adv-btn on" id="posBtn" onclick="sPos('btn')">BTN</button>
-    <button class="adv-btn" onclick="sPos('co')">CO</button>
-    <button class="adv-btn" onclick="sPos('hj')">HJ</button>
-    <button class="adv-btn" onclick="sPos('mp')">MP</button>
-    <button class="adv-btn" onclick="sPos('utg')">UTG</button>
-    <button class="adv-btn" onclick="sPos('sb')">SB</button>
-    <button class="adv-btn" onclick="sPos('bb')">BB</button>
-  </div>
-  <div class="adv-row">
-    <span class="adv-l">桌型</span>
-    <button class="adv-btn" onclick="sTT(2)">2人</button>
-    <button class="adv-btn" onclick="sTT(3)">3人</button>
-    <button class="adv-btn" onclick="sTT(4)">4人</button>
-    <button class="adv-btn" onclick="sTT(5)">5人</button>
-    <button class="adv-btn on" onclick="sTT(6)">6人</button>
-    <button class="adv-btn" onclick="sTT(7)">7人</button>
-    <button class="adv-btn" onclick="sTT(8)">8人</button>
-    <button class="adv-btn" onclick="sTT(9)">9人</button>
-  </div>
-  <div class="adv-row"><span class="adv-l">筹码</span><input type="number" class="adv-inp" id="stkInp" value="100" min="5" max="500" onchange="updateStk()"><span style="color:#444;font-size:9px">BB</span></div>
-  <div class="adv-row"><span class="adv-l">平跟者</span><button class="adv-btn on" id="limpBtn0" onclick="setLimpers(0)">0</button><button class="adv-btn" id="limpBtn1" onclick="setLimpers(1)">1</button><button class="adv-btn" id="limpBtn2" onclick="setLimpers(2)">2+</button></div>
-  <div class="adv-row"><span class="adv-l">底池</span><input type="number" class="adv-inp" id="potInp" value="10" min="1" max="500" onchange="updatePot()"><span style="color:#444;font-size:9px">BB</span></div>
-  <div class="adv-row"><span class="adv-l">面对</span><input type="number" class="adv-inp" id="betInp" value="0" min="0" max="500" onchange="updateBet()"><span style="color:#444;font-size:9px">BB</span></div>
-</div>
-<button class="clr" onclick="clr()">🔄 下一手</button>
-<button class="clr" style="background:#1a3a5c;font-size:9px;padding:3px 6px" id="hotBtn" onclick="hotUpdate()">📡策略更新</button>
-<button class="clr" style="background:#3a1a1a;font-size:9px;padding:3px 6px;display:none" id="revertBtn" onclick="revertLocal()">↩恢复本地</button>
-<button class="clr" style="background:#1a3a2c;font-size:9px;padding:3px 6px" id="exportBtn" onclick="exportLog()">📤导出日志</button>
-<button class="clr" style="background:#1a2a3a;font-size:9px;padding:3px 6px" id="statsBtn" onclick="showStats()">📊统计</button>
-<button class="clr" style="background:#3a2a1a;font-size:9px;padding:3px 6px" id="reviewBtn" onclick="openReview()">📊复盘</button>
-<div class="cam-mini"><button class="cam-mini-btn" id="camMiniBtn" onclick="toggleCamModal()">📷</button></div>
-<div class="modal" id="modal">
-  <div class="mt" id="mTitle">选牌</div>
-  <div class="ms-row" id="mSuit"></div>
-  <div class="m-grid" id="mGrid"></div>
-  <button class="m-cl" onclick="closeM()">关闭</button>
-</div>
-<!-- V2.9.130: 复盘弹窗 -->
-<div class="modal" id="reviewModal" style="display:none;z-index:9999;background:rgba(0,0,0,0.85);padding:10px;max-height:95vh;overflow-y:auto">
-  <div class="mt" style="background:linear-gradient(135deg,#1a237e,#0d47a1);color:#fff">📊 手牌复盘（V2.9.130）</div>
-  <div id="reviewContent" style="padding:6px 0;color:#fff"></div>
-  <button class="m-cl" onclick="closeReview()">关闭</button>
-</div>
-<!-- V2.9.131: 换桌建议弹窗 -->
-<div class="modal" id="tableChangeModal" style="display:none;z-index:9999;background:rgba(0,0,0,0.85);padding:10px;max-height:95vh;overflow-y:auto">
-  <div class="mt" style="background:linear-gradient(135deg,#3a3a1a,#5a4a1a);color:#ffd700">🔄 换桌建议（V2.9.131）</div>
-  <div id="tableChangeContent" style="padding:6px 0;color:#fff"></div>
-  <div style="display:flex;gap:6px;margin-top:6px">
-    <button class="m-cl" style="flex:1;background:#3a3a3a" onclick="TableChangeDialog.hide('know')">知道了</button>
-    <button class="m-cl" style="flex:1;background:linear-gradient(135deg,#7a1a1a,#a82a1a)" onclick="TableChangeDialog.hide('change')">现在换桌</button>
-  </div>
-</div>
-<div class="stats-modal" id="statsModal">
-  <div class="stats-title">📊 Session统计</div>
-  <div id="statsContent"></div>
-  <button class="m-cl" onclick="closeStats()">关闭</button>
-</div>
-<div class="cam-modal" id="camModal">
-  <div class="cam-header"><span class="cam-title">📷 实时扫描</span><button class="cam-close" onclick="closeCamModal()">关闭</button></div>
-  <div class="cam-wrap" id="camWrap"><video id="camVideo" autoplay playsinline muted></video><canvas id="camCanvas"></canvas><div class="cam-hint" id="camHint">对准牌面 · 自动识别</div></div>
-  <div class="cam-result" id="camResult"></div>
-  <div class="set-panel">
-    <div class="set-row"><span class="set-lbl">API Key</span><input type="password" class="set-inp" id="rfKeyInp" placeholder="Roboflow Key"><button class="set-btn save" onclick="saveKey()">保存</button></div>
-    <div class="set-row"><span class="yolo-badge off" id="yoloBadge">YOLO</span><button class="set-btn test" onclick="testKey()">测试</button></div>
-    <div class="set-info" id="setInfo">支持YOLO自动识别，也可本地识别</div>
-  </div>
-</div>
-<script>
+var API_BASE="http://127.0.0.1:8666";
 // ===== v14.25 GTO+DRTA融合引擎 =====
 
 // 全局常量
-var R=['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
-var RV={A:12,K:11,Q:10,J:9,T:8,'9':7,'8':6,'7':5,'6':4,'5':3,'4':2,'3':1,'2':0};
-var SU=['h','d','s','c'];
-var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
+global.R=['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+global.RV={A:12,K:11,Q:10,J:9,T:8,'9':7,'8':6,'7':5,'6':4,'5':3,'4':2,'3':1,'2':0};
+global.SU=['h','d','s','c'];
+global.SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{},_seatRoles:{},_facing3bet:false,_raiserRole:'unknown',_raiserStackType:'unknown',_heroDid4bet:false,_slowplayed:false};
-var _pi=null,_ms='h';
-var _decisionCache={};var _cacheMax=200;
+global.G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{},_seatRoles:{},_facing3bet:false,_raiserRole:'unknown',_raiserStackType:'unknown',_heroDid4bet:false,_slowplayed:false};
+global._pi=null,_ms='h';
+global._decisionCache={};var _cacheMax=200;
 function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('')+'L'+G.limpers;}
-var camStream=null,scanTimer=null,scanning=false;
-var mxVisible=true;
+global.camStream=null,scanTimer=null,scanning=false;
+global.mxVisible=true;
 
 // ===== P0: DRTA OpponentTracker =====
 // V2.9.46: Web Worker隔离MC计算——翻后不再阻塞UI
-var _mcWorker=null;
-var _mcResolve=null;
+global._mcWorker=null;
+global._mcResolve=null;
 function _initMCWorker(){
   if(_mcWorker)return;
   // Worker代码：内含eH+mcVsRange+handKeyToCards
@@ -494,7 +70,7 @@ function mcVsRangeAsync(hole,comm,oppRange,iterations){
 }
 
 // V2.9.46: GTO频率混合表（关键场景的随机化决策）
-var GTO_FREQ={
+global.GTO_FREQ={
   // 翻前3bet场景: {手牌: [raise%, call%]}
   pre3bet:{
     'AKs':[70,30],'AKo':[60,40],'AQs':[65,35],'AQo':[50,50],
@@ -520,7 +96,7 @@ function gtoRandom(freqArr){
 
 // === V2.9.54: 底池识别增强模块（替代V2.9.52 PotConfidence）===
 // 核心升级: ①EMA多帧平滑(25%阈值) ②to_call交叉验证+自动纠正 ③跨街底池约束 ④智能修正
-var PotConfidence={
+global.PotConfidence={
   // EMA历史帧
   _history:[],
   _maxHistory:5,
@@ -715,7 +291,7 @@ var PotConfidence={
 
 // === V2.9.52: 底池离散化分档策略 ===
 // 参考GTO Wizard 5档简化→我们用4档，每档预设sizing方案
-var PotBucket={
+global.PotBucket={
   // 每档的默认sizing方案: [value%, thinValue%, bluff%]
   // bluff%只在medium+置信度使用，low置信度不做bluff
   sizing:{
@@ -760,7 +336,7 @@ var PotBucket={
 // high: 完整GTO+MC+DRTA (现有逻辑)
 // medium: 粗粒度区间+减少诈唬+离散sizing
 // low: 纯胜率+手牌分类+位置规则兜底
-var FallbackStrategy={
+global.FallbackStrategy={
   // 中置信度策略: 粗粒度区间决策
   // - sizing只2-3档(不用精确计算)
   // - 诈唬频率打5折
@@ -933,7 +509,7 @@ var FallbackStrategy={
 };
 
 // V2.9.46: 手牌历史记录（复盘功能）
-var HandHistory={
+global.HandHistory={
   STORAGE_KEY:'poker_v2948_history',
   MAX_RECORDS:100,
   records:[],
@@ -982,7 +558,7 @@ var HandHistory={
 };
 
 // V2.9.47: 运行日志缓冲——捕获console.log用于导出分析
-var LogBuffer={
+global.LogBuffer={
   records:[],
   MAX:300,
   origLog:null,
@@ -1001,7 +577,7 @@ var LogBuffer={
 };
 
 // V2.9.57: Session统计——Bankroll曲线+BB/100+按位置分解
-var SessionStats={
+global.SessionStats={
   STORAGE_KEY:'poker_v2957_stats',
   data:null,
   init:function(){
@@ -1273,7 +849,7 @@ function showToast(msg){
 }
 
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
-var CacheManager={
+global.CacheManager={
   VERSION_KEY:'poker_cache_version',
   CURRENT_VERSION:'2.9.152',
   init:function(){
@@ -1292,7 +868,7 @@ var CacheManager={
 };
 
 // V2.9.79: 行动线追踪——同一手牌内串联翻前→翻牌→转牌→河牌
-var ActionLine={
+global.ActionLine={
   _lines:[],       // [{street, scene, heroAction, oppAction, eq, sizing}]
   _handId:'',      // 当前手牌ID（hole cards）
   _prevStreet:'',  // 上一街
@@ -1365,7 +941,7 @@ var ActionLine={
 };
 
 // ===== V2.9.105: 对手画像追踪器 =====
-var OppProfiler={
+global.OppProfiler={
   // V2.9.105: 用nickname做主键，跨座跨桌追踪
   // _profiles key = nickname, value = {nickname, pos, hands, entered, folded, chipsHistory, betHistory, type, _lastChips, _enteredThisHand, _foldedThisHand, _lastBet, _raiseCount}
   _profiles:{},
@@ -1942,7 +1518,7 @@ var OppProfiler={
 
 // ===== V2.9.105: 座位角色推算 =====
 // 从D按钮位置推算每个座位的扑克角色(BU/SB/BB/UTG/CO等)
-var SeatRole={
+global.SeatRole={
   // 屏幕座位的顺时针顺序（从top-center开始顺时针）
   // top-center → right-top → right-bottom → bottom-center(hero) → left-bottom → left-top
   CW:['top-center','right-top','right-bottom','bottom-center','left-bottom','left-top'],
@@ -2005,7 +1581,7 @@ var SeatRole={
 // V2.9.134起vision prompt要求返回suit(h/d/c/s)，Kotlin端不再抹掉，花色信息可用
 // 花色相关的策略判断将基于真实识别结果，而非概率猜测
 
-var DRTA={
+global.DRTA={
   tracker:null,
   bluffAttempts:0,
   bluffCalled:0,
@@ -2295,7 +1871,7 @@ var DRTA={
 function setTrackerType(type){DRTA.setType(type);G.opp=type;setOppType(type);}
 
 // ===== V2.9.60: TiltDetector — 对手情绪检测 =====
-var TiltDetector={
+global.TiltDetector={
   // 检测对手tilt状态
   // 返回: {tilt:bool, level:'none'|'low'|'medium'|'high', reason:string, adjustments:{}}
   detectTilt:function(profile){
@@ -2433,7 +2009,7 @@ var TiltDetector={
 // 与 V2.9.60 TiltDetector 命名空间隔离：TiltDetector=对手, SelfTiltGuard=自己
 // 4档状态机: 0=NORMAL, 1=WARNING, 2=DANGER, 3=TILT
 // 3个核心信号: 亏损速度(A) + 决策时间(B) + 翻前弃牌率(C) + 报复模式(D辅助)
-var SelfTiltGuard={
+global.SelfTiltGuard={
   state:null,
   // 历史基线（前8手用均值建立）
   baseline:{avgDecisionMs:5000,foldRatePre:0.5},
@@ -2618,7 +2194,7 @@ var SelfTiltGuard={
 // 命名空间隔离: 不动 result.r / 通知栏 / 悬浮球 / V2.9.129 SelfTiltGuard
 // 数据存内存, 一次 session 累积, 与 HandHistory.recordHand 联动
 // API: init() / reset() / classify(rec) / getStats() / getTopWeakHands(n) / getMistakes() / getReviewData() / openReview() / closeReview()
-var HandClassifier={
+global.HandClassifier={
   STORAGE_KEY:'poker_v29130_classify',
   // 归类桶
   _b:null,
@@ -2867,7 +2443,7 @@ var HandClassifier={
 // 命名空间隔离：不动 result.r / 通知栏 / 悬浮球颜色 / 7色策略色 / V2.9.129/130 保护点
 // 不污染 G / _tiltInfo / state / _b（其他模块数据）
 // API: init() / reset() / recordHand(rec) / eval() / getDisplay() / getStats()
-var TableQualityMeter={
+global.TableQualityMeter={
   // 状态（独立 namespace _q，不污染 _tiltInfo / _b）
   _q:null,
   // 评估阈值
@@ -3052,7 +2628,7 @@ var TableQualityMeter={
 // TILT 状态（SelfTiltGuard.level===3）不闪（V2.9.129 命名空间）
 // 命名空间隔离：不动 floatingBall 颜色 / 7色策略色 / result.r / 通知栏文本
 // API: init() / setLevel(level, adviceText) / clear() / startBlink() / stopBlink()
-var FloatBallBlink={
+global.FloatBallBlink={
   _b:null,  // blink 状态
   _intervalId:null,
   init:function(){
@@ -3166,7 +2742,7 @@ var FloatBallBlink={
 // 复用 V2.9.130 reviewModal 模式：HTML 在 body 末尾（tableChangeModal），CSS 在头部
 // 触发条件：TableQualityMeter.eval().level >= 1
 // API: show(evalResult) / hide(action) / isVisible()
-var TableChangeDialog={
+global.TableChangeDialog={
   _d:null,
   init:function(){
     if(this._d)return;
@@ -3237,7 +2813,7 @@ var TableChangeDialog={
 
 
 // ===== V2.9.131: 联动钩子 — 每次 TableQualityMeter.eval 后自动同步到 Blink/Dialog =====
-var TableChangeAdvisor={
+global.TableChangeAdvisor={
   // 触发间隔：每 3 手评估一次（避免过度打扰）
   EVAL_INTERVAL_HANDS:3,
   _a:null,
@@ -3274,7 +2850,7 @@ TableChangeAdvisor.init();
 
 
 // ===== V2.9.61: CounterExploit — 反剥削逻辑 =====
-var CounterExploit={
+global.CounterExploit={
   // 检测我方是否被对手剥削——对手可能针对性调整
   // 返回: {detected:bool, type:string, counterAction:string, adjustments:{}}
   detect:function(profile){
@@ -3372,7 +2948,7 @@ var CounterExploit={
 };
 
 // ===== V2.9.63: EVCalc — 精确EV计算引擎 =====
-var EVCalc={
+global.EVCalc={
   // 精确底池赔率(需跟注比例)
   potOdds:function(betToCall,pot){
     if(betToCall<=0)return 0;
@@ -3445,7 +3021,7 @@ var EVCalc={
 };
 
 // ===== V2.9.63: TablePulse — 桌面节奏感知 =====
-var TablePulse={
+global.TablePulse={
   _history:[],
   record:function(profile){
     if(!profile||!profile.hands)return;
@@ -3466,7 +3042,7 @@ var TablePulse={
 };
 
 // ===== V2.9.63: ColorStrategy — 7色信号决策 =====
-var ColorStrategy={
+global.ColorStrategy={
   COLORS:{
     FOLD:{color:'#FF5252',name:'弃牌',key:'fold',css:'fold',bg:'rgba(255,82,82,.12)'},
     WEAK_CALL:{color:'#FF8C00',name:'勉强跟',key:'weak_call',css:'weak_call',bg:'rgba(255,140,0,.12)'},
@@ -3553,7 +3129,7 @@ var ColorStrategy={
 // ===== V2.9.65: SafetyGuard — 数据不确定性保险 =====
 // 核心原则: equity(手牌+公共牌)是准的, EV(依赖底池)可能不准
 // 用equity给EV颜色上锁, 防止底池误读导致致命错误建议
-var SafetyGuard={
+global.SafetyGuard={
   // 评估数据可靠性 → high/medium/low
   dataReliability:function(potConfLevel,spr,bet,pot,stk){
     var level='high';
@@ -3668,7 +3244,7 @@ var SafetyGuard={
 
 
 // V2.9.30: DRTA自动采集 - 从场景推导对手动作
-var _lastRecordedKey=''; // 防止同一手牌同一场景重复记录
+global._lastRecordedKey=''; // 防止同一手牌同一场景重复记录
 function inferOpponentAction(scene,street){
   if(scene==='reraise')return{action:'reraise',isFacingBet:true};
   if(scene==='raise')return{action:'raise',isFacingBet:true};
@@ -3692,42 +3268,42 @@ function autoRecordOpponent(scene,street){
 // GTO范围表
 // V2.9.43: 5人桌范围表（5-max: UTG/CO/BTN/SB/BB，无MP）
 // V2.9.47: 2人桌(HU)范围表——极宽开池
-var O2={btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','JTs','J9s','J8s','J7s','J6s','J5s','T9s','T8s','T7s','T6s','T5s','98s','97s','96s','95s','94s','87s','86s','85s','84s','76s','75s','74s','73s','65s','64s','63s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
-var TB2={btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','K9o','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo']};
-var CB2={btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo','QTo','JTo']};
+global.O2={btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','JTs','J9s','J8s','J7s','J6s','J5s','T9s','T8s','T7s','T6s','T5s','98s','97s','96s','95s','94s','87s','86s','85s','84s','76s','75s','74s','73s','65s','64s','63s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
+global.TB2={btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','K9o','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo']};
+global.CB2={btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo','QTo','JTo']};
 // V2.9.47: 3人桌范围表——宽开池
-var O3={btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
-var TB3={btn:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],sb:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo','ATo','KQo','KJo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo']};
-var CB3={btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo','QTo','JTo']};
+global.O3={btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
+global.TB3={btn:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],sb:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo','ATo','KQo','KJo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo']};
+global.CB3={btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo','QTo','JTo']};
 // V2.9.47: 4人桌范围表
-var O4={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','65s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
-var TB4={utg:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','AKo','AQo','AJo','ATo','A9o','KQo','KJo'],sb:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQo','KJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','AKo','AQo','AJo','ATo','KQo','KJo','KTo']};
-var CB4={utg:['JJ','TT','99','88','77','66','55','44','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','AJo','KQo','KJo'],btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo']};
-var O5={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','64s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],co:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','65s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','74s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
-var TB5={utg:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo'],co:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','AKo','AQo','AJo','ATo','A9o','KQo','KJo'],sb:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQo','KJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','AKo','AQo','AJo','ATo','KQo','KJo','KTo']};
-var CB5={utg:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','QJs','QTs','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','54s','AJo','ATo','KQo','KJo','KTo'],co:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','AJo','ATo','KQo','KJo','KTo','QJo'],btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo']};
+global.O4={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','65s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','KTo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
+global.TB4={utg:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','AKo','AQo','AJo','ATo','A9o','KQo','KJo'],sb:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQo','KJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','AKo','AQo','AJo','ATo','KQo','KJo','KTo']};
+global.CB4={utg:['JJ','TT','99','88','77','66','55','44','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','AJo','KQo','KJo'],btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo']};
+global.O5={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','64s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],co:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','65s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','74s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o']};
+global.TB5={utg:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo'],co:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','AKo','AQo','AJo','ATo','A9o','KQo','KJo'],sb:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQo','KJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','AKo','AQo','AJo','ATo','KQo','KJo','KTo']};
+global.CB5={utg:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','QJs','QTs','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','54s','AJo','ATo','KQo','KJo','KTo'],co:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','AJo','ATo','KQo','KJo','KTo','QJo'],btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo']};
 // 6人桌范围表
-var O6={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','QTs','JTs','T9s','T8s','98s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KTo'],mp:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],co:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','J9o','T9o'],btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','JTs','J9s','J8s','J7s','J6s','J5s','J4s','T9s','T8s','T7s','T6s','T5s','T4s','98s','97s','96s','95s','94s','87s','86s','85s','84s','76s','75s','74s','73s','65s','64s','63s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','KQo','KJo','KTo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','T9o']};
-var O9={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A5s','KQs','KJs','QJs','JTs','T9s','AKo','AQo','AJo','KQo'],utg1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','AKo','AQo','AJo','ATo','KQo','KJo'],mp:O6.mp,mp1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],hj:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],co:O6.co,btn:O6.btn,sb:O6.sb,bb:O6.bb};
+global.O6={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','QTs','JTs','T9s','T8s','98s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KTo'],mp:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],co:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','T6s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','J9o','T9o'],btn:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','JTs','J9s','J8s','J7s','J6s','J5s','J4s','T9s','T8s','T7s','T6s','T5s','T4s','98s','97s','96s','95s','94s','87s','86s','85s','84s','76s','75s','74s','73s','65s','64s','63s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o'],sb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AKo','AQo','AJo','ATo','KQo','KJo','KTo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','T9o']};
+global.O9={utg:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A5s','KQs','KJs','QJs','JTs','T9s','AKo','AQo','AJo','KQo'],utg1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','AKo','AQo','AJo','ATo','KQo','KJo'],mp:O6.mp,mp1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],hj:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],co:O6.co,btn:O6.btn,sb:O6.sb,bb:O6.bb};
 // V2.9.44: 7人桌范围表（7-max: UTG/HJ/CO/BTN/SB/BB，7人=6人+HJ位）
-var O7={utg:O6.utg,hj:O6.mp,co:O6.co,btn:O6.btn,sb:O6.sb,bb:O6.bb};
+global.O7={utg:O6.utg,hj:O6.mp,co:O6.co,btn:O6.btn,sb:O6.sb,bb:O6.bb};
 // V2.9.44: 8人桌范围表（8-max: UTG/MP/HJ/CO/BTN/SB/BB，8人=7人+MP位）
-var O8={utg:O9.utg,mp:O9.utg1,hj:O9.mp1,co:O6.co,btn:O6.btn,sb:O6.sb,bb:O6.bb};
-var TB6={utg:['AA','KK','QQ','JJ','TT','AKs','AQs','AJs','AKo','AQo'],mp:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo'],co:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','AKo','AQo','AJo','ATo','A9o','KQo','KJo'],sb:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQo','KJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','AKo','AQo','AJo','ATo','KQo','KJo','KTo']};
-var TB9={utg:['AA','KK','QQ','JJ','AKs','AKo'],utg1:['AA','KK','QQ','JJ','TT','AKs','AKo','AQs'],mp:TB6.mp,mp1:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo','ATo','KQo'],hj:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQo'],co:TB6.co,btn:TB6.btn,sb:TB6.sb,bb:TB6.bb};
+global.O8={utg:O9.utg,mp:O9.utg1,hj:O9.mp1,co:O6.co,btn:O6.btn,sb:O6.sb,bb:O6.bb};
+global.TB6={utg:['AA','KK','QQ','JJ','TT','AKs','AQs','AJs','AKo','AQo'],mp:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo'],co:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQo'],btn:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A7s','AKo','AQo','AJo','ATo','A9o','KQo','KJo'],sb:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQo','KJo'],bb:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','AKo','AQo','AJo','ATo','KQo','KJo','KTo']};
+global.TB9={utg:['AA','KK','QQ','JJ','AKs','AKo'],utg1:['AA','KK','QQ','JJ','TT','AKs','AKo','AQs'],mp:TB6.mp,mp1:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','AKo','AQo','AJo','ATo','KQo'],hj:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQo'],co:TB6.co,btn:TB6.btn,sb:TB6.sb,bb:TB6.bb};
 // V2.9.44: 7/8人桌3-bet范围表
-var TB7={utg:TB6.utg,hj:TB6.mp,co:TB6.co,btn:TB6.btn,sb:TB6.sb,bb:TB6.bb};
-var TB8={utg:TB9.utg,mp:TB9.utg1,hj:TB9.mp1,co:TB6.co,btn:TB6.btn,sb:TB6.sb,bb:TB6.bb};
-var CB6={utg:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AJo','KQo'],mp:['JJ','TT','99','88','77','66','55','44','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','AJo','ATo','KQo','KJo'],co:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo']};
-var CB9={utg:CB6.utg,utg1:CB6.mp,mp:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],mp1:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','J9s','T9s','T8s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],hj:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','AJo','ATo','KQo','KJo','QJo'],co:CB6.co,btn:CB6.btn,sb:CB6.sb,bb:CB6.bb};
+global.TB7={utg:TB6.utg,hj:TB6.mp,co:TB6.co,btn:TB6.btn,sb:TB6.sb,bb:TB6.bb};
+global.TB8={utg:TB9.utg,mp:TB9.utg1,hj:TB9.mp1,co:TB6.co,btn:TB6.btn,sb:TB6.sb,bb:TB6.bb};
+global.CB6={utg:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AJo','KQo'],mp:['JJ','TT','99','88','77','66','55','44','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','AJo','ATo','KQo','KJo'],co:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],btn:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'],sb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],bb:['JJ','TT','99','88','77','66','55','44','33','22','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','54s','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo']};
+global.CB9={utg:CB6.utg,utg1:CB6.mp,mp:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],mp1:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','J9s','T9s','T8s','98s','87s','76s','AJo','ATo','KQo','KJo','QJo'],hj:['JJ','TT','99','88','77','66','55','44','33','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','AJo','ATo','KQo','KJo','QJo'],co:CB6.co,btn:CB6.btn,sb:CB6.sb,bb:CB6.bb};
 // V2.9.44: 7/8人桌跟注范围表
-var CB7={utg:CB6.utg,hj:CB6.mp,co:CB6.co,btn:CB6.btn,sb:CB6.sb,bb:CB6.bb};
-var CB8={utg:CB9.utg,mp:CB9.utg1,hj:CB9.mp1,co:CB6.co,btn:CB6.btn,sb:CB6.sb,bb:CB6.bb};
-var FB=['AA','KK','QQ','JJ','AKs','AKo'];
-var FOUR_BET={'AA':{val:100},'KK':{val:95},'QQ':{val:80},'AKs':{val:90,bluff:20},'AKo':{val:85,bluff:15},'AQs':{val:40,bluff:10},'A5s':{val:20,bluff:25},'A4s':{val:18,bluff:20},'A3s':{val:15,bluff:15},'A2s':{val:15,bluff:15},'JJ':{val:30},'TT':{val:15}};
-var FIVE_BET={'AA':{val:100},'KK':{val:95},'QQ':{val:50},'AKs':{val:60},'JJ':{val:10}};
-var MIX_FREQ={'AA':{raise:100},'KK':{raise:95,call:5},'QQ':{raise:90,call:10},'JJ':{raise:85,call:15},'TT':{raise:75,call:25},'99':{raise:55,call:45},'88':{raise:45,call:55},'77':{raise:35,call:65},'66':{raise:30,call:70},'55':{raise:28,call:72},'44':{raise:25,call:75},'33':{raise:20,call:80},'22':{raise:18,call:82},'AKs':{raise:90,call:10},'AQs':{raise:80,call:20},'AJs':{raise:65,call:35},'ATs':{raise:55,call:45},'A9s':{raise:40,call:60},'A8s':{raise:35,call:65},'A7s':{raise:30,call:70},'A6s':{raise:25,call:75},'A5s':{raise:45,call:55},'A4s':{raise:40,call:60},'A3s':{raise:35,call:65},'A2s':{raise:35,call:65},'KQs':{raise:60,call:40},'KJs':{raise:50,call:50},'KTs':{raise:40,call:60},'K9s':{raise:30,call:70},'K8s':{raise:20,call:80},'K7s':{raise:15,call:85},'K6s':{raise:12,call:88},'K5s':{raise:10,call:90},'K4s':{raise:8,call:92},'K3s':{raise:6,call:94},'K2s':{raise:5,call:95},'QJs':{raise:45,call:55},'QTs':{raise:40,call:60},'Q9s':{raise:30,call:70},'Q8s':{raise:18,call:82},'Q7s':{raise:12,call:88},'Q6s':{raise:8,call:92},'Q5s':{raise:6,call:94},'Q4s':{raise:4,call:96},'Q3s':{raise:3,call:97},'Q2s':{raise:2,call:98},'JTs':{raise:45,call:55},'J9s':{raise:32,call:68},'J8s':{raise:20,call:80},'J7s':{raise:12,call:88},'J6s':{raise:8,call:92},'J5s':{raise:5,call:95},'J4s':{raise:3,call:97},'J3s':{raise:2,call:98},'J2s':{raise:2,call:98},'T9s':{raise:40,call:60},'T8s':{raise:25,call:75},'T7s':{raise:15,call:85},'T6s':{raise:8,call:92},'T5s':{raise:5,call:95},'T4s':{raise:3,call:97},'T3s':{raise:2,call:98},'T2s':{raise:2,call:98},'98s':{raise:40,call:60},'97s':{raise:22,call:78},'96s':{raise:12,call:88},'95s':{raise:6,call:94},'87s':{raise:30,call:70},'86s':{raise:15,call:85},'85s':{raise:6,call:94},'84s':{raise:3,call:97},'83s':{raise:2,call:98},'82s':{raise:2,call:98},'76s':{raise:28,call:72},'75s':{raise:18,call:82},'74s':{raise:8,call:92},'73s':{raise:4,call:96},'72s':{raise:2,call:98},'65s':{raise:25,call:75},'64s':{raise:12,call:88},'63s':{raise:5,call:95},'62s':{raise:2,call:98},'54s':{raise:22,call:78},'53s':{raise:10,call:90},'52s':{raise:4,call:96},'43s':{raise:8,call:92},'42s':{raise:3,call:97},'32s':{raise:2,call:98}};
-var Squeeze={
+global.CB7={utg:CB6.utg,hj:CB6.mp,co:CB6.co,btn:CB6.btn,sb:CB6.sb,bb:CB6.bb};
+global.CB8={utg:CB9.utg,mp:CB9.utg1,hj:CB9.mp1,co:CB6.co,btn:CB6.btn,sb:CB6.sb,bb:CB6.bb};
+global.FB=['AA','KK','QQ','JJ','AKs','AKo'];
+global.FOUR_BET={'AA':{val:100},'KK':{val:95},'QQ':{val:80},'AKs':{val:90,bluff:20},'AKo':{val:85,bluff:15},'AQs':{val:40,bluff:10},'A5s':{val:20,bluff:25},'A4s':{val:18,bluff:20},'A3s':{val:15,bluff:15},'A2s':{val:15,bluff:15},'JJ':{val:30},'TT':{val:15}};
+global.FIVE_BET={'AA':{val:100},'KK':{val:95},'QQ':{val:50},'AKs':{val:60},'JJ':{val:10}};
+global.MIX_FREQ={'AA':{raise:100},'KK':{raise:95,call:5},'QQ':{raise:90,call:10},'JJ':{raise:85,call:15},'TT':{raise:75,call:25},'99':{raise:55,call:45},'88':{raise:45,call:55},'77':{raise:35,call:65},'66':{raise:30,call:70},'55':{raise:28,call:72},'44':{raise:25,call:75},'33':{raise:20,call:80},'22':{raise:18,call:82},'AKs':{raise:90,call:10},'AQs':{raise:80,call:20},'AJs':{raise:65,call:35},'ATs':{raise:55,call:45},'A9s':{raise:40,call:60},'A8s':{raise:35,call:65},'A7s':{raise:30,call:70},'A6s':{raise:25,call:75},'A5s':{raise:45,call:55},'A4s':{raise:40,call:60},'A3s':{raise:35,call:65},'A2s':{raise:35,call:65},'KQs':{raise:60,call:40},'KJs':{raise:50,call:50},'KTs':{raise:40,call:60},'K9s':{raise:30,call:70},'K8s':{raise:20,call:80},'K7s':{raise:15,call:85},'K6s':{raise:12,call:88},'K5s':{raise:10,call:90},'K4s':{raise:8,call:92},'K3s':{raise:6,call:94},'K2s':{raise:5,call:95},'QJs':{raise:45,call:55},'QTs':{raise:40,call:60},'Q9s':{raise:30,call:70},'Q8s':{raise:18,call:82},'Q7s':{raise:12,call:88},'Q6s':{raise:8,call:92},'Q5s':{raise:6,call:94},'Q4s':{raise:4,call:96},'Q3s':{raise:3,call:97},'Q2s':{raise:2,call:98},'JTs':{raise:45,call:55},'J9s':{raise:32,call:68},'J8s':{raise:20,call:80},'J7s':{raise:12,call:88},'J6s':{raise:8,call:92},'J5s':{raise:5,call:95},'J4s':{raise:3,call:97},'J3s':{raise:2,call:98},'J2s':{raise:2,call:98},'T9s':{raise:40,call:60},'T8s':{raise:25,call:75},'T7s':{raise:15,call:85},'T6s':{raise:8,call:92},'T5s':{raise:5,call:95},'T4s':{raise:3,call:97},'T3s':{raise:2,call:98},'T2s':{raise:2,call:98},'98s':{raise:40,call:60},'97s':{raise:22,call:78},'96s':{raise:12,call:88},'95s':{raise:6,call:94},'87s':{raise:30,call:70},'86s':{raise:15,call:85},'85s':{raise:6,call:94},'84s':{raise:3,call:97},'83s':{raise:2,call:98},'82s':{raise:2,call:98},'76s':{raise:28,call:72},'75s':{raise:18,call:82},'74s':{raise:8,call:92},'73s':{raise:4,call:96},'72s':{raise:2,call:98},'65s':{raise:25,call:75},'64s':{raise:12,call:88},'63s':{raise:5,call:95},'62s':{raise:2,call:98},'54s':{raise:22,call:78},'53s':{raise:10,call:90},'52s':{raise:4,call:96},'43s':{raise:8,call:92},'42s':{raise:3,call:97},'32s':{raise:2,call:98}};
+global.Squeeze={
   // V2.9.105: 扩展挤压范围 - 区分value squeeze和light squeeze
   'AA':{val:100,type:'value'},'KK':{val:98,type:'value'},'QQ':{val:90,type:'value'},
   'JJ':{val:78,type:'value'},'AKs':{val:92,type:'value'},'AKo':{val:82,type:'value'},
@@ -3740,7 +3316,7 @@ var Squeeze={
   'AJo':{val:28,type:'light',bluff:15},'KJo':{val:18,type:'light',bluff:10}
 };
 // V2.9.18: 对手类型影响翻前范围
-var PREFLOP_OPP_ADJ={
+global.PREFLOP_OPP_ADJ={
   nit:{open_expand:['44','33','22','A8s','A7s','A6s','K8s','K7s','Q8s','J8s','T8s','97s','86s','75s','64s','53s','43s','A8o','A7o','K9o'],open_contract:[],facing_raise_expand:[],facing_raise_contract:['KJo','QJo','JTo','A9s','A8s','K9s','Q9s','J9s','T9s','A5s','A4s'],mix_freq_boost:{fourbet:15}},
   fish:{open_expand:['44','33','22','K9s','Q9s','J9s','T8s','98s','87s','76s'],open_contract:['76s','65s','54s','53s','43s'],facing_raise_expand:[],facing_raise_contract:[]},
   lag:{open_expand:[],open_contract:['A2s','A3s','A4s','K7s','K6s','Q7s','J7s','T6s','96s','95s','86s','85s','75s','74s','64s','63s','54s','53s','43s','A7o','K8o'],facing_raise_expand:[],facing_raise_contract:[],mix_freq_boost:{fourbet:20}},
@@ -3752,7 +3328,7 @@ var PREFLOP_OPP_ADJ={
 };
 
 // V2.9.79: 按位置区分3bet范围（BTN最宽，UTG最紧）
-var THREEBET_BY_POS={
+global.THREEBET_BY_POS={
   btn:{
     value:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','KQs','KJs','KTs','AKo','AQo','AJo','ATo'],
     bluff:['A2s','A3s','A4s','A5s','76s','65s','54s','43s'],
@@ -3786,14 +3362,14 @@ var THREEBET_BY_POS={
 };
 
 // V2.9.79: 面对4bet分层决策
-var FOURBET_RESPONSE={
+global.FOURBET_RESPONSE={
   fivebet_shove:['AA','KK','QQ','AKs','AKo'],     // 5bet全下
   fourbet_call:['JJ','TT','99','AQs','AQo'],       // 4bet-call
   fourbet_fold:['A2s','A3s','A4s','A5s','76s','65s','54s','43s']  // 4bet-fold（诈唬被推回）
 };
 // V2.9.125: 补全FourBetResponse对象——驼峰命名版，preF()内部调用
 // 翻前open场景（没人加注）永远不面对5bet，默认返回false短路
-var FourBetResponse={
+global.FourBetResponse={
   isFacing5bet:function(){
     try{
       if(typeof G==='undefined')return false;
@@ -3898,7 +3474,7 @@ function getStackBucket(){
   return 'standard';
 }
 // 2) 筹码深度调整规则
-var STACK_ADJ={
+global.STACK_ADJ={
   short:{ // <40BB: 紧缩投机牌，价值导向
     open_remove:['76s','75s','65s','64s','54s','53s','43s','74s','63s','73s','85s','84s','95s','94s','96s','86s','A2s','A3s','A4s','K7s','K6s','K5s','K4s','K3s','K2s','Q6s','Q5s','Q4s','Q3s','Q2s','J6s','J5s','J4s','T5s','T4s','A7o','A8o','K8o','Q9o','J9o'],
     open_add:[],
@@ -3918,7 +3494,7 @@ var STACK_ADJ={
   standard:{open_add:[],open_remove:[],threebet_add:[],threebet_remove:[],call_add:[],call_remove:[]}
 };
 // 3) 前面平跟者调整规则
-var LIMP_ADJ={
+global.LIMP_ADJ={
   iso:{ // 1人平跟: 隔离加注
     open_add:['K9o','Q9o','J9o','T9o','A8o','A9o','K8s','Q8s','J8s','T8s'],
     open_remove:['74s','64s','63s','53s','43s','32s'],
@@ -4019,7 +3595,7 @@ function pA(p){var m={utg:0,utg1:0.5,mp:1,mp1:1.5,hj:2,co:3,btn:4,sb:5,bb:5.5};r
 function calcSPR(){var h=G.hole.filter(function(c){return c;}).length;if(h<2)return 20;var effStk=G.stk;var p=G.pot>0?G.pot:1;return effStk/p;}
 function getSPRAdvice(spr){if(spr<1.5)return{label:'极短码',color:'us',zone:'ultra_short'};if(spr<3)return{label:'短码',color:'lo',zone:'short'};if(spr<6)return{label:'中短码',color:'ms',zone:'med_short'};if(spr<13)return{label:'标准码',color:'sd',zone:'standard'};return{label:'深码',color:'dp',zone:'deep'};}
 // ===== V2.9.59: SPR精细化 — 5区SPR策略引擎 =====
-var SPRZone={
+global.SPRZone={
   // 5区定义: ultra_short(<1.5), short(1.5-3), med_short(3-6), standard(6-13), deep(>=13)
   getZone:function(spr){
     if(spr<1.5)return'ultra_short';if(spr<3)return'short';if(spr<6)return'med_short';if(spr<13)return'standard';return'deep';
@@ -4424,7 +4000,7 @@ function handClassify(hole,comm){
 function boardTexture(comm){var c=comm.filter(function(card){return card;});if(c.length===0)return{wetness:0,desc:'翻前',hasMonotone:false,hasPaired:false,rangeAdv:'neutral',category:'preflop'};var ranks=c.map(function(card){return card.rank;});var suits=c.map(function(card){return card.suit;}).filter(function(s){return s;});var rankCount={};ranks.forEach(function(r){rankCount[r]=(rankCount[r]||0)+1;});var hasPaired=Object.values(rankCount).some(function(n){return n>=2;});var hasTrips=Object.values(rankCount).some(function(n){return n>=3;});var suitCount={};suits.forEach(function(s){suitCount[s]=(suitCount[s]||0)+1;});var maxSuit=suits.length>0?Math.max.apply(null,Object.values(suitCount)):0;var hasMonotone=maxSuit>=3;var vals=ranks.map(function(r){return RV[r]||0;}).sort(function(a,b){return a-b;});var uniq=[];vals.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return a-b;});var maxGap=0,connected=0;for(var i=1;i<uniq.length;i++){var gap=uniq[i]-uniq[i-1];if(gap<=2)connected++;if(gap>maxGap)maxGap=gap;}if(uniq.indexOf(12)!==-1&&uniq.indexOf(1)!==-1&&uniq.indexOf(0)!==-1)connected++;var category,wetness;if(hasTrips){category='paired';wetness=3;}else if(hasMonotone&&connected>=2){category='wet';wetness=4;}else if(hasMonotone){category='wet';wetness=4;}else if(hasPaired&&connected>=2){category='semi-wet';wetness=2;}else if(hasPaired){category='paired';wetness=3;}else if(maxSuit>=2&&connected>=2){category='semi-wet';wetness=2;}else if(connected>=2&&maxGap<=3){category='semi-wet';wetness=2;}else if(maxSuit>=2||connected>=1){category='dry';wetness=1;}else{category='static';wetness=0;}var street=c.length===3?'翻牌':c.length===4?'转牌':'河牌';var catNames={'static':'极干','dry':'干燥','semi-wet':'半湿','paired':'对子','wet':'湿面','preflop':'翻前'};var texture={wetness:wetness,desc:street+'('+catNames[category]+')',hasMonotone:hasMonotone,hasPaired:hasPaired,rangeAdv:'neutral',category:category};return texture;}
 function calcOuts(hole,comm){var hc=handClassify(hole.filter(function(c){return c;}),comm);return hc.outs||0;}
 // V2.9.105: 精确隐含赔率——成牌后额外赢多少
-var ImpliedOddsCalc={
+global.ImpliedOddsCalc={
   // 对手支付系数——成牌后对手能支付多少额外筹码
   _payoffMult:{nit:0.3,tight:0.5,tag:0.8,lag:1.2,maniac:1.5,calling_station:1.8,fish:1.5,unknown:0.9},
   // 计算精确隐含赔率
@@ -4469,7 +4045,7 @@ var ImpliedOddsCalc={
 function impliedOdds(outs,spr,bet,pot){return ImpliedOddsCalc.calc(outs,spr,bet,pot,'unknown',true,'flop',100);}
 function impliedOddsSPR(outs,spr,bet,pot){return ImpliedOddsCalc.calc(outs,spr,bet,pot,G.opp||'unknown',G._ip||true,G.phase==='turn'?'turn':'flop',G.stk||100);}
 function betSizingAdv(eq,spr,bTexture,ip,isAllIn,oppType,sizingMod,hClassName,street){return SPRZone.sizing(eq,spr,bTexture,ip,oppType,sizingMod,hClassName||"MEDIUM",street||"flop");}
-var CBET_FREQ={static:{nit:75,fish:55,lag:70,maniac:65,calling_station:50,tag:70,tight:80,unknown:65},dry:{nit:65,fish:55,lag:60,maniac:55,calling_station:45,tag:65,tight:75,unknown:60},'semi-wet':{nit:50,fish:60,lag:45,maniac:40,calling_station:55,tag:50,tight:60,unknown:50},paired:{nit:55,fish:50,lag:50,maniac:45,calling_station:45,tag:55,tight:60,unknown:50},wet:{nit:35,fish:70,lag:30,maniac:25,calling_station:65,tag:35,tight:45,unknown:40}};
+global.CBET_FREQ={static:{nit:75,fish:55,lag:70,maniac:65,calling_station:50,tag:70,tight:80,unknown:65},dry:{nit:65,fish:55,lag:60,maniac:55,calling_station:45,tag:65,tight:75,unknown:60},'semi-wet':{nit:50,fish:60,lag:45,maniac:40,calling_station:55,tag:50,tight:60,unknown:50},paired:{nit:55,fish:50,lag:50,maniac:45,calling_station:45,tag:55,tight:60,unknown:50},wet:{nit:35,fish:70,lag:30,maniac:25,calling_station:65,tag:35,tight:45,unknown:40}};
 function blocker(hole,range){var h=hole.filter(function(c){return c;});if(h.length<2)return 1;var rank1=h[0].rank,rank2=h[1].rank;var blockerCount=0;range.forEach(function(key){if(key.indexOf(rank1)!==-1||key.indexOf(rank2)!==-1)blockerCount++;});return blockerCount/Math.max(range.length,1);}
 function getBlockerScore(k,oppRange){return blocker(G.hole.map(function(c){return{k:c.rank+(SS[c.suit]||'')};}).filter(function(x){return x.k;}).map(function(x){return{k:x.k[0]};}),oppRange);}
 function compareEVs(eq,pot,betToCall,raiseSz){var results={};var eq01=eq/100;if(betToCall>0){results.call=eq01*(pot+betToCall)-(1-eq01)*betToCall;}if(raiseSz>0){results.raise=eq01*(pot+raiseSz)-(1-eq01)*raiseSz;}return results;}
@@ -4527,7 +4103,7 @@ function applyExploit(eq,action,oppType,ctx){ctx=ctx||{};var mod=1,exploit='',si
 }
 
 // ===== P1: StrategicBluff - 战略性诈唬 =====
-var StrategicBluff={
+global.StrategicBluff={
   check:function(eq,hClass,street,scene,profile,bTexture,opponents,pot,bet,sizing,_tiltInfo,_ceResult){
     var type=profile.type,conf=profile.confidence,ftb=profile.fold_to_bet||50,bsr=profile.bluff_success_rate||0.5;
     var blu={action:null,strategy:null,sizing:null};
@@ -4596,7 +4172,7 @@ var StrategicBluff={
 };
 
 // ===== P1: StrategicRetreat - 战略撤退 =====
-var StrategicRetreat={
+global.StrategicRetreat={
   check:function(eq,hClass,street,scene,profile,bTexture,spr,opponents,pot,bet,stk){
     var type=profile.type,conf=profile.confidence,af=profile.af||1,ra=profile.recent_agg||0;
     // V2.9.58: 用rangeDist调整弃牌阈值——对手范围越紧,越该弃牌
@@ -4671,7 +4247,7 @@ var StrategicRetreat={
 };
 
 // ===== P1: LAG Trap - 慢打逻辑 =====
-var LagTrap={
+global.LagTrap={
   check:function(eq,hClass,street,scene,profile){
     // 翻/转牌 对LAG慢打STRONG/NUTS
     // 关键: 河牌不trap!
@@ -4700,7 +4276,7 @@ function multiPlayerEquity(eq,opponents){
   return Math.round(eq*factor*10)/10;
 }
 // V2.9.105: 多人池策略模块——多人池范围收紧/c-bet降低/bluff减少/draw收窄
-var Multiway={
+global.Multiway={
   level:function(){var a=G.act||2;if(a<=2)return "hu";if(a===3)return "3way";if(a<=5)return "multiway";return "super";},
   preflopRangeAdj:function(){
     var lv=this.level();
@@ -4720,7 +4296,7 @@ var Multiway={
   log:function(action,detail){if(this.isMultiway())console.log("[多人池 "+this.level()+"] "+action+": "+detail);}
 };
 // V2.9.105: C-bet策略模块——翻前加注者翻后决策
-var CBetStrategy={
+global.CBetStrategy={
   // 判断我们是否应该考虑C-bet（翻前加注者+翻后第一个行动）
   shouldConsider:function(street,scene){
     if(street==='river')return false; // 河牌不叫c-bet
@@ -4841,7 +4417,7 @@ var CBetStrategy={
   }
 };
 // V2.9.105: Squeeze挤压加注策略 - raise+callers场景
-var SqueezeStrategy={
+global.SqueezeStrategy={
   isSqueezeSpot:function(scene,bet,act){
     if(scene!=='call')return false;
     if(bet<=0)return false;
@@ -4880,7 +4456,7 @@ var SqueezeStrategy={
 
 
 // V2.9.105: 对手翻后行动检测——Check-raise/Donk bet/Probe bet
-var OppPostFlopAction={
+global.OppPostFlopAction={
   isDonkBet:function(scene,street,didPFRaise){
     if(scene!=='bet')return false;
     if(street==='preflop')return false;
@@ -4928,7 +4504,7 @@ var OppPostFlopAction={
 
 // V2.9.123: 清理重复BvBStrategy定义(保留更完整的第二版)
 // V2.9.105: BvB(Blind vs Blind)专用策略
-var BvBStrategy={
+global.BvBStrategy={
   // BvB场景检测：翻前+hero在盲注位+只有2人参与
   isBvB:function(){
     if(G.phase!=='pre')return false;
@@ -5047,7 +4623,7 @@ var BvBStrategy={
 
 
 // V2.9.105: River Bluff-catcher决策——面对河牌下注的抓诈/弃牌判断
-var BluffCatcher={
+global.BluffCatcher={
   // 是否是bluff-catcher场景：river+面对下注+中等/弱手牌
   isBCSpot:function(street,scene,hClass){
     if(street!=='river')return false;
@@ -5163,7 +4739,7 @@ var BluffCatcher={
 };
 
 // V2.9.105: Slowplay/Trap策略——坚果/强牌慢打时机决策
-var SlowplayStrategy={
+global.SlowplayStrategy={
   // 是否适合慢打
   // 原则：只慢打NUTS，STRONG仅OOP+特定条件慢打
   shouldSlowplay:function(hClass,street,scene,bTexture,oppType,ip,eq,spr){
@@ -5257,7 +4833,7 @@ var SlowplayStrategy={
 
 // V2.9.105: River Thin Value策略——河牌中等牌力薄价值下注
 // 替代原有"河牌中对过牌"硬编码，根据对手类型/牌面/位置决定是否薄价值下注
-var ThinValueStrategy={
+global.ThinValueStrategy={
   // 是否适合薄价值下注
   // 条件：river + scene=check + MEDIUM手牌 + 对手可能用更差牌跟注
   isThinValueSpot:function(street,scene,hClass){
@@ -5352,7 +4928,7 @@ var ThinValueStrategy={
 
 // V2.9.105: Donk Lead策略——OOP非PFR主动下注
 // 当hero不是翻前加注者(PFR)、OOP、翻后/转牌对手过牌回来，主动下注
-var DonkLeadStrategy={
+global.DonkLeadStrategy={
   // 是否是donk lead场景
   isDonkLeadSpot:function(street,scene,ip){
     if(street==='river')return false; // 河牌不用donk lead，用thin value/bluff
@@ -5458,7 +5034,7 @@ var DonkLeadStrategy={
 };
 
 // V2.9.105: Overbet策略——坚果/强牌超池下注最大化EV
-var OverbetStrategy={
+global.OverbetStrategy={
   isOverbetSpot:function(hClass,street,eq,spr,oppType){
     if(hClass.name!=='NUTS'&&hClass.name!=='STRONG')return false;
     if(eq<75)return false;
@@ -5517,7 +5093,7 @@ var OverbetStrategy={
 // V2.9.106: River极化策略——河牌AIR匹配Overbet超池sizing的极化诈唬
 // 核心逻辑：Overbet对NUTS做超池价值下注时，AIR需要以匹配sizing诈唬，形成极化范围
 // 与OverbetStrategy(NUTS/STRONG价值)互补：Overbet=价值面，RiverPolar=诈唬面
-var RiverPolarStrategy={
+global.RiverPolarStrategy={
   // 是否是极化诈唬场景：river+scene=check+AIR/WEAK+spr>=2+非CS/fish+非4+人池
   isPolarBluffSpot:function(hClass,street,scene,spr,oppType){
     if(hClass.name!=='AIR'&&hClass.name!=='WEAK')return false;
@@ -5589,7 +5165,7 @@ var RiverPolarStrategy={
 // V2.9.105: Probe bet策略——IP非PFR面对过牌后主动下注
 // 场景：hero在IP位，不是翻前加注者(PFR)，对手OOP过牌，hero主动下注
 // 与CBet(PFR+IP/OOP)和DonkLead(OOP+非PFR)完全互斥
-var ProbeStrategy={
+global.ProbeStrategy={
   isProbeSpot:function(street,scene,ip,hClass){
     if(street==='river')return false;
     if(street==='preflop')return false;
@@ -6252,7 +5828,7 @@ function getSizingOptions(eq,hClass,street,ip,oppType,spr,bTexture,pot,bet){
 
 
 
-var DBStrategy={
+global.DBStrategy={
   // 是否是Double-barrel场景
   isDBSpot:function(street,scene){
     if(street!=='turn')return false;
@@ -7109,7 +6685,7 @@ function show(r){
   }
 }
 
-var _mcSimCache=null; // V2.9.46: Worker异步MC结果缓存
+global._mcSimCache=null; // V2.9.46: Worker异步MC结果缓存
 function go(){
   // V2.9.139: 防双触发——200ms内重复调用跳过(避免HandHistory重复记录)
   var _now=Date.now();
@@ -8668,7 +8244,7 @@ function revertLocal(){
 // 输出: 'HU' | 'SRP' | '3BP' | '4BP' | 'MP'
 // 原则: 只读G.*，不修改任何状态；不依赖handClassify
 
-var PoolTypeDetector = {
+global.PoolTypeDetector= {
   detect: function(){
     try{
       var phase = (typeof G!=='undefined' && G.phase) || 'pre';
@@ -8748,7 +8324,7 @@ var PoolTypeDetector = {
 // 输出: 'NUTS' | 'THICK' | 'THIN' | 'AIR'
 // 原则: 4档分级（不增加新类型，保持与现有7色映射兼容）
 
-var ValueThicknessAnalyzer = {
+global.ValueThicknessAnalyzer= {
   analyze: function(k, board, poolType, hClassResult){
     try{
       var hasComm = board && board.filter(function(c){return c;}).length >= 3;
@@ -8820,7 +8396,7 @@ var ValueThicknessAnalyzer = {
 // 原则: 不抢 decide() 主导权，输出"建议"由decide()采纳或拒绝
 //        返回null时=不干预，走原逻辑
 
-var PoolStrategyMatrix = {
+global.PoolStrategyMatrix= {
   // 主决策：池子×厚度→动作建议
   decide: function(poolType, thickness, hand, board, position){
     try{
@@ -8923,7 +8499,7 @@ var PoolStrategyMatrix = {
 //       多人池禁止hero call
 //       底池赔率必须够
 
-var HeroCallGate = {
+global.HeroCallGate= {
   canCall: function(k, board, poolType, eq, potOddsPct){
     try{
       // 翻前无门控
@@ -9033,6 +8609,100 @@ TableQualityMeter.init(); // V2.9.131: 桌质评估+换桌建议+悬浮球闪烁
 DRTA.init();
 _initMCWorker(); // V2.9.46: 预创建Worker
 mkMx();
-</script>
-</body>
-</html>
+// SDK: 导出function声明到global
+global.cacheKey=cacheKey;
+global._initMCWorker=_initMCWorker;
+global.mcVsRangeAsync=mcVsRangeAsync;
+global.gtoRandom=gtoRandom;
+global.exportLog=exportLog;
+global.showStats=showStats;
+global.closeStats=closeStats;
+global.showToast=showToast;
+global.setTrackerType=setTrackerType;
+global.inferOpponentAction=inferOpponentAction;
+global.autoRecordOpponent=autoRecordOpponent;
+global.shouldThreebet=shouldThreebet;
+global.adjustPreflopRange=adjustPreflopRange;
+global.getStackBucket=getStackBucket;
+global.adjustRangeForStack=adjustRangeForStack;
+global.adjustRangeForLimp=adjustRangeForLimp;
+global.getAdjustedRange=getAdjustedRange;
+global.setLimpers=setLimpers;
+global.pL=pL;
+global._fp=_fp;
+global.gO=gO;
+global.gT=gT;
+global.gC=gC;
+global.pA=pA;
+global.calcSPR=calcSPR;
+global.getSPRAdvice=getSPRAdvice;
+global.getHandKey=getHandKey;
+global.eH=eH;
+global.eQ=eQ;
+global.handClassify=handClassify;
+global.boardTexture=boardTexture;
+global.calcOuts=calcOuts;
+global.impliedOdds=impliedOdds;
+global.impliedOddsSPR=impliedOddsSPR;
+global.betSizingAdv=betSizingAdv;
+global.blocker=blocker;
+global.getBlockerScore=getBlockerScore;
+global.compareEVs=compareEVs;
+global.getOppRange=getOppRange;
+global.planStreets=planStreets;
+global.applyExploit=applyExploit;
+global.multiPlayerEquity=multiPlayerEquity;
+global.decide=decide;
+global._decideInner=_decideInner;
+global.actionToColor=actionToColor;
+global.applyOppActionShift=applyOppActionShift;
+global.applyEquityGuard=applyEquityGuard;
+global.preF=preF;
+global.getSizingOptions=getSizingOptions;
+global.postF=postF;
+global.getCurrentStreet=getCurrentStreet;
+global.show=show;
+global.go=go;
+global.bridgeAdvice=bridgeAdvice;
+global.setPhase=setPhase;
+global.setScene=setScene;
+global.setOppType=setOppType;
+global.resetTracker=resetTracker;
+global.sPos=sPos;
+global.sTT=sTT;
+global.updateStk=updateStk;
+global.updatePot=updatePot;
+global.updateBet=updateBet;
+global.togAdv=togAdv;
+global.clr=clr;
+global.pick=pick;
+global.closeM=closeM;
+global.openReview=openReview;
+global.closeReview=closeReview;
+global.rM=rM;
+global.afterPick=afterPick;
+global.gU=gU;
+global.setCard=setCard;
+global.uCards=uCards;
+global.getHandStrengthTier=getHandStrengthTier;
+global.getSceneRangeInfo=getSceneRangeInfo;
+global.mkMx=mkMx;
+global.selHFromMx=selHFromMx;
+global.e5=e5;
+global.riverExactEquity=riverExactEquity;
+global.mcVsRange=mcVsRange;
+global.handKeyToCards=handKeyToCards;
+global.closeCamModal=closeCamModal;
+global.startScan=startScan;
+global.stopScan=stopScan;
+global.scanFrame=scanFrame;
+global.simpleDetect=simpleDetect;
+global.renderCards=renderCards;
+global.saveKey=saveKey;
+global.testKey=testKey;
+global.onActionCapture=onActionCapture;
+global.detectSceneFromButtons=detectSceneFromButtons;
+global.onVisionResult=onVisionResult;
+global.exitSpeedMode=exitSpeedMode;
+global.hotUpdate=hotUpdate;
+global.revertLocal=revertLocal;
