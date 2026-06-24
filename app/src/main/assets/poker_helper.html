@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.143',
+  CURRENT_VERSION:'2.9.150',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1437,18 +1437,18 @@ var OppProfiler={
           var existing=this._profiles[nk];
           if(p.hands>existing.hands){
             // 持久化数据更新→合并统计
-            existing.hands=Math.max(existing.hands,p.hands);
-            existing.entered=Math.max(existing.entered,p.entered);
-            existing.folded=Math.max(existing.folded,p.folded);
-            if(p._pfRaise)existing._pfRaise=Math.max(existing._pfRaise||0,p._pfRaise);
-            if(p._pf3bet)existing._pf3bet=Math.max(existing._pf3bet||0,p._pf3bet);
-            if(p._pfOpenOpp)existing._pfOpenOpp=Math.max(existing._pfOpenOpp||0,p._pfOpenOpp);
-            if(p._faced3bet)existing._faced3bet=Math.max(existing._faced3bet||0,p._faced3bet);
-            if(p._foldTo3bet)existing._foldTo3bet=Math.max(existing._foldTo3bet||0,p._foldTo3bet);
-            if(p._facedCBet)existing._facedCBet=Math.max(existing._facedCBet||0,p._facedCBet);
-            if(p._foldToCBet)existing._foldToCBet=Math.max(existing._foldToCBet||0,p._foldToCBet);
-            if(p._checkRaise)existing._checkRaise=Math.max(existing._checkRaise||0,p._checkRaise);
-            if(p._donkBets)existing._donkBets=Math.max(existing._donkBets||0,p._donkBets);
+            existing.hands=(existing.hands||0)+(p.hands||0);
+            existing.entered=(existing.entered||0)+(p.entered||0);
+            existing.folded=(existing.folded||0)+(p.folded||0);
+            if(p._pfRaise)existing._pfRaise=(existing._pfRaise||0)+(p._pfRaise||0);
+            if(p._pf3bet)existing._pf3bet=(existing._pf3bet||0)+(p._pf3bet||0);
+            if(p._pfOpenOpp)existing._pfOpenOpp=(existing._pfOpenOpp||0)+(p._pfOpenOpp||0);
+            if(p._faced3bet)existing._faced3bet=(existing._faced3bet||0)+(p._faced3bet||0);
+            if(p._foldTo3bet)existing._foldTo3bet=(existing._foldTo3bet||0)+(p._foldTo3bet||0);
+            if(p._facedCBet)existing._facedCBet=(existing._facedCBet||0)+(p._facedCBet||0);
+            if(p._foldToCBet)existing._foldToCBet=(existing._foldToCBet||0)+(p._foldToCBet||0);
+            if(p._checkRaise)existing._checkRaise=(existing._checkRaise||0)+(p._checkRaise||0);
+            if(p._donkBets)existing._donkBets=(existing._donkBets||0)+(p._donkBets||0);
           }
           // V2.9.142: bet sizing tells合并
           if(p._betSizes){
@@ -6898,7 +6898,7 @@ function postF(k){
     // V2.9.35: vs Maniac/LAG大注时倾向于call让它们自己打(用bet/pot>=0.5即半池起)
     if((_facingOppType==='maniac'||_facingOppType==='lag')&&_effectiveBet/pot>=0.5&&hClass.name!=='NUTS'){raiseEq=100;}
     // V2.9.35: outs跟注追需看下注大小,大注(>2/3池)不追弱听牌,超池(>1x)只追组合听牌
-    if(outs>0&&eq<nq+5&&eq>=nq-8&&!(betLevel==='large'&&outs<8)&&!(betPotRatio>=1.0&&outs<12)&&!(G.act>=4&&outs<6)){
+    if(outs>0&&eq<nq+5&&eq>=nq-8&&!(betLevel==='large'&&outs<8)&&!(betPotRatio>=1.0&&outs<12)&&!(G.act>=4&&outs<6)&&!(outs<=5&&betPotRatio>=0.33)){
       var exploitResult9=applyExploit(eq,'call',_facingOppType,{bet:bet,pot:pot});
       return{a:'call',r:outs+'outs跟注追',eq:exploitResult9.eq,c:'m',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,io:io,exploit:exploitResult9.exploit,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
