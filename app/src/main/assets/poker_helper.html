@@ -6089,7 +6089,7 @@ function preF(k){
     }
     // V2.9.71: 赔率兜底——3bet池跟注价格/底池比例合理+eq>=45即可跟
     var po3bet=actualBet>0?actualBet/(pot+actualBet*2):0;
-    if(eq>=45&&eq>=po3bet*100&&(cS.indexOf(k)!==-1||k.indexOf('K')===0||k.indexOf('Q')===0||(k.length===2&&k[0]===k[1]&&parseInt(k[0]+k[1])>=99))){
+    if(eq>=45&&eq>=po3bet*100&&(cS.indexOf(k)!==-1||(k.length===2&&k[0]===k[1]&&'9TJQKA'.indexOf(k[0])!==-1))){
       var exploitResult3b=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:'3bet池赔率够',eq:exploitResult3b.eq,c:'m',po:po3bet*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult3b.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
@@ -6129,7 +6129,7 @@ function preF(k){
     }
     var po=actualBet>0?actualBet/(pot+actualBet*2):0;
     var raiseContractList=(PREFLOP_OPP_ADJ[oppType]||PREFLOP_OPP_ADJ.unknown).facing_raise_contract;
-    if(eq>=35&&eq>=po*100&&raiseContractList.indexOf(k)===-1){
+    if(eq>=40&&eq>=po*100&&raiseContractList.indexOf(k)===-1){
       var exploitResult6=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
       return{a:'call',r:'赔率够跟',eq:exploitResult6.eq,c:'m',po:po*100,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,actualBet,0),exploit:exploitResult6.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
