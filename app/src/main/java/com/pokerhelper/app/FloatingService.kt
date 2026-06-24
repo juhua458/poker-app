@@ -968,7 +968,7 @@ class FloatingService : Service() {
                             lastClickTime = clickTime
                             handler.postDelayed({
                                 if (lastClickTime == clickTime) {
-                                    Log.d(TAG, "★ 悬浮球点击触发")——缩放反馈+变色
+                                    Log.d(TAG, "★ 悬浮球点击触发") // 缩放反馈+变色
                         floatingBall?.let { b ->
                             b.animate().scaleX(0.85f).scaleY(0.85f).setDuration(80).withEndAction {
                                 b.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
