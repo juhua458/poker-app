@@ -851,7 +851,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 global.CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.152',
+  CURRENT_VERSION:'2.9.153',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1515,6 +1515,64 @@ global.OppProfiler={
   }
 };
 
+// ===== V2.9.153: Layer1 PostValidation =====
+global.PostValidation={
+  dedupCards:function(h,c){var s={};var r=[];for(var i=0;i<h.length;i++){if(!h[i])continue;var k=h[i].rank+(h[i].suit||'');if(s[k]){r.push('重复:'+k);h[i]=null;}else s[k]=true;}for(var j=0;j<c.length;j++){if(!c[j])continue;var k2=c[j].rank+(c[j].suit||'');if(s[k2]){r.push('重复:'+k2);c[j]=null;}else s[k2]=true;}if(r.length>0)console.log('[PV去重]'+r.join(';'));return r;},
+  validateSuits:function(h,c){var sc={s:0,h:0,d:0,c:0};var r=[];var a=h.concat(c);for(var i=0;i<a.length;i++){if(!a[i]||!a[i].suit)continue;sc[a[i].suit]=(sc[a[i].suit]||0)+1;}for(var s in sc){if(sc[s]>4){r.push(s+'='+sc[s]+'>4');var n=0;for(var j=a.length-1;j>=0;j--){if(a[j]&&a[j].suit===s){n++;if(n>4){a[j].suit='';break;}}}}}if(r.length>0)console.log('[PV花色]'+r.join(';'));return r;},
+  validatePotChips:function(p,s,t,b,cc){var r=[];var n=cc?cc.filter(function(x){return x!==null;}).length:0;if(p>0&&p<1.5&&b>0)r.push('pot<1.5BB');if(t>0&&p>0&&t>p*2)r.push('to_call>2xpot');if(p===0&&n>=3)r.push('翻后pot=0');return r;},
+  applyHudData:function(hud){if(!hud||!hud.length)return;for(var i=0;i<hud.length;i++){var h=hud[i];if(!h.seat||(!h.vpip&&!h.pfr))continue;if(!G._hudData)G._hudData={};G._hudData[h.seat]={vpip:h.vpip||0,pfr:h.pfr||0,ats:h.ats||0,threeBet:h.threeBet||0,_ts:Date.now()};var t='unknown',v=h.vpip||0;if(v<=22)t='nit';else if(v<=30)t='tag';else if(v<=40)t='lag';else t='fish';if(typeof OppProfiler!=='undefined'){var p=seatToPosStr(h.seat);for(var nk in OppProfiler._profiles){if(OppProfiler._profiles[nk].pos===p&&v>0){OppProfiler._profiles[nk]._hudVpip=v;OppProfiler._profiles[nk]._hudPfr=h.pfr||0;if(OppProfiler._profiles[nk].hands<50)OppProfiler._profiles[nk].type=t;break;}}}console.log('[SmartHUD]s'+h.seat+' v='+v+'→'+t);}},
+  runAll:function(d){var r=[];if(d.hole_cards&&d.community_cards){r=r.concat(this.dedupCards(d.hole_cards,d.community_cards));r=r.concat(this.validateSuits(d.hole_cards,d.community_cards));}if(d.pot_size!==undefined){var b=G._lockedBB||200;r=r.concat(this.validatePotChips(b>0?Math.round((parseInt(d.pot_size)||0)/b):0,0,b>0?Math.round((parseInt(d.to_call)||0)/b):0,b,d.community_cards));}if(d.opp_hud)this.applyHudData(d.opp_hud);return r;}
+};
+function seatToPosStr(s){return{1:'bottom',2:'left-bottom',3:'left-top',4:'top-center',5:'right-top',6:'right-bottom'}[s]||'seat_'+s;}
+function _isStreetChange(d){if(!d||!d.street)return false;var n=0;if(d.community_cards){for(var i=0;i<d.community_cards.length;i++){if(d.community_cards[i]&&d.community_cards[i].rank)n++;}}var c=G.comm?G.comm.filter(function(x){return x!==null;}).length:0;return n!==c&&n>=3;}
+
+// ===== V2.9.153: Layer2 MultiFrameConsensus =====
+global.MultiFrameConsensus={
+  _pf:null,_vf:null,_cr:null,
+  onPrimaryFrame:function(d){this._pf={h:d.hole_cards||[],c:d.community_cards||[],p:parseInt(d.pot_size)||0,m:parseInt(d.my_chips)||0,t:parseInt(d.to_call)||0,b:d.buttons||[]};this._vf=null;this._cr=null;},
+  onVerifyFrame:function(d){if(!this._pf){this._pf={h:d.hole_cards||[],c:d.community_cards||[],p:parseInt(d.pot_size)||0,m:parseInt(d.my_chips)||0,t:parseInt(d.to_call)||0,b:d.buttons||[]};return null;}this._vf={h:d.hole_cards||[],c:d.community_cards||[],p:parseInt(d.pot_size)||0,m:parseInt(d.my_chips)||0,t:parseInt(d.to_call)||0,b:d.buttons||[]};this._cr=this._cmp(this._pf,this._vf);return this._cr;},
+  _cmp:function(f1,f2){var r={_s:[]};r.h=this._cc(f1.h,f2.h,r._s);r.c=this._cc(f1.c,f2.c,r._s);r.p=Math.max(f1.p||0,f2.p||0);r.m=(f1.m>0&&f2.m>0)?Math.round((f1.m+f2.m)/2):(f1.m||f2.m);r.t=(f1.t>0&&f2.t>0)?((Math.abs(f1.t-f2.t)/Math.max(f1.t,f2.t)<0.3)?Math.round((f1.t+f2.t)/2):f1.t):f1.t||f2.t;return r;},
+  _cc:function(c1,c2,sm){var r=[];for(var i=0;i<Math.max(c1.length,c2.length);i++){var a=i<c1.length?c1[i]:null,b=i<c2.length?c2[i]:null;if(!a&&!b){r.push(null);continue;}if(!a){r.push(b);continue;}if(!b){r.push(a);continue;}if(a.rank===b.rank){r.push({rank:a.rank,suit:(a.suit===b.suit)?a.suit:'',suit_uncertain:a.suit!==b.suit});}else{sm.push('rank:'+a.rank+'/'+b.rank);r.push({rank:a.rank,suit:a.suit||''});}}return r;},
+  applyConsensus:function(d){if(!this._cr||this._cr._s.length===0)return d;var c=this._cr;var m=Object.assign({},d);if(c.h&&c.h.length>=2)m.hole_cards=c.h.filter(function(x){return x!==null;});if(c.c)m.community_cards=c.c.filter(function(x){return x!==null;});if(c.p>0)m.pot_size=c.p;if(c.m>0)m.my_chips=c.m;console.log('[MFC]'+c._s.join(';'));return m;},
+  reset:function(){this._pf=null;this._vf=null;this._cr=null;}
+};
+
+// ===== V2.9.153: Layer3 FrameDiffEngine =====
+global.FrameDiffEngine={
+  _fb:[],_al:[],_hid:'',
+  processFrame:function(d,tag){
+    var f=this._ex(d);f._t=tag||'manual';
+    if(this._nh(f)){this._al=[];this._hid=f.hid;console.log('[FD]新:'+f.hid);}
+    if(this._fb.length>0){var pf=this._fb[this._fb.length-1];var acts=this._df(pf,f);for(var i=0;i<acts.length;i++){this._al.push(acts[i]);this._ap(acts[i]);}}
+    this._fb.push(f);if(this._fb.length>10)this._fb.shift();
+    if(f._t==='auto'&&typeof AndroidBridge!=='undefined'&&AndroidBridge.setAutoSpeed)AndroidBridge.setAutoSpeed(f.hb?2000:4000);
+  },
+  _ex:function(d){
+    var os=[];if(d.opp_seats){for(var i=0;i<d.opp_seats.length;i++){var o=d.opp_seats[i];os.push({s:o.seat||0,c:parseInt(o.chips)||0,a:o.action!=='fold'});}}
+    var b=d.buttons||[];var hb=false;for(var i=0;i<b.length;i++){if(b[i].indexOf('跟注')>=0||b[i].indexOf('加注')>=0||b[i].indexOf('弃牌')>=0){hb=true;break;}}
+    return{h:d.hole_cards||[],c:d.community_cards||[],p:parseInt(d.pot_size)||0,m:parseInt(d.my_chips)||0,t:parseInt(d.to_call)||0,st:d.street||'',ap:parseInt(d.active_players)||2,tp:parseInt(d.total_players)||6,os:os,b:b,hb:hb,hid:(d.hole_cards&&d.hole_cards.length>=2)?d.hole_cards[0].rank+(d.hole_cards[0].suit||'')+d.hole_cards[1].rank+(d.hole_cards[1].suit||''):''};
+  },
+  _nh:function(f){if(!this._hid)return true;return this._hid!==f.hid&&f.hid!=='';},
+  _df:function(p,cu){
+    var acts=[];
+    if(cu.os&&p.os){for(var i=0;i<cu.os.length;i++){var o=cu.os[i],po=null;for(var j=0;j<p.os.length;j++){if(p.os[j].s===o.s){po=p.os[j];break;}}if(!po)continue;var d=po.c-o.c;if(d>0){acts.push({s:o.s,a:!o.a?'fold':(d<=cu.t+cu.p*0.1?'call':'raise'),am:d,cf:'m'});}else if(d===0&&po.a&&!o.a){acts.push({s:o.s,a:'fold',am:0,cf:'h'});}}}
+    if(!p.hb&&cu.hb)acts.push({a:'our_turn',cf:'h'});
+    if(cu.st!==p.st&&cu.st!=='')acts.push({a:'new_street',st:cu.st,cf:'h'});
+    return acts;
+  },
+  _ap:function(act){
+    if(act.a==='our_turn'||act.a==='new_street')return;var s=act.s||0,pos=seatToPosStr(s);
+    if(typeof OppProfiler!=='undefined'&&s>0){var nk=null;for(var k in OppProfiler._profiles){if(OppProfiler._profiles[k].pos===pos){nk=k;break;}}if(nk){if(act.a==='fold')OppProfiler._profiles[nk]._foldedThisHand=true;else if(act.a==='call')OppProfiler._profiles[nk]._lastBet=act.am||0;else if(act.a==='raise'){OppProfiler._profiles[nk]._raiseCount=(OppProfiler._profiles[nk]._raiseCount||0)+1;OppProfiler._profiles[nk]._lastBet=act.am||0;}}}
+    if(typeof ActionLine!=='undefined'){var ls=ActionLine.getLines();if(ls.length>0){var ll=ls[ls.length-1];if(!ll.oppAction||ll.oppAction==='unknown')ll.oppAction=act.a;}}
+    console.log('[FD]'+s+' '+act.a+(act.am?' '+act.am:''));
+  },
+  onAutoFrameDone:function(){},
+  getActionLog:function(){return this._al;},
+  getLastOppAction:function(){for(var i=this._al.length-1;i>=0;i--){var a=this._al[i];if(a.a==='fold'||a.a==='call'||a.a==='raise')return a.a;}return 'unknown';},
+  getOppPostflopAction:function(st){var f=false;var sa=[];for(var i=0;i<this._al.length;i++){var a=this._al[i];if(a.a==='new_street'&&a.st===st)f=true;if(f&&(a.a==='fold'||a.a==='call'||a.a==='raise'))sa.push(a);}return sa.length>0?sa[sa.length-1].a:null;},
+  getOppActionSummary:function(){if(this._al.length===0)return null;var s={total:this._al.length,folds:0,calls:0,raises:0};for(var i=0;i<this._al.length;i++){var a=this._al[i];if(a.a==='fold')s.folds++;else if(a.a==='call')s.calls++;else if(a.a==='raise')s.raises++;}return s;},
+  reset:function(){this._fb=[];this._al=[];this._hid='';}
+};
 
 // ===== V2.9.105: 座位角色推算 =====
 // 从D按钮位置推算每个座位的扑克角色(BU/SB/BB/UTG/CO等)
@@ -5315,6 +5373,7 @@ function _decideInner(){
     var _potConfLevel=PotConfidence.level||'high';
     var _reliability=SafetyGuard.dataReliability(_potConfLevel,_spr,_bet,_pot,_stk);
     var _pulse=TablePulse.analyze();
+    var _fdS=FrameDiffEngine.getOppActionSummary();if(_fdS&&_fdS.raises>0){if(_oppType==='unknown')_oppType='aggro';console.log('[V2.9.153FD]r='+_fdS.raises);}
     // Step1: 对手类型偏移——直接修改action(策略引擎内部调整)
     var _origA=result.a;
     result.a=applyOppActionShift(result.a,_eq,_oppType,_tiltInfo,_ceResult,_pulse);
@@ -6676,7 +6735,7 @@ function show(r){
   // V2.9.79: 记录行动线
   if(r && G.hole[0] && G.hole[1]){
     var _curStreet=G.phase==='pre'?'preflop':getCurrentStreet();
-    var _oppAct=ActionLine.getPrevOppAction(_curStreet);
+    var _fdA=FrameDiffEngine.getOppPostflopAction(_curStreet);var _oppAct=_fdA||ActionLine.getPrevOppAction(_curStreet);
     ActionLine.record(_curStreet,G.scene,r.a,_oppAct,r.eq||0,r.v||0);
   }
   if(mxVisible&&G.hole[0]&&G.hole[1]){
@@ -7387,7 +7446,15 @@ function detectSceneFromButtons(buttons, street, activePlayers) {
 
 // V1.3: API视觉识别结果回调 - 自动填入牌面+策略分析
 function onVisionResult(data){
-  var _tVisionStart=Date.now(); // V2.9.135: 计时
+  var _tVisionStart=Date.now();
+  // V2.9.153: Layer1+3
+  if(data&&data.is_poker_table!==false&&data.hole_cards&&data.hole_cards.length>=2){var _pv=PostValidation.runAll(data);if(_pv.length>0)console.log('[V2.9.153PV]'+_pv.length);}
+  var _ft=data?(data._frameTag||'manual'):'manual';
+  if(data&&data.is_poker_table!==false&&data.hole_cards&&data.hole_cards.length>=2&&typeof FrameDiffEngine!=='undefined')FrameDiffEngine.processFrame(data,_ft);
+  // V2.9.153: Layer2
+  if(data&&data._frameTag==='primary'){MultiFrameConsensus.onPrimaryFrame(data);}
+  else if(data&&data._frameTag==='verify'){var cs=MultiFrameConsensus.onVerifyFrame(data);if(cs&&cs._s&&cs._s.length>0)data=MultiFrameConsensus.applyConsensus(data);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.autoCaptureVisionComplete)AndroidBridge.autoCaptureVisionComplete(true);return;}
+  if(data&&data.hole_cards&&data.hole_cards.length>=2&&_ft!=='auto'&&_ft!=='verify'){var _nk=data.hole_cards[0].rank+(data.hole_cards[0].suit||'')+data.hole_cards[1].rank+(data.hole_cards[1].suit||'');var _pk=G._rankLockKey||'';if((_pk&&_nk!==_pk)||_isStreetChange(data)){try{if(typeof AndroidBridge!=='undefined'&&AndroidBridge.triggerMultiFrame)AndroidBridge.triggerMultiFrame();}catch(e){}}}
   // V2.9.111: NO_TABLE增强检测——优先is_poker_table，其次3信号联合判断
   var _modelNoTable = data && data.is_poker_table === false;
   var _noHole = !data || !data.hole_cards || data.hole_cards.length<2;
@@ -8618,6 +8685,8 @@ global.exportLog=exportLog;
 global.showStats=showStats;
 global.closeStats=closeStats;
 global.showToast=showToast;
+global.seatToPosStr=seatToPosStr;
+global._isStreetChange=_isStreetChange;
 global.setTrackerType=setTrackerType;
 global.inferOpponentAction=inferOpponentAction;
 global.autoRecordOpponent=autoRecordOpponent;

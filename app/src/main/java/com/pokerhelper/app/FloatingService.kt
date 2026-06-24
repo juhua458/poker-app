@@ -90,6 +90,15 @@ class FloatingService : Service() {
     // V2.9.68: WakeLock保活，防止CPU休眠导致服务被杀
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // V2.9.153: AutoCapture
+    private var autoCaptureEnabled = false
+    private var autoCaptureRunnable: Runnable? = null
+    private var autoCaptureInterval = 4000L
+    private var isVisionInProgress = false
+    private var autoConsecutiveErrors = 0
+    private val AUTO_MAX_ERRORS = 3
+    private var multiFrameDelay = 200L
+
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
     private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
@@ -377,7 +386,36 @@ class FloatingService : Service() {
         }
     }
 
-    /**
+    
+    // V2.9.153: AutoCapture
+    fun toggleAutoCapture() {
+        if (autoCaptureEnabled) { stopAutoCapture(); updateBallAdvice("COLOR:CHECK|SIGNAL:NONE|REASON:自动关闭"); updateAdviceNotification("自动模式已关闭","手动模式") }
+        else { startAutoCapture(); updateAdviceNotification("🔄 自动模式","每4秒自动截屏") }
+    }
+    private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; isVisionInProgress=false; autoCaptureInterval=4000L; scheduleNextAutoCapture() }
+    private fun stopAutoCapture() { autoCaptureEnabled=false; autoCaptureRunnable?.let{handler.removeCallbacks(it)}; autoCaptureRunnable=null; isVisionInProgress=false }
+    private fun scheduleNextAutoCapture() {
+        if(!autoCaptureEnabled)return; autoCaptureRunnable?.let{handler.removeCallbacks(it)}
+        val r=Runnable{if(!autoCaptureEnabled)return@Runnable;if(isVisionInProgress){scheduleNextAutoCapture();return@Runnable};val pm=getSystemService(Context.POWER_SERVICE)as PowerManager;if(!pm.isScreenOn){scheduleNextAutoCapture();return@Runnable};autoCaptureTrigger()}
+        autoCaptureRunnable=r; handler.postDelayed(r,autoCaptureInterval)
+    }
+    private fun autoCaptureTrigger() {
+        if(!ScreenOptService.isServiceRunning()){autoConsecutiveErrors++;checkAutoErrors();scheduleNextAutoCapture();return}
+        isVisionInProgress=true
+        ScreenOptService.onScreenshotReady={s->handler.post{if(s)processScreenshotAndAnalyze(isAutoCapture=true)else{isVisionInProgress=false;autoConsecutiveErrors++;checkAutoErrors();scheduleNextAutoCapture()}}}
+        ScreenOptService.captureScreen()
+    }
+    fun onAutoCaptureVisionDone(success:Boolean){isVisionInProgress=false;if(success)autoConsecutiveErrors=0 else{autoConsecutiveErrors++;checkAutoErrors()};if(success)executeJs("if(typeof FrameDiffEngine!=='undefined')FrameDiffEngine.onAutoFrameDone()");scheduleNextAutoCapture()}
+    private fun checkAutoErrors(){if(autoConsecutiveErrors>=AUTO_MAX_ERRORS){stopAutoCapture();updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER|REASON:自动暂停");updateAdviceNotification("⚠️ 自动模式暂停","连续${AUTO_MAX_ERRORS}次错误")}}
+    fun triggerMultiFrameCapture(){
+        if(!ScreenOptService.isServiceRunning())return;if(isVisionInProgress)return
+        isVisionInProgress=true
+        ScreenOptService.onScreenshotReady={s->handler.post{if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{if(s2)processScreenshotAndAnalyze(isMultiFrame2=true)}};ScreenOptService.captureScreen()}},multiFrameDelay)}else isVisionInProgress=false}}
+        ScreenOptService.captureScreen()
+    }
+    fun setAutoCaptureSpeed(ms:Long){autoCaptureInterval=ms.coerceIn(2000L,10000L);if(autoCaptureEnabled)scheduleNextAutoCapture()}
+
+/**
      * V2.9.38: 触发截屏（通知栏按钮调用）
      */
     private fun triggerCapture() {
@@ -444,7 +482,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.129"
+            text = "青云 v2.9.153"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -726,9 +764,11 @@ class FloatingService : Service() {
             }
             // V2.9.113: onVisionResult执行成功回调
             @JavascriptInterface
-            fun confirmVisionReceived() {
-                Log.d(TAG, "✅ onVisionResult已执行")
-            }
+            fun confirmVisionReceived() { Log.d(TAG, "✅ onVisionResult已执行") }
+            @JavascriptInterface fun autoCaptureVisionComplete(s:Boolean){handler.post{onAutoCaptureVisionDone(s)}}
+            @JavascriptInterface fun triggerMultiFrame(){handler.post{triggerMultiFrameCapture()}}
+            @JavascriptInterface fun setAutoSpeed(ms:Long){setAutoCaptureSpeed(ms)}
+            @JavascriptInterface fun isAutoCaptureOn():Boolean=autoCaptureEnabled
             // V2.9.70: JS可获取Kotlin端错误日志，导出时一并带走
             @JavascriptInterface
             fun getErrorLogs(): String {
@@ -868,6 +908,7 @@ class FloatingService : Service() {
         var isDragging = false
         var isLongPressed = false
         var longPressRunnable: Runnable? = null
+        var lastClickTime = 0L
 
         ball.setOnTouchListener { _, event ->
             when (event.action) {
@@ -920,9 +961,14 @@ class FloatingService : Service() {
                         } catch (_: Exception) {}
                         prefs?.edit()?.putInt(KEY_BALL_X, params.x)?.putInt(KEY_BALL_Y, params.y)?.apply()
                     } else if (!isLongPressed) {
-                        // 点击 → 截屏识别
-                        Log.d(TAG, "★ 悬浮球点击触发")
-                        // V2.9.111: 按压动画——缩放反馈+变色
+                        val clickTime = System.currentTimeMillis()
+                        if (clickTime - lastClickTime < 350) {
+                            Log.d(TAG, "★ 悬浮球双击: 切换自动模式"); toggleAutoCapture(); lastClickTime = 0L
+                        } else {
+                            lastClickTime = clickTime
+                            handler.postDelayed({
+                                if (lastClickTime == clickTime) {
+                                    Log.d(TAG, "★ 悬浮球点击触发")——缩放反馈+变色
                         floatingBall?.let { b ->
                             b.animate().scaleX(0.85f).scaleY(0.85f).setDuration(80).withEndAction {
                                 b.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
@@ -940,6 +986,9 @@ class FloatingService : Service() {
                         }
                         updateAdviceNotification("⏳ 点击已触发", "正在截屏...")
                         triggerCapture()
+                                }
+                            }, 350)
+                        }
                     }
                     true
                 }
@@ -1248,7 +1297,7 @@ class FloatingService : Service() {
      * 从 ScreenCaptureService.latestScreenshot 读取截图数据
      * 数据来自ScreenOptService.takeScreenshot()（唯一截图路径）
      */
-    private fun processScreenshotAndAnalyze() {
+    private fun processScreenshotAndAnalyze(isAutoCapture:Boolean=false,isMultiFrame1:Boolean=false,isMultiFrame2:Boolean=false) {
         val screenshot = ScreenCaptureService.latestScreenshot
         val ssInfo = if (screenshot != null) "${screenshot.size/1024}KB" else "null"
         Log.d(TAG, "★ processScreenshotAndAnalyze: screenshot=$ssInfo, apiKey=${VisionApiClient.apiKey.takeLast(4)}, webViewReady=$webViewReady")
@@ -1321,6 +1370,7 @@ class FloatingService : Service() {
                     } else {
                     val resultJson = VisionApiClient.toJson(result)
                     Log.d(TAG, "★ resultJson长度=${resultJson.length}, webViewReady=$webViewReady")
+                    val frameTag=when{isMultiFrame2->",_frameTag:'verify'";isMultiFrame1->",_frameTag:'primary'";isAutoCapture->",_frameTag:'auto'";else->""}
                     // V2.9.125: 策略超时保险——8秒超时+灰色等待（非红色FOLD）
                     // 7000+行JS首次加载+MC模拟2-3秒，5秒根本不够
                     _strategyReceived = false
@@ -1336,8 +1386,9 @@ class FloatingService : Service() {
                     _strategyTimeoutRunnable = timeoutRunnable
                     handler.postDelayed(timeoutRunnable, 8000)
                     handler.post {
+                        val taggedJson=if(frameTag.isNotEmpty())resultJson.dropLast(1)+frameTag+"}"else resultJson
                         // V2.9.113: 先检测WebView是否就绪，再调onVisionResult
-                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($resultJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.125] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.125] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
+                        executeJs("(function(){try{if(typeof onVisionResult==='function'){onVisionResult($taggedJson);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.confirmVisionReceived){AndroidBridge.confirmVisionReceived()}}else{console.log('[V2.9.125] onVisionResult不存在,尝试重载HTML');if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:策略引擎未加载');}setTimeout(function(){location.reload();},1000);}}catch(e){console.log('[V2.9.125] onVisionResult异常:'+e.message);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('COLOR:FOLD|SIGNAL:ERROR|REASON:JS异常:'+e.message.substring(0,30));}}})()")
                         tvAction?.alpha = 1.0f
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
