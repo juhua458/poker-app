@@ -953,7 +953,7 @@ var HandHistory={
     var rec={
       ts:Date.now(),
       hole:G.hole.map(function(c){return c?c.rank+c.suit:'?';}),
-      comm:G.comm.map(function(c){return c?c.rank+c.suit:'?';}),
+      comm:G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}),
       pos:G.pos,tt:G.tt,phase:G.phase,scene:G.scene,
       stk:G.stk,pot:G.pot,bet:G.bet,
       action:result.a,reason:result.r,
@@ -2054,10 +2054,12 @@ var HandStateMachine=(function(){
     var hasCall=_hasBtn(btns,'跟注');
     var hasCheck=_hasBtn(btns,'过牌')||_hasBtn(btns,'让牌');
     var hasAllin=_hasBtn(btns,'全下')||_hasBtn(btns,'全押');
-    if(scene==='check'||(hasCheck&&!hasCall)){
-      _s.subState=(_s.heroRole===HeroRole.PFR||_s.heroRole===HeroRole.THREE_BET)?SubState.INITIATIVE:SubState.CHECK_BEHIND;
+    if(scene==='raise'){_s.subState=SubState.FACING_RAISE;}
+    else if(scene==='check'||(hasCheck&&!hasCall)){
+      // V2.9.154fix: check场景=对手没下注=我们有主动权(可probe/CBet)
+      // PFR/3Bettor=CBet计划; Defender=probe机会
+      _s.subState=SubState.INITIATIVE;
     }else if(scene==='bet'||(hasCall&&!hasCheck)){_s.subState=SubState.FACING_BET;}
-    else if(scene==='raise'){_s.subState=SubState.FACING_RAISE;}
     else if(hasAllin&&hasCall){_s.subState=SubState.FACING_ALLIN;}
     else if(scene==='open'){_s.subState=(_s.heroRole===HeroRole.PFR)?SubState.INITIATIVE:SubState.CHECK_BEHIND;}
   }
