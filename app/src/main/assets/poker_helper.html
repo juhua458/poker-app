@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.156 · 识别急救:Schema+FewShot+VPP</title>
+<title>青云 v2.9.157 · 识别急救:Schema+FewShot+VPP</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.156',
+    version:'2.9.157',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.156',
+  CURRENT_VERSION:'2.9.157',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2596,6 +2596,79 @@ var HandStateMachine=(function(){
       }
     }
 
+
+    // ====== V2.9.157: 面对CBet防守(非PFR时面对对手下注) ======
+    if(!didPFR&&scene==='raise'&&street==='flop'){
+      var cbetSz=bet||Math.round(pot*0.5);
+      var fcbR=_facingCBet(k,hcKey,btKey,ip,cbetSz,pot);
+      if(fcbR){
+        // 填充equity和剥削信息
+        fcbR.eq=eq;
+        var fcbExploit=applyExploit(eq,fcbR.a,oppType,{bet:cbetSz,pot:pot});
+        if(fcbExploit){fcbR.exploit=fcbExploit.exploit;fcbR.eq=fcbExploit.eq;}
+        fcbR.hClass=hClass;fcbR.bTexture=bTexture;
+        console.log('[SE157] 面CBet: '+fcbR.a+' '+btKey+'/'+hcKey);
+        return fcbR;
+      }
+    }
+
+    // ====== V2.9.157: 面对Check-Raise(我们CBet后被CR) ======
+    if(didPFR&&scene==='reraise'&&(street==='flop'||street==='turn')){
+      var crSz=bet||Math.round(pot*0.66);
+      var fcrR=_facingCR(k,hcKey,btKey,crSz,pot);
+      if(fcrR){
+        fcrR.eq=eq;
+        var fcrExploit=applyExploit(eq,fcrR.a,oppType,{bet:crSz,pot:pot});
+        if(fcrExploit){fcrR.exploit=fcrExploit.exploit;fcrR.eq=fcrExploit.eq;}
+        fcrR.hClass=hClass;fcrR.bTexture=bTexture;
+        console.log('[SE157] 面CR: '+fcrR.a+' '+btKey+'/'+hcKey);
+        return fcrR;
+      }
+    }
+
+    // ====== V2.9.157: 面对CBet防守(Turn/River) ======
+    if(!didPFR&&scene==='raise'&&(street==='turn'||street==='river')){
+      var tSz=bet||Math.round(pot*0.5);
+      var fcbR2=_facingCBet(k,hcKey,btKey,ip,tSz,pot);
+      if(fcbR2){
+        fcbR2.eq=eq;
+        var fcb2Exploit=applyExploit(eq,fcbR2.a,oppType,{bet:tSz,pot:pot});
+        if(fcb2Exploit){fcbR2.exploit=fcb2Exploit.exploit;fcbR2.eq=fcb2Exploit.eq;}
+        fcbR2.hClass=hClass;fcbR2.bTexture=bTexture;
+        console.log('[SE157] Turn/River面CBet: '+fcbR2.a);
+        return fcbR2;
+      }
+    }
+
+    // ====== V2.9.157: Turn Barrel(PFR在Turn继续下注) ======
+    if(didPFR&&scene==='check'&&street==='turn'){
+      var tType=_classifyTurnCard(hole,comm);
+      var tbR=_turnBarrel(k,hcKey,btKey,tType,bet,pot);
+      if(tbR){
+        tbR.eq=eq;
+        var tbExploit=applyExploit(eq,tbR.a,oppType,{bet:0,pot:pot});
+        if(tbExploit){tbR.exploit=tbExploit.exploit;tbR.eq=tbExploit.eq;}
+        tbR.hClass=hClass;tbR.bTexture=bTexture;
+        console.log('[SE157] Turn barrel: '+tbR.a+' '+btKey+'/'+tType);
+        return tbR;
+      }
+    }
+
+    // ====== V2.9.157: River完整决策 ======
+    if(street==='river'){
+      var rivScene=scene==='check'?'check':'face';
+      var rivBet=bet||0;
+      var rivR=_riverDecision(k,hcKey,didPFR,rivScene,rivBet,pot);
+      if(rivR){
+        rivR.eq=eq;
+        var rivExploit=applyExploit(eq,rivR.a,oppType,{bet:rivBet,pot:pot});
+        if(rivExploit){rivR.exploit=rivExploit.exploit;rivR.eq=rivExploit.eq;}
+        rivR.hClass=hClass;rivR.bTexture=bTexture;
+        console.log('[SE157] River: '+rivR.a+' hcKey='+hcKey);
+        return rivR;
+      }
+    }
+
     // ====== 未匹配GTO策略表 → 回退旧引擎 ======
     return null;
   }
@@ -2638,17 +2711,190 @@ var HandStateMachine=(function(){
     return 0;
   }
 
+  // ====== V2.9.157: 翻后防守策略表 ======
+  // 纹理key映射: 0=dry_high, 1=mid_dry, 2=wet_conn, 3=low_conn, 4=flush_draw, 5=paired, 6=two_tone
+  // 尺度key: small=≤33%底池, medium=34-66%, large=≥67%
+  // 手牌类别key: 复用_hc2key的0-15 + 扩展
+
+  // 面对CBet防守表 (IP/OOP分别)
+  // 格式: {callFreq, raiseFreq, foldFreq}
+  var _FCB_IP={
+    // dry_high(0) + small
+    '0_s':{0:{c:.2,r:.8,f:0},1:{c:.3,r:.7,f:0},2:{c:.5,r:.5,f:0},3:{c:.7,r:.3,f:0},4:{c:.8,r:.15,f:.05},5:{c:.75,r:.05,f:.2},6:{c:.7,r:0,f:.3},8:{c:.7,r:.3,f:0},9:{c:.8,r:.1,f:.1},10:{c:.7,r:.05,f:.25},11:{c:.5,r:.5,f:0},12:{c:.5,r:0,f:.5},13:{c:.4,r:0,f:.6},14:{c:.2,r:0,f:.8},15:{c:.05,r:0,f:.95}},
+    // dry_high(0) + large
+    '0_l':{0:{c:.3,r:.7,f:0},1:{c:.4,r:.6,f:0},2:{c:.6,r:.4,f:0},3:{c:.8,r:.2,f:0},4:{c:.85,r:.1,f:.05},5:{c:.5,r:0,f:.5},6:{c:.3,r:0,f:.7},8:{c:.6,r:.3,f:.1},9:{c:.5,r:.1,f:.4},10:{c:.3,r:0,f:.7},11:{c:.5,r:.4,f:.1},12:{c:.2,r:0,f:.8},13:{c:.1,r:0,f:.9},15:{c:0,r:0,f:1}},
+    // wet_conn(2) + small
+    '2_s':{0:{c:.1,r:.9,f:0},1:{c:.2,r:.8,f:0},2:{c:.4,r:.6,f:0},3:{c:.7,r:.3,f:0},4:{c:.8,r:.15,f:.05},5:{c:.6,r:.05,f:.35},8:{c:.6,r:.4,f:0},9:{c:.8,r:.1,f:.1},10:{c:.7,r:.05,f:.25},11:{c:.5,r:.5,f:0},12:{c:.5,r:0,f:.5},13:{c:.3,r:0,f:.7},15:{c:.05,r:0,f:.95}},
+    // wet_conn(2) + large
+    '2_l':{0:{c:.2,r:.8,f:0},1:{c:.3,r:.7,f:0},2:{c:.6,r:.4,f:0},3:{c:.7,r:.2,f:.1},4:{c:.7,r:.1,f:.2},5:{c:.3,r:0,f:.7},8:{c:.4,r:.4,f:.2},9:{c:.45,r:.15,f:.4},10:{c:.25,r:0,f:.75},11:{c:.5,r:.35,f:.15},15:{c:0,r:0,f:1}},
+    // paired(5) + small
+    '5_s':{0:{c:.2,r:.8,f:0},1:{c:.4,r:.6,f:0},3:{c:.8,r:.2,f:0},4:{c:.85,r:.1,f:.05},5:{c:.7,r:.05,f:.25},6:{c:.5,r:0,f:.5},9:{c:.7,r:.15,f:.15},13:{c:.35,r:0,f:.65},15:{c:.05,r:0,f:.95}},
+    // paired(5) + large
+    '5_l':{0:{c:.3,r:.7,f:0},1:{c:.5,r:.5,f:0},3:{c:.8,r:.15,f:.05},4:{c:.75,r:.05,f:.2},5:{c:.4,r:0,f:.6},9:{c:.4,r:.1,f:.5},15:{c:0,r:0,f:1}},
+    // flush_draw(4) + small
+    '4_s':{0:{c:.1,r:.9,f:0},1:{c:.25,r:.75,f:0},3:{c:.75,r:.25,f:0},4:{c:.75,r:.2,f:.05},8:{c:.5,r:.5,f:0},9:{c:.75,r:.15,f:.1},11:{c:.4,r:.55,f:.05},15:{c:.05,r:0,f:.95}},
+    // flush_draw(4) + large
+    '4_l':{0:{c:.2,r:.8,f:0},1:{c:.35,r:.65,f:0},3:{c:.7,r:.2,f:.1},4:{c:.6,r:.1,f:.3},8:{c:.45,r:.5,f:.05},9:{c:.4,r:.15,f:.45},11:{c:.5,r:.4,f:.1},15:{c:0,r:0,f:1}}
+  };
+
+  var _FCB_OOP={
+    // OOP面对CBet更紧，但CR更多
+    '0_s':{0:{c:.3,r:.7,f:0},1:{c:.4,r:.6,f:0},3:{c:.8,r:.2,f:0},4:{c:.85,r:.1,f:.05},5:{c:.7,r:0,f:.3},6:{c:.5,r:0,f:.5},8:{c:.6,r:.3,f:.1},9:{c:.7,r:.1,f:.2},15:{c:.03,r:0,f:.97}},
+    '0_l':{0:{c:.3,r:.7,f:0},1:{c:.5,r:.5,f:0},3:{c:.8,r:.1,f:.1},4:{c:.7,r:0,f:.3},8:{c:.5,r:.3,f:.2},9:{c:.4,r:.05,f:.55},15:{c:0,r:0,f:1}},
+    '2_s':{0:{c:.2,r:.8,f:0},1:{c:.3,r:.7,f:0},3:{c:.7,r:.2,f:.1},4:{c:.7,r:.1,f:.2},8:{c:.5,r:.4,f:.1},9:{c:.7,r:.1,f:.2},11:{c:.5,r:.4,f:.1},15:{c:.03,r:0,f:.97}},
+    '2_l':{0:{c:.2,r:.8,f:0},1:{c:.35,r:.65,f:0},3:{c:.6,r:.1,f:.3},8:{c:.4,r:.4,f:.2},9:{c:.35,r:.1,f:.55},11:{c:.45,r:.35,f:.2},15:{c:0,r:0,f:1}},
+    '5_s':{0:{c:.25,r:.75,f:0},1:{c:.45,r:.55,f:0},3:{c:.8,r:.15,f:.05},4:{c:.8,r:.05,f:.15},9:{c:.6,r:.1,f:.3},15:{c:.03,r:0,f:.97}},
+    '5_l':{0:{c:.3,r:.7,f:0},1:{c:.5,r:.5,f:0},3:{c:.75,r:.05,f:.2},4:{c:.65,r:0,f:.35},15:{c:0,r:0,f:1}}
+  };
+
+  // 面对Check-Raise表
+  // 格式: {callFreq, reraiseFreq, foldFreq}
+  var _FCR={
+    '0':{0:{c:.2,rr:.8,f:0},1:{c:.4,rr:.6,f:0},2:{c:.7,rr:.3,f:0},3:{c:.8,rr:.2,f:0},4:{c:.85,rr:.05,f:.1},5:{c:.5,rr:0,f:.5},8:{c:.8,rr:.1,f:.1},9:{c:.6,rr:0,f:.4},15:{c:0,rr:0,f:1}},
+    '2':{0:{c:.1,rr:.9,f:0},1:{c:.3,rr:.7,f:0},2:{c:.5,rr:.5,f:0},3:{c:.8,rr:.1,f:.1},4:{c:.7,rr:.1,f:.2},8:{c:.5,rr:.3,f:.2},9:{c:.7,rr:.1,f:.2},11:{c:.7,rr:.2,f:.1},15:{c:0,rr:0,f:1}},
+    '4':{0:{c:.15,rr:.85,f:0},1:{c:.35,rr:.65,f:0},3:{c:.75,rr:.1,f:.15},8:{c:.5,rr:.4,f:.1},9:{c:.65,rr:.1,f:.25},11:{c:.5,rr:.35,f:.15},15:{c:0,rr:0,f:1}},
+    '5':{0:{c:.2,rr:.8,f:0},1:{c:.5,rr:.5,f:0},3:{c:.85,rr:.05,f:.1},4:{c:.8,rr:.05,f:.15},15:{c:0,rr:0,f:1}}
+  };
+
+  // Turn Barrel表 (IP, PFR继续下注)
+  // turnCardType: i=improved, b=brick, w=worsened
+  // 格式: {barrelFreq, sizingPct}
+  var _TB_IP={
+    '0_i':{0:[1,.66],1:[1,.66],3:[.9,.5],4:[.8,.5],9:[.7,.5],13:[.3,.5],15:[.15,.5]},
+    '0_b':{0:[1,.5],1:[.95,.5],3:[.8,.5],4:[.5,.33],9:[.5,.5],15:[.1,.5]},
+    '0_w':{0:[1,.66],1:[.8,.66],3:[.5,.33],4:[.3,.33],15:[.05,.5]},
+    '2_i':{0:[1,.75],1:[1,.75],11:[.9,.66],9:[.7,.66],15:[.1,.66]},
+    '2_b':{0:[1,.66],1:[.8,.66],11:[.6,.5],9:[.4,.5],15:[.05,.66]},
+    '2_w':{0:[1,.75],1:[.7,.66],11:[.4,.5],15:[.03,.66]},
+    '5_i':{0:[1,.66],1:[1,.66],3:[.9,.5],4:[.7,.5],15:[.1,.5]},
+    '5_b':{0:[1,.5],1:[.85,.5],3:[.6,.33],4:[.4,.33],15:[.08,.5]}
+  };
+
+  // River决策表 (简化: 基于手牌类别+主动权)
+  var _RIV={
+    // 主动下注(有主动权/率先行动)
+    bet:{0:{a:'bet',s:1},1:{a:'bet',s:.75},2:{a:'bet',s:.66},3:{a:'bet',s:.5},4:{a:'bet',s:.5},5:{a:'check',s:0},6:{a:'check',s:0},7:{a:'check',s:0},9:{a:'bluff',s:.66},10:{a:'bluff',s:.66},15:{a:'check',s:0}},
+    // 面对下注(用MDF + 手牌类别)
+    face:{0:{a:'raise',s:.75},1:{a:'raise',s:.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'fold',s:0},9:{a:'fold',s:0},10:{a:'fold',s:0},15:{a:'fold',s:0}}
+  };
+
+  // ====== V2.9.157: 翻后防守决策逻辑 ======
+  function _facingCBet(k,hcKey,btKey,ip,betSz,pot){
+    var szRatio=betSz/Math.max(pot,1);
+    var szKey=szRatio<=.33?'s':'l'; // small or large
+    var table=ip?_FCB_IP:_FCB_OOP;
+    var entry=table[btKey+'_'+szKey];
+    if(!entry){entry=table[btKey+'_s'];} // fallback to small
+    if(!entry||!entry[hcKey])return null;
+    var e=entry[hcKey];
+    // 频率随机决策
+    var r=Math.random();
+    var spr=calcSPR();
+    if(r<e.r){
+      var rSz=Math.round(Math.max(betSz*2.5,pot*.66));
+      rSz=Math.min(rSz,G.stk||100000);
+      return{a:'raise',v:rSz,r:'GTO 面CBet raise '+btKey+'/'+hcKey+'('+Math.round(e.r*100)+'%)',eq:0,c:'h',sizing:rSz,scene:'面对CBet',_se:true,_seFreq:e.r};
+    }
+    if(r<e.r+e.c){
+      return{a:'call',r:'GTO 面CBet call '+btKey+'/'+hcKey+'('+Math.round(e.c*100)+'%)',eq:0,c:'m',scene:'面对CBet',spr:spr,_se:true,_seFreq:e.c};
+    }
+    return _fold(0,'面CBet fold '+btKey+'/'+hcKey+'('+Math.round(e.f*100)+'%)',spr);
+  }
+
+  function _facingCR(k,hcKey,btKey,betSz,pot){
+    var table=_FCR[btKey];
+    if(!table||!table[hcKey])return null;
+    var e=table[hcKey];
+    var r=Math.random();
+    var spr=calcSPR();
+    if(r<e.rr){
+      var rrSz=Math.round(Math.max(betSz*2.5,pot*2));
+      rrSz=Math.min(rrSz,G.stk||100000);
+      return{a:'raise',v:rrSz,r:'GTO 面CR reraise '+btKey+'/'+hcKey+'('+Math.round(e.rr*100)+'%)',eq:0,c:'h',sizing:rrSz,scene:'面对CR',_se:true,_seFreq:e.rr};
+    }
+    if(r<e.rr+e.c){
+      return{a:'call',r:'GTO 面CR call '+btKey+'/'+hcKey+'('+Math.round(e.c*100)+'%)',eq:0,c:'m',scene:'面对CR',spr:spr,_se:true,_seFreq:e.c};
+    }
+    return _fold(0,'面CR fold '+btKey+'/'+hcKey+'('+Math.round(e.f*100)+'%)',spr);
+  }
+
+  function _turnBarrel(k,hcKey,btKey,turnType,betSz,pot){
+    var table=_TB_IP[btKey+'_'+turnType];
+    if(!table||!table[hcKey])return null;
+    var e=table[hcKey];
+    var spr=calcSPR();
+    if(Math.random()<e[0]){
+      var bSz=Math.round(pot*e[1]);
+      bSz=Math.min(bSz,G.stk||100000);
+      return{a:'raise',v:bSz,r:'GTO Turn barrel '+btKey+'/'+turnType+'/'+hcKey+'('+Math.round(e[0]*100)+'%)',eq:0,c:e[0]>.7?'h':'m',sizing:bSz,scene:'Turn Barrel',_se:true,_seFreq:e[0]};
+    }
+    // 不Barrel → check
+    return{a:'check',r:'GTO Turn giveup '+btKey+'/'+turnType+'/'+hcKey,eq:0,c:'m',scene:'Turn Check',spr:spr,_se:true};
+  }
+
+  function _riverDecision(k,hcKey,hasInitiative,scene,betSz,pot){
+    var table=scene==='check'?_RIV.bet:_RIV.face;
+    if(!table||!table[hcKey])return null;
+    var e=table[hcKey];
+    var spr=calcSPR();
+    if(e.a==='bet'||e.a==='bluff'){
+      var rSz=Math.round(pot*e.s);
+      rSz=Math.min(rSz,G.stk||100000);
+      return{a:'raise',v:rSz,r:'GTO River '+(e.a==='bluff'?'诈唬':'价值')+' '+hcKey+'('+Math.round(e.s*100)+'%pot)',eq:0,c:e.a==='bluff'?'l':'h',sizing:rSz,scene:'River '+(e.a==='bluff'?'诈唬':'价值'),spr:spr,_se:true};
+    }
+    if(e.a==='call'){
+      return{a:'call',r:'GTO River call '+hcKey,eq:0,c:'m',scene:'River Call',spr:spr,_se:true};
+    }
+    if(e.a==='raise'){
+      var rrSz=Math.round(Math.max(betSz*2.5,pot*e.s));
+      rrSz=Math.min(rrSz,G.stk||100000);
+      return{a:'raise',v:rrSz,r:'GTO River raise '+hcKey,eq:0,c:'h',sizing:rrSz,scene:'River Raise',spr:spr,_se:true};
+    }
+    if(e.a==='check'){
+      return{a:'check',r:'GTO River check '+hcKey,eq:0,c:'m',scene:'River Check',spr:spr,_se:true};
+    }
+    if(e.a==='fold'){
+      return _fold(0,'River fold '+hcKey,spr);
+    }
+    return null;
+  }
+
+  // Turn牌分类: improved/brick/worsened
+  function _classifyTurnCard(hole,comm){
+    if(!comm||comm.length<4)return 'b';
+    var flopComm=comm.slice(0,3).filter(function(c){return c;});
+    var turnCard=comm[3];
+    if(!turnCard)return 'b';
+    var flopWet=boardTexture(flopComm);
+    var allComm=comm.slice(0,4).filter(function(c){return c;});
+    var turnWet=boardTexture(allComm);
+    if(!flopWet||!turnWet)return 'b';
+    var dw=turnWet.wetness-(flopWet.wetness||0);
+    if(dw>=2)return 'w'; // 湿度增加→对PFR不利
+    if(dw<=-1)return 'i'; // 湿度降低→对PFR有利
+    return 'b';
+  }
+
+
   // ====== 公开接口 ======
   return{
     decidePreflop:decidePreflop,
     decidePostflop:decidePostflop,
+
+
+
     isEnabled:function(){return G._seEnabled!==false&&G.tt<=5;},
-    getVersion:function(){return'2.9.156';},
+    getVersion:function(){return'2.9.157';},
     getRFI:function(pos){return _RFI[pos]||null;},
     get3B:function(vs,from){return _3B[vs]?_3B[vs][from]:null;},
     getF3B:function(pos){return _F3B[pos]||null;},
     getCBetIP:function(bt){return _CBET_IP[bt]||null;},
-    getCBetOOP:function(bt){return _CBET_OOP[bt]||null;}
+    getCBetOOP:function(bt){return _CBET_OOP[bt]||null;},
+    getFacingCBetIP:function(bt,sz){return _FCB_IP[bt+'_'+sz]||null;},
+    getFacingCBetOOP:function(bt,sz){return _FCB_OOP[bt+'_'+sz]||null;},
+    getFacingCR:function(bt){return _FCR[bt]||null;},
+    getTurnBarrelIP:function(bt,tt){return _TB_IP[bt+'_'+tt]||null;},
+    getRiverDecision:function(){return _RIV;}
   };
   })();
 
