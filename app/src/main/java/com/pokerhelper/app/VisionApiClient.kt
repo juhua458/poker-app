@@ -218,7 +218,7 @@ object VisionApiClient {
 ⚠️CRITICAL:buttons是决定策略的核心字段！必须完整识别屏幕底部所有操作按钮文字！包括:弃牌/让牌/过牌/跟注(含金额如"跟注1,500")/加注(含比例如"50%加注4,500"或"加注1,200")/下注(含比例如"33%下注726"或"下注500")/全押/全下/任意加注/最小加注/弃牌让牌(组合按钮=有让牌选项)。buttons识别不全会导致策略完全错误！
 ⚠️showdown_cards:如果截图处于摊牌阶段(能看到对手翻开的牌)，必须识别每个亮牌对手的seat号+2张手牌+是否赢了(won)。如果不在摊牌阶段或看不到对手的牌，showdown_cards填[]。
 ⚠️opp_hud:识别每个对手头像旁的Smart HUD统计数字。格式:[{"seat":2,"vpip":35,"pfr":18,"ats":40,"three_bet":8}]。vpip/pfr/ats/three_bet都是百分比整数。如果看不到HUD数字，opp_hud填[]。
-is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，suit=h(红心♥)/d(方块♦)/c(梅花♣)/s(黑桃♠)，phase=preflop/flop/turn/river/showdown,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。⚠️hole_cards必须识别2张手牌(屏幕底部正面朝上的牌)，每张必须返回rank和suit！不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]"""
+is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，suit=h(红心♥)/d(方块♦)/c(梅花♣)/s(黑桃♠)，phase=preflop/flop/turn/river/showdown,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。⚠️hole_cards必须识别2张手牌(屏幕底部正面朝上的牌)，每张必须返回rank和suit！不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]。⚠️community_cards只返回当前桌面上已亮出的公共牌，未亮出的牌位不要返回空槽位(如翻牌3张就只返回3个，不要返回5个含2个null)"""
         } else {
             """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)。
 
@@ -228,7 +228,7 @@ is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，su
 2. 底池pot_size：牌桌中央"底池XXX"的数字，去逗号，10K=10000
 3. 筹码my_chips：左下角你头像下数字
 4. ⚠️手牌hole_cards：底部2张正面朝上的牌，必须返回rank和suit！rank=A K Q J T 9 8 7 6 5 4 3 2(T=10)，suit=h(红心♥) d(方块♦) c(梅花♣) s(黑桃♠)
-5. 公共牌community_cards：桌面中央0/3/4/5张，必须返回rank和suit
+5. 公共牌community_cards：桌面中央0/3/4/5张，必须返回rank和suit。⚠️只返回当前已亮出的牌，未亮出的牌不要返回空槽位(翻牌=3张，转牌=4张，河牌=5张)
 6. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
 7. ⚠️操作按钮buttons(极其重要！)：底部所有按钮原样输出，必须包含"弃牌""让牌/过牌""跟注XXX""加注XXX""下注XXX""全押/全下"等全部可见按钮文字，遗漏会导致策略完全错误！
 8. total_players总座位数，active_players活跃人数

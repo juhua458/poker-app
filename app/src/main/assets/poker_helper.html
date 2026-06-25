@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.153',
+    version:'2.9.154',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.153',
+  CURRENT_VERSION:'2.9.154',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1997,6 +1997,137 @@ var FrameDiffEngine={
   getOppActionSummary:function(){if(this._al.length===0)return null;var s={total:this._al.length,folds:0,calls:0,raises:0};for(var i=0;i<this._al.length;i++){var a=this._al[i];if(a.a==='fold')s.folds++;else if(a.a==='call')s.calls++;else if(a.a==='raise')s.raises++;}return s;},
   reset:function(){this._fb=[];this._al=[];this._hid='';}
 };
+
+
+// ===== V2.9.154: HandStateMachine (HSM-Observer, V1只观察不决策) =====
+var HandStateMachine=(function(){
+  // === Phase枚举 ===
+  var Phase={IDLE:'idle',PREFLOP:'preflop',FLOP:'flop',TURN:'turn',RIVER:'river',SHOWDOWN:'showdown',HAND_COMPLETE:'hand_complete'};
+  // === HeroRole枚举 ===
+  var HeroRole={UNKNOWN:'unknown',PFR:'pfr',DEFENDER:'defender',THREE_BET:'three_bet',FOUR_BET:'four_bet',CALLER:'caller',LIMPER:'limper'};
+  // === PostflopSubState ===
+  var SubState={INITIATIVE:'initiative',FACING_BET:'facing_bet',FACING_RAISE:'facing_raise',FACING_ALLIN:'facing_allin',CHECK_BEHIND:'check_behind'};
+
+  var _s={phase:Phase.IDLE,heroRole:HeroRole.UNKNOWN,subState:null,strategyPath:'',currentPlan:'',handId:'',streetHistory:[],_preflopAction:'',_lastCommCount:0,_lastHandKey:'',_handCount:0};
+
+  function _getCommCount(data){
+    if(!data||!data.community_cards)return 0;
+    var c=0;for(var i=0;i<data.community_cards.length;i++){if(data.community_cards[i]&&data.community_cards[i].rank)c++;}return c;
+  }
+  function _streetFromCC(cc){if(cc===0)return Phase.PREFLOP;if(cc<=3)return Phase.FLOP;if(cc===4)return Phase.TURN;return Phase.RIVER;}
+  function _getHandKey(data){if(!data||!data.hole_cards||data.hole_cards.length<2)return'';return data.hole_cards[0].rank+(data.hole_cards[0].suit||'')+data.hole_cards[1].rank+(data.hole_cards[1].suit||'');}
+  function _hasBtn(btns,kw){if(!btns)return false;for(var i=0;i<btns.length;i++){if(btns[i].indexOf(kw)>=0)return true;}return false;}
+
+  function _resetForNewHand(hk){
+    _s.phase=Phase.PREFLOP;_s.heroRole=HeroRole.UNKNOWN;_s.subState=null;_s.strategyPath='';_s.currentPlan='';_s.handId=hk;_s.streetHistory=[];_s._preflopAction='';_s._lastCommCount=0;
+  }
+
+  function _inferPreflopRole(btns,scene){
+    if(_s.heroRole!==HeroRole.UNKNOWN&&_s._preflopAction!=='')return;
+    var hasCall=_hasBtn(btns,'跟注')||_hasBtn(btns,'Call');
+    var hasCheck=_hasBtn(btns,'过牌')||_hasBtn(btns,'让牌')||_hasBtn(btns,'Check');
+    var hasRaise=_hasBtn(btns,'加注')||_hasBtn(btns,'Raise')||_hasBtn(btns,'下注');
+    if(scene==='raise'||(hasCall&&!hasCheck)){
+      if(_s._preflopAction==='open'){_s.heroRole=HeroRole.PFR;_s._preflopAction='facing_3bet';}
+      else{_s.heroRole=HeroRole.DEFENDER;}
+    }else if(scene==='call'||(hasCall&&hasCheck)){_s.heroRole=HeroRole.DEFENDER;}
+    // ActionLine辅助
+    if(typeof ActionLine!=='undefined'&&ActionLine.getStreetAction){
+      var pf=ActionLine.getStreetAction('preflop');
+      if(pf){if(pf.heroAction==='raise'){_s.heroRole=HeroRole.PFR;_s._preflopAction='open';}else if(pf.heroAction==='call'){_s.heroRole=HeroRole.DEFENDER;_s._preflopAction='call';}else if(pf.heroAction==='check'){_s.heroRole=HeroRole.LIMPER;_s._preflopAction='limp';}}
+    }
+  }
+
+  function _inferRoleFromActionLine(){
+    if(typeof ActionLine==='undefined'||!ActionLine.getStreetAction)return;
+    var pf=ActionLine.getStreetAction('preflop');
+    if(pf){
+      if(pf.heroAction==='raise'){_s.heroRole=HeroRole.PFR;_s._preflopAction='open';}
+      else if(pf.heroAction==='call'){_s.heroRole=HeroRole.DEFENDER;_s._preflopAction='call';}
+      else if(pf.heroAction==='check'){_s.heroRole=HeroRole.LIMPER;_s._preflopAction='limp';}
+    }
+    if(G._facing3bet&&_s.heroRole===HeroRole.PFR){_s.heroRole=HeroRole.THREE_BET;_s._preflopAction='facing_3bet';}
+    if(G._heroDid4bet){_s.heroRole=HeroRole.FOUR_BET;_s._preflopAction='4bet';}
+  }
+
+  function _inferSubState(btns,scene){
+    var hasCall=_hasBtn(btns,'跟注');
+    var hasCheck=_hasBtn(btns,'过牌')||_hasBtn(btns,'让牌');
+    var hasAllin=_hasBtn(btns,'全下')||_hasBtn(btns,'全押');
+    if(scene==='check'||(hasCheck&&!hasCall)){
+      _s.subState=(_s.heroRole===HeroRole.PFR||_s.heroRole===HeroRole.THREE_BET)?SubState.INITIATIVE:SubState.CHECK_BEHIND;
+    }else if(scene==='bet'||(hasCall&&!hasCheck)){_s.subState=SubState.FACING_BET;}
+    else if(scene==='raise'){_s.subState=SubState.FACING_RAISE;}
+    else if(hasAllin&&hasCall){_s.subState=SubState.FACING_ALLIN;}
+    else if(scene==='open'){_s.subState=(_s.heroRole===HeroRole.PFR)?SubState.INITIATIVE:SubState.CHECK_BEHIND;}
+  }
+
+  function _updateStrategyPath(){
+    var st=_s.phase,role=_s.heroRole,sub=_s.subState;
+    if(st===Phase.PREFLOP){
+      if(role===HeroRole.PFR)_s.strategyPath='preflop.pfr_open';
+      else if(role===HeroRole.DEFENDER)_s.strategyPath='preflop.3bet_response';
+      else if(role===HeroRole.THREE_BET)_s.strategyPath='preflop.4bet_response';
+      else if(role===HeroRole.FOUR_BET)_s.strategyPath='preflop.4bet_response';
+      else _s.strategyPath='preflop.'+(G.scene||'open');
+    }else if(st===Phase.FLOP||st===Phase.TURN||st===Phase.RIVER){
+      var sn=st;
+      if(role===HeroRole.PFR){
+        if(sub===SubState.INITIATIVE)_s.strategyPath=sn+'.pfr_cbet_plan';
+        else if(sub===SubState.FACING_BET)_s.strategyPath=sn+'.pfr_vs_donk';
+        else if(sub===SubState.FACING_RAISE)_s.strategyPath=sn+'.pfr_vs_cr';
+        else if(sub===SubState.CHECK_BEHIND)_s.strategyPath=sn+'.pfr_check_behind';
+        else _s.strategyPath=sn+'.pfr';
+      }else if(role===HeroRole.DEFENDER||role===HeroRole.CALLER){
+        if(sub===SubState.FACING_BET)_s.strategyPath=sn+'.defend_vs_cbet';
+        else if(sub===SubState.INITIATIVE)_s.strategyPath=sn+'.defend_probe';
+        else if(sub===SubState.CHECK_BEHIND)_s.strategyPath=sn+'.defend_check_behind';
+        else if(sub===SubState.FACING_RAISE)_s.strategyPath=sn+'.defend_vs_raise';
+        else _s.strategyPath=sn+'.defend';
+      }else if(role===HeroRole.THREE_BET){_s.strategyPath=sn+'.3better_cbet';}
+      else{_s.strategyPath=sn+'.'+(sub||G.scene||'unknown');}
+    }else{_s.strategyPath=st;}
+  }
+
+  function processVisionData(data){
+    if(!data||!data.hole_cards||data.hole_cards.length<2)return;
+    var hk=_getHandKey(data),cc=_getCommCount(data),cs=_streetFromCC(cc),btns=data.buttons||[],st=(data.street||'').toLowerCase(),scene=G.scene||'open';
+    var isNewHand=false,streetChanged=false;
+    // 1. 新手牌检测
+    if(_s._lastHandKey&&hk!==_s._lastHandKey){isNewHand=true;_s._handCount++;console.log('[HSM] 新手牌#'+_s._handCount+': '+hk);_resetForNewHand(hk);}
+    _s._lastHandKey=hk;
+    // 2. 街变化检测
+    if(_s._lastCommCount!==cc&&_s.phase!==Phase.IDLE){if(cc>_s._lastCommCount&&cc>=3){streetChanged=true;_s.streetHistory.push({from:_s.phase,to:cs,cc:cc});console.log('[HSM] 街变化: '+_s.phase+'→'+cs+' (comm:'+_s._lastCommCount+'→'+cc+')');}}
+    // 3. 更新Phase
+    if(st==='preflop'||st==='pre'){_s.phase=Phase.PREFLOP;}else if(cs!==_s.phase||streetChanged){_s.phase=cs;}
+    _s._lastCommCount=cc;
+    // 4. HeroRole推断
+    if(_s.phase===Phase.PREFLOP){_inferPreflopRole(btns,scene);}else if(streetChanged&&_s.heroRole===HeroRole.UNKNOWN){_inferRoleFromActionLine();}
+    // 5. PostflopSubState
+    if(_s.phase!==Phase.PREFLOP&&_s.phase!==Phase.IDLE){_inferSubState(btns,scene);}
+    // 6. 策略路径
+    _updateStrategyPath();
+    // 7. 日志
+    console.log('[HSM] phase='+_s.phase+' role='+_s.heroRole+' sub='+(_s.subState||'-')+' path='+_s.strategyPath+(streetChanged?' ★街变化':'')+(isNewHand?' ★新手牌':''));
+  }
+
+  return{
+    Phase:Phase,HeroRole:HeroRole,SubState:SubState,
+    processVisionData:processVisionData,
+    getPhase:function(){return _s.phase;},
+    getHeroRole:function(){return _s.heroRole;},
+    getSubState:function(){return _s.subState;},
+    getStrategyPath:function(){return _s.strategyPath;},
+    getCurrentPlan:function(){return _s.currentPlan;},
+    getHandCount:function(){return _s._handCount;},
+    getStreetHistory:function(){return _s.streetHistory;},
+    recordPreflopAction:function(a){_s._preflopAction=a;if(a==='raise'){_s.heroRole=HeroRole.PFR;}else if(a==='call'){_s.heroRole=HeroRole.DEFENDER;}else if(a==='3bet'){_s.heroRole=HeroRole.THREE_BET;}else if(a==='4bet'){_s.heroRole=HeroRole.FOUR_BET;}_updateStrategyPath();},
+    recordPlan:function(p){_s.currentPlan=p;},
+    reset:function(){_s={phase:Phase.IDLE,heroRole:HeroRole.UNKNOWN,subState:null,strategyPath:'',currentPlan:'',handId:'',streetHistory:[],_preflopAction:'',_lastCommCount:0,_lastHandKey:'',_handCount:0};},
+    getSummary:function(){return{phase:_s.phase,heroRole:_s.heroRole,subState:_s.subState,strategyPath:_s.strategyPath,handCount:_s._handCount};},
+    _debug:function(on){window._hsmDebug=on;}
+  };
+})();
 
 // ===== V2.9.105: 座位角色推算 =====
 // 从D按钮位置推算每个座位的扑克角色(BU/SB/BB/UTG/CO等)
@@ -5782,6 +5913,11 @@ function _decideInner(){
   if(_decisionCache[ck])return _decisionCache[ck];
   var cc=G.comm.filter(function(c){return c;}).length;
   var result=cc>0?postF(k):preF(k);
+  // V2.9.154: HSM记录Hero翻前行动
+  if(result&&typeof HandStateMachine!=='undefined'&&HandStateMachine.getHeroRole()==='unknown'&&G.phase==='pre'){
+    if(result.a==='raise'||result.a==='raise_big')HandStateMachine.recordPreflopAction('raise');
+    else if(result.a==='call'||result.a==='weak_call')HandStateMachine.recordPreflopAction('call');
+  }
   // V2.9.71: 策略引擎=唯一决策源, 颜色=纯映射
   if(result){
     var _eq=result.eq||50;
@@ -7153,6 +7289,18 @@ function show(r){
     }
     h+='<div style="font-size:9px;padding:2px 8px;border-radius:10px;display:inline-block;background:rgba(255,255,255,.06);color:'+confColor+';margin-top:2px">🎯底池:'+confText+'('+PotConfidence.score+'%) | '+tierText+correctionInfo+'</div>';
   }
+  // V2.9.154: HSM状态机显示——角色+策略路径
+  if(typeof HandStateMachine!=="undefined"){
+    var hsm=HandStateMachine.getSummary();
+    var roleMap={pfr:'PFR',defender:'Defender',three_bet:'3Bettor',four_bet:'4Bettor',caller:'Caller',limper:'Limper',unknown:'?'};
+    var roleCN=roleMap[hsm.heroRole]||hsm.heroRole;
+    var phaseMap={preflop:'翻前',flop:'翻牌',turn:'转牌',river:'河牌',idle:'-',showdown:'摊牌',hand_complete:'结束'};
+    var phaseCN=phaseMap[hsm.phase]||hsm.phase;
+    var roleColor=hsm.heroRole==='pfr'?'#4fc3f7':hsm.heroRole==='defender'?'#ffa726':'#888';
+    var subMap={initiative:'有主动权',facing_bet:'面对下注',facing_raise:'面对加注',facing_allin:'面对全下',check_behind:'过牌'};
+    var subCN=hsm.subState?(subMap[hsm.subState]||hsm.subState):'';
+    h+='<div style="font-size:9px;padding:2px 8px;border-radius:10px;display:inline-block;background:rgba(255,255,255,.06);color:'+roleColor+';margin-top:2px">🧠'+phaseCN+' | '+roleCN+(subCN?' | '+subCN:'')+' | '+hsm.strategyPath+'</div>';
+  }
   // 极速模式退出按钮
   h+='<div class="speed-exit" onclick="exitSpeedMode()">✏️ 手动编辑</div>';
   document.getElementById('res').innerHTML=h;
@@ -7999,6 +8147,9 @@ function onVisionResult(data){
     var detectedScene=detectSceneFromButtons(data.buttons||[],street,activeP);
     G.scene=detectedScene;
   }
+  // V2.9.154: HSM状态机观测——只观察不决策
+  if(typeof HandStateMachine!=="undefined")HandStateMachine.processVisionData(data);
+
   
   // 4. 自动设定桌型和位置
   // V2.9.78: total_players保险——同一桌人数不变，突变用旧值
