@@ -104,7 +104,7 @@ class FloatingService : Service() {
     private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
     private var _strategyTimeoutRunnable: Runnable? = null  // V2.9.125: 策略超时定时器引用
     private var _lastStrategyAdvice = ""   // V2.9.113: 最后策略结果
-    // V2.9.133: 崩溃状态——JS ReferenceError/未捕获异常时悬浮球显示「崩」+红+快闪
+    // V2.9.155: 崩溃状态——JS ReferenceError/未捕获异常时悬浮球显示「崩」+红+快闪
     private var _isCrashed = false
     private var _lastCrashReason = ""
     private val pendingJsCalls = mutableListOf<String>()
@@ -663,7 +663,7 @@ class FloatingService : Service() {
                 return ChipTracker.getStatusJson()
             }
             
-            // V2.9.133: JS策略引擎崩溃回调——立即把悬浮球变「崩」+FOLD红+4Hz快闪+通知栏警告
+            // V2.9.155: JS策略引擎崩溃回调——立即把悬浮球变「崩」+FOLD红+4Hz快闪+通知栏警告
             // 用户原话:「崩了能不能显示在悬浮球, 这样我就不会在崩溃的情况下, 还在游戏中」
             @JavascriptInterface
             fun notifyCrash(reason: String) {
@@ -680,7 +680,7 @@ class FloatingService : Service() {
                     renderCrashBall()
                 }
             }
-            // V2.9.133: 清除崩溃态（用户重启WebView/重载HTML后调用）
+            // V2.9.155: 清除崩溃态（用户重启WebView/重载HTML后调用）
             @JavascriptInterface
             fun clearCrash() {
                 Log.d(TAG, "★ 清除崩溃状态")
@@ -712,7 +712,7 @@ class FloatingService : Service() {
             fun showAdvice(advice: String) {
                 Log.d(TAG, "showAdvice调用: advice=" + advice)
                 handler.post {
-                    // V2.9.133: 崩溃态最高优先级——崩溃时只认显式 RELOAD_AFTER_CRASH 才清, 否则忽略
+                    // V2.9.155: 崩溃态最高优先级——崩溃时只认显式 RELOAD_AFTER_CRASH 才清, 否则忽略
                     if (_isCrashed && !advice.contains("CLEAR_CRASH")) {
                         Log.w(TAG, "★ 策略崩溃态生效, 忽略 advice=" + advice.take(50))
                         return@post
@@ -1034,7 +1034,7 @@ class FloatingService : Service() {
         }
         ball.textSize = 18f
     }
-    // V2.9.133: 渲染崩溃悬浮球——「崩」字+红+4Hz快闪
+    // V2.9.155: 渲染崩溃悬浮球——「崩」字+红+4Hz快闪
     private fun renderCrashBall() {
         try {
             val ball = floatingBall ?: return
@@ -1052,7 +1052,7 @@ class FloatingService : Service() {
     }
         fun updateBallAdvice(advice: String) {
         Log.d(TAG, "updateBallAdvice: advice=$advice, ball=${if(floatingBall!=null)"存在" else "null"}")
-        // V2.9.133: 崩溃态最高优先级——忽略任何普通 advice, 强制显示「崩」
+        // V2.9.155: 崩溃态最高优先级——忽略任何普通 advice, 强制显示「崩」
         if (_isCrashed) {
             renderCrashBall()
             return
@@ -1542,7 +1542,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.133\"")
+                append("{\"version\":\"2.9.155\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")
