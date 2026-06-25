@@ -733,7 +733,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.155',
+    version:'2.9.156',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -851,7 +851,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 global.CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.155',
+  CURRENT_VERSION:'2.9.156',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -1575,6 +1575,98 @@ global.FrameDiffEngine={
 };
 
 
+
+// ===== V2.9.156: VisionPostProcessor (VPP) — 后处理纠错层 =====
+global.VPP={
+  // 1. 花色纠错：对子花色必须不同
+  fixSuits:function(d){
+    if(d.hole_cards&&d.hole_cards.length===2){
+      var h=d.hole_cards;
+      if(h[0].rank===h[1].rank&&h[0].suit===h[1].suit){
+        var alt={s:'h',h:'s',d:'c',c:'d'};
+        h[1].suit=alt[h[1].suit]||'h';
+        console.log('[VPP] 对子同花修正: '+h[0].rank+h[0].suit+' '+h[1].rank+h[1].suit);
+      }
+    }
+    if(d.community_cards){
+      for(var i=0;i<d.community_cards.length;i++){
+        var c=d.community_cards[i];
+        if(!c||!c.rank)continue;
+        // 检查手牌和公共牌之间是否有完全重复(same rank+suit)
+        if(d.hole_cards){
+          for(var j=0;j<d.hole_cards.length;j++){
+            var hc=d.hole_cards[j];
+            if(c.rank===hc.rank&&c.suit===hc.suit){
+              var alt={s:'h',h:'s',d:'c',c:'d'};
+              c.suit=alt[c.suit]||'h';
+              console.log('[VPP] 公共牌与手牌重复修正: '+c.rank+c.suit);
+            }
+          }
+        }
+      }
+    }
+    return d;
+  },
+  // 2. 底池数字展开：K/M→实际数字
+  expandPotSize:function(v){
+    if(typeof v==='string'){
+      v=v.replace(/,/g,'');
+      if(v.endsWith('K')||v.endsWith('k'))return Math.round(parseFloat(v.slice(0,-1))*1000);
+      if(v.endsWith('M')||v.endsWith('m'))return Math.round(parseFloat(v.slice(0,-1))*1000000);
+      var n=parseInt(v);return isNaN(n)?0:n;
+    }
+    return parseInt(v)||0;
+  },
+  // 3. 街纠错：有公共牌≠翻前
+  fixStreet:function(d){
+    var cc=d.community_cards?d.community_cards.filter(function(c){return c&&c.rank;}).length:0;
+    var st=(d.street||d.phase||'').toLowerCase();
+    if(st==='preflop'||st==='pre'){
+      if(cc>0){var correct=cc===3?'flop':cc===4?'turn':'river';console.log('[VPP] 街纠错: preflop→'+correct+'('+cc+'张公共牌)');d.street=correct;d.phase=correct;}
+    }else{
+      if(cc===0&&st!=='showdown'){console.log('[VPP] 街纠错: '+st+'→preflop(无公共牌)');d.street='preflop';d.phase='preflop';}
+    }
+    return d;
+  },
+  // 4. active_players上界纠错
+  fixActivePlayers:function(d){
+    var tp=parseInt(d.total_players)||6;
+    var ap=parseInt(d.active_players)||2;
+    if(ap>tp){console.log('[VPP] active>total修正: '+ap+'→'+tp);d.active_players=tp;}
+    if(ap<2){console.log('[VPP] active<2修正: '+ap+'→'+tp);d.active_players=tp;}
+    return d;
+  },
+  // 5. 底池合理性：pot<bb可能是K简写没展开
+  fixPotSize:function(d){
+    var bb=parseInt(d.blind_bb)||0;
+    var pot=parseInt(d.pot_size)||0;
+    if(pot===0&&d.pot_size){var expanded=this.expandPotSize(d.pot_size);if(expanded>0){d.pot_size=expanded;console.log('[VPP] pot展开: '+d.pot_size+'→'+expanded);pot=expanded;}}
+    if(bb>0&&pot>0&&pot<bb){var expanded2=this.expandPotSize(d.pot_size);if(expanded2>bb){d.pot_size=expanded2;console.log('[VPP] pot<bb展开: '+pot+'→'+expanded2);}}
+    return d;
+  },
+  // 6. 手牌锁定：同一手牌内手牌不变
+  lockHeroHand:function(d){
+    if(G._rankLockKey&&d.hole_cards&&d.hole_cards.length>=2){
+      var newRankKey=d.hole_cards[0].rank+d.hole_cards[1].rank;
+      if(newRankKey===G._rankLockKey&&G.hole[0]&&G.hole[1]){
+        // rank相同但suit可能不同→保留旧suit（如果旧suit非空）
+        if(G.hole[0].suit&&!d.hole_cards[0].suit)d.hole_cards[0].suit=G.hole[0].suit;
+        if(G.hole[1].suit&&!d.hole_cards[1].suit)d.hole_cards[1].suit=G.hole[1].suit;
+      }
+    }
+    return d;
+  },
+  // 主入口
+  process:function(d){
+    d=this.fixSuits(d);
+    d=this.fixStreet(d);
+    d=this.fixActivePlayers(d);
+    d=this.fixPotSize(d);
+    d=this.lockHeroHand(d);
+    return d;
+  }
+};
+
 // ===== V2.9.154: HandStateMachine (HSM-Observer, V1只观察不决策) =====
 global.HandStateMachine=(function(){
   // === Phase枚举 ===
@@ -2127,7 +2219,7 @@ global.HandStateMachine=(function(){
     decidePreflop:decidePreflop,
     decidePostflop:decidePostflop,
     isEnabled:function(){return G._seEnabled!==false&&G.tt<=5;},
-    getVersion:function(){return'2.9.155';},
+    getVersion:function(){return'2.9.156';},
     getRFI:function(pos){return _RFI[pos]||null;},
     get3B:function(vs,from){return _3B[vs]?_3B[vs][from]:null;},
     getF3B:function(pos){return _F3B[pos]||null;},
@@ -8043,6 +8135,8 @@ function onVisionResult(data){
   // V2.9.153: Layer2
   if(data&&data._frameTag==='primary'){MultiFrameConsensus.onPrimaryFrame(data);}
   else if(data&&data._frameTag==='verify'){var cs=MultiFrameConsensus.onVerifyFrame(data);if(cs&&cs._s&&cs._s.length>0)data=MultiFrameConsensus.applyConsensus(data);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.autoCaptureVisionComplete)AndroidBridge.autoCaptureVisionComplete(true);return;}
+  // V2.9.156: VPP后处理纠错——在数据进G之前修正常见识别错误
+  if(data&&data.hole_cards&&data.hole_cards.length>=2&&data.is_poker_table!==false){data=VPP.process(data);}
   if(data&&data.hole_cards&&data.hole_cards.length>=2&&_ft!=='auto'&&_ft!=='verify'){var _nk=data.hole_cards[0].rank+(data.hole_cards[0].suit||'')+data.hole_cards[1].rank+(data.hole_cards[1].suit||'');var _pk=G._rankLockKey||'';if((_pk&&_nk!==_pk)||_isStreetChange(data)){try{if(typeof AndroidBridge!=='undefined'&&AndroidBridge.triggerMultiFrame)AndroidBridge.triggerMultiFrame();}catch(e){}}}
   // V2.9.111: NO_TABLE增强检测——优先is_poker_table，其次3信号联合判断
   var _modelNoTable = data && data.is_poker_table === false;

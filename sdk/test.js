@@ -186,8 +186,8 @@ if (handClassify) {
 section('6. P18回归 — CacheManager版本号');
 
 if (CacheManager) {
-  sdk.assert(CacheManager.CURRENT_VERSION === '2.9.155', 
-    'CacheManager.CURRENT_VERSION = ' + CacheManager.CURRENT_VERSION + ' (应为2.9.155)');
+  sdk.assert(CacheManager.CURRENT_VERSION === '2.9.156', 
+    'CacheManager.CURRENT_VERSION = ' + CacheManager.CURRENT_VERSION + ' (应为2.9.156)');
 } else {
   sdk.assert(false, 'CacheManager未定义');
 }

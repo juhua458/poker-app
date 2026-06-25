@@ -1,5 +1,5 @@
 /**
- * StrategyEngine V2.9.155 专项测试
+ * StrategyEngine V2.9.156 专项测试
  * 覆盖: RFI频率表, 3Bet表, Facing3Bet表, CBet框架, River诈唬公式
  */
 'use strict';
@@ -172,13 +172,13 @@ assert(StrategyEngine.isEnabled() === false, '6-max SE未启用');
 global.G.tt = origTT;
 
 // 5f. 版本
-assert(StrategyEngine.getVersion() === '2.9.155', 'SE版本=2.9.155');
+assert(StrategyEngine.getVersion() === '2.9.156', 'SE版本=2.9.155');
 
 // ============================================
 // 汇总
 // ============================================
 results.push('\n═══════════════════════════════════════════════════');
-results.push(' StrategyEngine V2.9.155 测试汇总');
+results.push(' StrategyEngine V2.9.156 测试汇总');
 results.push('═══════════════════════════════════════════════════');
 results.push('');
 results.push('  通过: ' + pass + '/' + (pass+fail));

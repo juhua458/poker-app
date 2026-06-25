@@ -94,45 +94,23 @@ object VisionApiClient {
             val dataUri = "data:image/jpeg;base64,$base64Image"
             Log.d(TAG, "⏱ Image: ${jpegData.size/1024}KB→${compressedJpeg.size/1024}KB compress=${t1-t0}ms encode=${t2-t1}ms")
 
+            // V2.9.156: 统一用新分层prompt，不再区分compact/legacy
             var result: VisionResult? = null
-            if (useCompactPrompt) {
-                try {
-                    val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = true)
-                    val tApi0 = System.currentTimeMillis()
-                    result = parseResponse(sendRequest(requestJson))
-                    val tApi1 = System.currentTimeMillis()
-                    if (result != null && result.potSize == 0 && result.playerChips > 0 && result.communityCards.isNotEmpty()) {
-                        Log.w(TAG, "紧凑格式pot=0(有公共牌)，尝试原格式重试")
-                        result = null
-                    }
-                    if (result != null) {
-                        compactSuccessCount++; lastPromptMode = "compact"
-                        Log.d(TAG, "⏱ compact API: ${tApi1-tApi0}ms 成功(${compactSuccessCount}/${compactSuccessCount+compactFailCount})")
-                    }
-                } catch (e: Exception) { Log.w(TAG, "紧凑格式异常: ${e.message}") }
-                
-                if (result == null) {
-                    compactFailCount++
-                    Log.d(TAG, "紧凑格式失败，fallback原格式(${compactFailCount}次)")
-                    try {
-                        val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = false)
-                        val tFb0 = System.currentTimeMillis()
-                        result = parseResponse(sendRequest(requestJson))
-                        val tFb1 = System.currentTimeMillis()
-                        if (result != null) {
-                            fallbackSuccessCount++; lastPromptMode = "legacy(fallback)"
-                            Log.d(TAG, "⏱ fallback API: ${tFb1-tFb0}ms")
-                        }
-                    } catch (e: Exception) { lastError = "API错误: ${e.message}"; return null }
+            try {
+                val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = true)
+                val tApi0 = System.currentTimeMillis()
+                result = parseResponse(sendRequest(requestJson))
+                val tApi1 = System.currentTimeMillis()
+                if (result != null) {
+                    compactSuccessCount++; lastPromptMode = "v156_schema"
+                    Log.d(TAG, "⏱ v156 API: ${tApi1-tApi0}ms 成功(${compactSuccessCount}/${compactSuccessCount+compactFailCount})")
                 }
-            } else {
-                try {
-                    val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = false)
-                    val tApi0 = System.currentTimeMillis()
-                    result = parseResponse(sendRequest(requestJson)); lastPromptMode = "legacy"
-                    val tApi1 = System.currentTimeMillis()
-                    Log.d(TAG, "⏱ legacy API: ${tApi1-tApi0}ms")
-                } catch (e: Exception) { lastError = "API错误: ${e.message}"; return null }
+            } catch (e: Exception) { Log.w(TAG, "v156异常: ${e.message}") }
+            
+            if (result == null) {
+                compactFailCount++
+                Log.d(TAG, "v156失败(${compactFailCount}次)")
+                lastError = "API错误: 识别失败"; return null
             }
             val t3 = System.currentTimeMillis()
             Log.d(TAG, "⏱ 全链路: compress=${t1-t0}ms encode=${t2-t1}ms api+parse=${t3-t2}ms total=${t3-t0}ms")
@@ -198,53 +176,100 @@ object VisionApiClient {
         return side(pos1) == side(pos2)
     }
 
-    // V2.9.135: 960px/Q75 (实测花色rank全通过，体积减35%→上传快)
+    // V2.9.156: 1080px/Q80 + 底部裁切 + 对比度增强
     private fun compressImage(jpegData: ByteArray, maxWidth: Int): ByteArray {
         val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size) ?: return jpegData
+        // 裁切顶部2%（标题栏）和底部8%（系统栏）
         val cropTop = (bitmap.height * 0.02).toInt()
-        val cropped = try { android.graphics.Bitmap.createBitmap(bitmap, 0, cropTop, bitmap.width, bitmap.height - cropTop) } catch (_: Exception) { bitmap }
+        val cropBottom = (bitmap.height * 0.92).toInt()
+        val cropLeft = (bitmap.width * 0.02).toInt()
+        val cropRight = (bitmap.width * 0.98).toInt()
+        val cropped = try {
+            android.graphics.Bitmap.createBitmap(bitmap, cropLeft, cropTop,
+                cropRight - cropLeft, cropBottom - cropTop)
+        } catch (_: Exception) {
+            // fallback: 只裁顶部
+            try { android.graphics.Bitmap.createBitmap(bitmap, 0, cropTop, bitmap.width, bitmap.height - cropTop) } catch (_: Exception) { bitmap }
+        }
         if (cropped !== bitmap) bitmap.recycle()
-        val scale = if (cropped.width > maxWidth) maxWidth.toFloat() / cropped.width else 1f
-        val scaled = if (scale < 1f) { val s = android.graphics.Bitmap.createScaledBitmap(cropped, (cropped.width * scale).toInt(), (cropped.height * scale).toInt(), true); cropped.recycle(); s } else cropped
+        // 分辨率提升: 960→1080
+        val targetWidth = 1080
+        val scale = if (cropped.width > targetWidth) targetWidth.toFloat() / cropped.width else 1f
+        val scaled = if (scale < 1f) {
+            val s = android.graphics.Bitmap.createScaledBitmap(cropped, (cropped.width * scale).toInt(), (cropped.height * scale).toInt(), true)
+            cropped.recycle(); s
+        } else cropped
+        // V2.9.156: 对比度增强(1.2x)帮助花色识别
+        val enhanced = enhanceContrast(scaled, 1.2f)
+        if (enhanced !== scaled) scaled.recycle()
         val stream = ByteArrayOutputStream()
-        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, stream); scaled.recycle()
+        enhanced.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream); enhanced.recycle()
         return stream.toByteArray()
     }
 
+    // V2.9.156: 对比度增强——帮助VLM区分♠♣和♥♦
+    private fun enhanceContrast(bmp: android.graphics.Bitmap, factor: Float): android.graphics.Bitmap {
+        return try {
+            val matrix = android.graphics.ColorMatrix(floatArrayOf(
+                factor, 0f, 0f, 0f, (1f - factor) * 128f,
+                0f, factor, 0f, 0f, (1f - factor) * 128f,
+                0f, 0f, factor, 0f, (1f - factor) * 128f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            val result = android.graphics.Bitmap.createBitmap(bmp.width, bmp.height, bmp.config ?: android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(result)
+            val paint = android.graphics.Paint()
+            paint.colorFilter = android.graphics.ColorMatrixColorFilter(matrix)
+            canvas.drawBitmap(bmp, 0f, 0f, paint)
+            result
+        } catch (_: Exception) { bmp }
+    }
+
+    // V2.9.156: 分层Prompt+Schema+Few-Shot+JSON Mode+temperature=0
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
-        val prompt = if (compact) {
-            """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)，返回单行JSON(禁止换行禁止markdown)。格式:
-{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"Q","suit":"c"}],"pot":"200","my_chips":"5000","bet_to_call":"100","dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":6,"active_players":3,"showdown_cards":[{"seat":3,"cards":[{"rank":"K","suit":"s"},{"rank":"9","suit":"h"}],"won":true}]}
-⚠️CRITICAL:buttons是决定策略的核心字段！必须完整识别屏幕底部所有操作按钮文字！包括:弃牌/让牌/过牌/跟注(含金额如"跟注1,500")/加注(含比例如"50%加注4,500"或"加注1,200")/下注(含比例如"33%下注726"或"下注500")/全押/全下/任意加注/最小加注/弃牌让牌(组合按钮=有让牌选项)。buttons识别不全会导致策略完全错误！
-⚠️showdown_cards:如果截图处于摊牌阶段(能看到对手翻开的牌)，必须识别每个亮牌对手的seat号+2张手牌+是否赢了(won)。如果不在摊牌阶段或看不到对手的牌，showdown_cards填[]。
-⚠️opp_hud:识别每个对手头像旁的Smart HUD统计数字。格式:[{"seat":2,"vpip":35,"pfr":18,"ats":40,"three_bet":8}]。vpip/pfr/ats/three_bet都是百分比整数。如果看不到HUD数字，opp_hud填[]。
-is_poker_table=布尔值(不是扑克桌面必须false)，rank=A/2-10/J/Q/K，suit=h(红心♥)/d(方块♦)/c(梅花♣)/s(黑桃♠)，phase=preflop/flop/turn/river/showdown,action=fold/check/call/raise/allin,d_button_pos=bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found。⚠️hole_cards必须识别2张手牌(屏幕底部正面朝上的牌)，每张必须返回rank和suit！不是扑克桌面时is_poker_table=false，其余字段填默认值即可。从截图识别真实数据,无公共牌community_cards填[]。⚠️community_cards只返回当前桌面上已亮出的公共牌，未亮出的牌位不要返回空槽位(如翻牌3张就只返回3个，不要返回5个含2个null)"""
-        } else {
-            """先判断截图是否为德州扑克游戏桌面(必须有手牌区+操作按钮+牌桌才叫扑克桌面)。
+        val prompt = """【系统角色】你是GG扑克5-max桌面的精确识别引擎。只输出JSON，不做解释。
 
-识别德州扑克截图，需要rank和suit：
+【输出Schema】严格按此格式，字段缺失填null：
+{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
 
-1. is_poker_table：是否为扑克桌面(不是必须false)
-2. 底池pot_size：牌桌中央"底池XXX"的数字，去逗号，10K=10000
-3. 筹码my_chips：左下角你头像下数字
-4. ⚠️手牌hole_cards：底部2张正面朝上的牌，必须返回rank和suit！rank=A K Q J T 9 8 7 6 5 4 3 2(T=10)，suit=h(红心♥) d(方块♦) c(梅花♣) s(黑桃♠)
-5. 公共牌community_cards：桌面中央0/3/4/5张，必须返回rank和suit。⚠️只返回当前已亮出的牌，未亮出的牌不要返回空槽位(翻牌=3张，转牌=4张，河牌=5张)
-6. D按钮位置d_button_pos：黄色圆圈D标记靠近哪个座位——bottom-center/left-bottom/left-top/top-center/right-top/right-bottom/not_found
-7. ⚠️操作按钮buttons(极其重要！)：底部所有按钮原样输出，必须包含"弃牌""让牌/过牌""跟注XXX""加注XXX""下注XXX""全押/全下"等全部可见按钮文字，遗漏会导致策略完全错误！
-8. total_players总座位数，active_players活跃人数
-9. 盲注：标题"100/200"→blind_sb=100 blind_bb=200
-10. 跟注to_call："跟注3,194"→3194，"让牌"→0，"全押"→my_chips
-11. ⚠️摊牌showdown_cards：如果能看到对手翻开的牌(摊牌阶段)，识别每个亮牌对手的seat+2张手牌+是否赢了(won)。看不到对手牌则填[]
+【花色识别规则 - 极其关键！】
+suit用单字母: s=黑桃♠(实心黑色尖头朝上) h=红心♥(红色心形顶部凹陷) d=方块♦(红色菱形四角对称) c=梅花♣(黑色三叶圆瓣)
+区分♥和♦: ♥顶部有凹陷，♦四角对称无凹陷
+区分♠和♣: ♠尖头朝上只有一尖，♣三个圆瓣底部
+对子的两张牌花色必须不同！如K♠K♥正确，K♠K♠错误
 
-❌ pot_size不是你头像下数字（那是my_chips）
+【活跃玩家规则 - 极其关键！】
+active_players = 仅计算面前有扑克牌(明牌或牌背朝上)的玩家
+已弃牌的玩家面前没有牌/牌灰色/座位空，不计入active_players！
+留座离桌的空座也不计入！
 
-返回JSON：
-{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"h"},{"rank":"K","suit":"d"}],"community_cards":[{"rank":"K","suit":"c"},{"rank":"T","suit":"s"}],"buttons":["弃牌","跟注500","加注"],"my_chips":0,"pot_size":0,"to_call":0,"total_players":6,"active_players":3,"street":"preflop","blind_sb":200,"blind_bb":500,"ante":0,"d_button_pos":"left-top","showdown_cards":[{"seat":3,"cards":[{"rank":"K","suit":"s"},{"rank":"9","suit":"h"}],"won":true}]}
+【底池数字规则 - 极其关键！】
+pot必须是完整数字，展开简写：1.2K→1200, 12.5K→12500, 1.5M→1500000
+底池位于桌面中央上方，荷官面前的筹码堆是底池，不是任何玩家的下注
 
-不是扑克桌面时is_poker_table必须false，其余字段填默认值。只返回JSON"""
-        }
+【操作按钮规则 - 极其关键！】
+buttons必须完整识别屏幕底部所有操作按钮文字，遗漏会导致策略完全错误！
+包括: 弃牌/让牌/过牌/跟注(含金额如"跟注1,500")/加注(含比例如"50%加注4,500"或"加注1,200")/下注(含比例如"33%下注726")/全押/全下/任意加注/最小加注/弃牌让牌(组合按钮=有让牌选项)
+
+【摊牌+HUD规则】
+showdown_cards: 摊牌阶段能看到对手翻开的牌时，识别seat+2张手牌+won。否则填[]
+opp_hud: 识别对手头像旁的统计数字[{"seat":2,"vpip":35,"pfr":18,"ats":40,"three_bet":8}]，看不到填[]
+
+【Few-Shot示例1：翻后场景】
+输入：A♠K♥手牌，Q♦7♣2♠公共牌，底池1500，3活跃
+输出：{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"},{"rank":"7","suit":"c"},{"rank":"2","suit":"s"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"chips":"18000","action":"check"},{"seat":3,"chips":"22000","action":"check"}],"buttons":["让牌","下注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+
+【Few-Shot示例2：翻前场景】
+输入：9♦8♦手牌，无公共牌，底池450，4活跃
+输出：{"is_poker_table":true,"hole_cards":[{"rank":"9","suit":"d"},{"rank":"8","suit":"d"}],"community_cards":[],"pot":450,"my_chips":18000,"bet_to_call":200,"dealer_seat":2,"my_seat":4,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":1,"chips":"20000","action":""},{"seat":2,"chips":"15000","action":"raise"},{"seat":3,"chips":"12000","action":"fold"},{"seat":5,"chips":"25000","action":"call"}],"buttons":["弃牌","跟注200","加注"],"d_button_pos":"bottom-center","total_players":5,"active_players":4,"showdown_cards":[],"opp_hud":[]}
+
+【识别当前图片】"""
+
         return JSONObject().apply {
-            put("model", model ?: modelName); put("max_tokens", 500); put("temperature", 0.1)
+            put("model", model ?: modelName)
+            put("max_tokens", 800)
+            put("temperature", 0.0)  // V2.9.156: 确定性输出
+            put("response_format", JSONObject().put("type", "json_object"))  // V2.9.156: JSON Mode
             put("messages", JSONArray().apply { put(JSONObject().apply {
                 put("role", "user"); put("content", JSONArray().apply {
                     put(JSONObject().apply { put("type", "text"); put("text", prompt) })
