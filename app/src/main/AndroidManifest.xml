@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- V2.3: 彻底移除FOREGROUND_SERVICE_MEDIA_PROJECTION权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 悬浮窗权限 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Android 14+ 前台服务 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- V2.9.68: 电池优化白名单，防止一加/小米等杀后台 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- V2.9.68: WakeLock保活 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- 语音识别权限 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- V2.9.47: 日志导出到Download目录 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="青云"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MjScreenshot"
+        android:usesCleartextTraffic="true">
+
+        <property
+            android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            android:value="Display optimization overlay service" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="青云"
+            android:theme="@style/Theme.MjScreenshot">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.action.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- HTTP服务器服务 -->
+        <service
+            android:name=".HttpServerService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
+        <!-- 悬浮窗服务 -->
+        <service
+            android:name=".FloatingService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
+        <!-- V2.9.39: 快捷设置瓷砖 — 下拉通知栏一键截屏 -->
+        <service
+            android:name=".CaptureTileService"
+            android:label="截屏优化"
+            android:icon="@android:drawable/ic_menu_camera"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- V2.9.47: FileProvider——日志导出分享 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- ★ 唯一截图方案：无障碍截图（V2.9.38重命名，去除Poker关键词避免检测）★ -->
+        <service
+            android:name=".ScreenOptService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+    </application>
+</manifest>

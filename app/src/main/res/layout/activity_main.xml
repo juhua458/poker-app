@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0f1a0f"
+    android:padding="24dp"
+    android:gravity="center_horizontal">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🃏"
+        android:textSize="64sp"
+        android:layout_marginTop="30dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="青云"
+        android:textSize="24sp"
+        android:textColor="#f1f5f9"
+        android:textStyle="bold"
+        android:layout_marginTop="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="V2.9.143 · 摊牌闭环+盈亏追踪"
+        android:textSize="13sp"
+        android:textColor="#86efac"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⏸ 未启动"
+        android:textSize="18sp"
+        android:textColor="#666666"
+        android:layout_marginTop="24dp" />
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="240dp"
+        android:layout_height="56dp"
+        android:text="🚀 启动"
+        android:textSize="18sp"
+        android:textColor="#ffffff"
+        android:backgroundTint="#22c55e"
+        android:layout_marginTop="16dp" />
+
+    <Button
+        android:id="@+id/btnHelper"
+        android:layout_width="240dp"
+        android:layout_height="56dp"
+        android:text="🃏 打开智囊"
+        android:textSize="16sp"
+        android:textColor="#ffffff"
+        android:backgroundTint="#16a34a"
+        android:layout_marginTop="12dp"
+        android:visibility="gone" />
+
+    <!-- V2.9.39: 隐身模式开关 -->
+    <LinearLayout
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="8dp">
+
+        <Switch
+            android:id="@+id/switchStealth"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🥷 隐身模式"
+            android:textColor="#e2e8f0"
+            android:textSize="14sp"
+            android:thumbTint="#7c3aed"
+            android:trackTint="#374151" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvAccessibilityStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚠️ 无障碍服务未开启（点击下方开启）"
+        android:textSize="12sp"
+        android:textColor="#f59e0b"
+        android:layout_marginTop="8dp"
+        android:gravity="center" />
+
+    <Button
+        android:id="@+id/btnAccessibility"
+        android:layout_width="240dp"
+        android:layout_height="48dp"
+        android:text="♿ 开启无障碍服务"
+        android:textSize="14sp"
+        android:textColor="#ffffff"
+        android:backgroundTint="#7c3aed"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="━━ API视觉识别配置 ━━"
+        android:textSize="13sp"
+        android:textColor="#f59e0b"
+        android:layout_marginTop="20dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="平台:"
+            android:textSize="14sp"
+            android:textColor="#94a3b8" />
+
+        <Spinner
+            android:id="@+id/spinnerProvider"
+            android:layout_width="120dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#374151" />
+
+        <TextView
+            android:id="@+id/tvApiStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="❌ 未配置"
+            android:textSize="12sp"
+            android:textColor="#ef4444"
+            android:layout_marginStart="12dp" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/etApiKey"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:hint="输入API Key（如 sk-xxx）"
+        android:textSize="14sp"
+        android:textColor="#e2e8f0"
+        android:textColorHint="#64748b"
+        android:backgroundTint="#374151"
+        android:inputType="textPassword"
+        android:layout_marginTop="8dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp" />
+
+    <Button
+        android:id="@+id/btnSaveApi"
+        android:layout_width="200dp"
+        android:layout_height="44dp"
+        android:text="💾 保存API配置"
+        android:textSize="14sp"
+        android:textColor="#ffffff"
+        android:backgroundTint="#d97706"
+        android:layout_marginTop="8dp" />
+
+    <TextView
+        android:id="@+id/tvHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="先点上方按钮启动截屏"
+        android:textSize="13sp"
+        android:textColor="#666666"
+        android:layout_marginTop="12dp"
+        android:gravity="center" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="使用步骤：\n1. 配置API Key（支持OpenAI/通义千问VL/硅基流动）\n2. 点「开启无障碍服务」→ 开启\n3. 开启「🥷隐身模式」(反检测)\n4. 点「启动」→ 允许悬浮窗\n5. 打牌时点屏幕上的🎯悬浮球即可截屏识别\n★ 拖动悬浮球可移到不挡牌的位置 ★\n★ 长按悬浮球可展开/收起详细面板 ★\n★ 悬浮球边框颜色=建议：绿=加注 橙=跟注 红=弃牌 ★"
+        android:textSize="12sp"
+        android:textColor="#64748b"
+        android:layout_marginTop="12dp"
+        android:lineSpacingExtra="3dp" />
+
+</LinearLayout>

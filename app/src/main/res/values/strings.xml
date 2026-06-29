@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">青云</string>
+    <string name="accessibility_service_description">屏幕显示优化助手，需要无障碍服务权限来优化屏幕显示效果。本服务不会收集、上传或分享任何个人数据，截图仅在本地处理。</string>
+</resources>
