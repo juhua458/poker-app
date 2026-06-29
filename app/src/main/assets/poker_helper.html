@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.158 · 识别急救:Schema+FewShot+VPP</title>
+<title>青云 v2.9.159 · 识别急救:Schema+FewShot+VPP</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1157,7 +1157,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.158',
+    version:'2.9.159',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1275,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.158',
+  CURRENT_VERSION:'2.9.159',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2327,7 +2327,7 @@ var HandStateMachine=(function(){
     if(!hc)return 15;
     var n=hc.name;
     if(n==='NUTS')return 0;
-    // V2.9.158: STRONG细分——暗三条/两对不再一律当顶对
+    // V2.9.159: STRONG细分——暗三条/两对不再一律当顶对
     if(n==='STRONG'){
       if(hc.desc){
         if(hc.desc.indexOf('四条')>=0)return 0;
@@ -2337,12 +2337,12 @@ var HandStateMachine=(function(){
       }
       return 4; // 顶对好踢
     }
-    // V2.9.158: MEDIUM细分——顶对弱踢不再一律当第二对
+    // V2.9.159: MEDIUM细分——顶对弱踢不再一律当第二对
     if(n==='MEDIUM'){
       if(hc.desc&&hc.desc.indexOf('顶对')>=0)return 5;
       return 6; // 第二对/中等
     }
-    // V2.9.158: DRAW低outs(<=3)修正→超牌而非卡顺
+    // V2.9.159: DRAW低outs(<=3)修正→超牌而非卡顺
     // handClassify可能把超牌outs误判为DRAW(如AK on Q72被判3outs卡顺)
     if(n==='DRAW'){
       if(hc.outs>=12)return 11; // 组合听牌
@@ -2603,11 +2603,11 @@ var HandStateMachine=(function(){
       }
     }
 
-    // V2.9.158: 旧River诈唬路径已删除——统一由_riverDecision处理
+    // V2.9.159: 旧River诈唬路径已删除——统一由_riverDecision处理
 
 
 
-    // ====== V2.9.158: 面对下注防守(统一Flop/Turn/River) ======
+    // ====== V2.9.159: 面对下注防守(统一Flop/Turn/River) ======
     if(scene==='raise'&&street!=='river'){
       // 非PFR面对CBet(对手先加注/我们跟注后的翻后)
       var isDonk=_wasPFR3; // PFR面对对手主动下注=donk
@@ -2639,7 +2639,7 @@ var HandStateMachine=(function(){
       }
     }
 
-    // V2.9.158: Turn/River面下注(已合并到上面的统一条件，此处保留River面下注)
+    // V2.9.159: Turn/River面下注(已合并到上面的统一条件，此处保留River面下注)
     if(scene==='raise'&&street==='river'){
       var rSz=bet||Math.round(pot*0.5);
       var isDonkR=_wasPFR3;
@@ -2655,9 +2655,9 @@ var HandStateMachine=(function(){
       }
     }
 
-    // ====== V2.9.158: Turn Barrel(PFR在Turn继续下注) ======
+    // ====== V2.9.159: Turn Barrel(PFR在Turn继续下注) ======
     var _wasPFR2=didPFR||G._heroDidPFR;
-    // V2.9.158: Flop未CBet时降低Turn barrel频率(G._heroDidFlopCBet由实际操作设置)
+    // V2.9.159: Flop未CBet时降低Turn barrel频率(G._heroDidFlopCBet由实际操作设置)
     var _didFlopCBet=G._heroDidFlopCBet!==false;
     if(_wasPFR2&&scene==='check'&&street==='turn'){
       var tType=_classifyTurnCard(hole,comm);
@@ -2768,7 +2768,7 @@ var HandStateMachine=(function(){
   // 面对Check-Raise表
   // 格式: {callFreq, reraiseFreq, foldFreq}
   var _FCR={
-    // V2.9.158: 补全6(第二对)/7(弱对)/10(OESD)/11(组合听)/12(卡顺)/13(超牌)/14(后门)
+    // V2.9.159: 补全6(第二对)/7(弱对)/10(OESD)/11(组合听)/12(卡顺)/13(超牌)/14(后门)
     '0':{0:{c:.2,rr:.8,f:0},1:{c:.4,rr:.6,f:0},2:{c:.7,rr:.3,f:0},3:{c:.8,rr:.2,f:0},4:{c:.85,rr:.05,f:.1},5:{c:.5,rr:0,f:.5},6:{c:.4,rr:0,f:.6},7:{c:.3,rr:0,f:.7},8:{c:.8,rr:.1,f:.1},9:{c:.6,rr:0,f:.4},10:{c:.5,rr:0,f:.5},11:{c:.6,rr:.1,f:.3},12:{c:.4,rr:0,f:.6},13:{c:.2,rr:0,f:.8},14:{c:.1,rr:0,f:.9},15:{c:0,rr:0,f:1}},
     '2':{0:{c:.1,rr:.9,f:0},1:{c:.3,rr:.7,f:0},2:{c:.5,rr:.5,f:0},3:{c:.8,rr:.1,f:.1},4:{c:.7,rr:.1,f:.2},5:{c:.4,rr:0,f:.6},6:{c:.35,rr:0,f:.65},7:{c:.25,rr:0,f:.75},8:{c:.5,rr:.3,f:.2},9:{c:.7,rr:.1,f:.2},10:{c:.5,rr:.05,f:.45},11:{c:.7,rr:.2,f:.1},12:{c:.4,rr:0,f:.6},13:{c:.15,rr:0,f:.85},14:{c:.05,rr:0,f:.95},15:{c:0,rr:0,f:1}},
     '4':{0:{c:.15,rr:.85,f:0},1:{c:.35,rr:.65,f:0},2:{c:.6,rr:.3,f:.1},3:{c:.75,rr:.1,f:.15},4:{c:.65,rr:.05,f:.3},6:{c:.4,rr:0,f:.6},7:{c:.3,rr:0,f:.7},8:{c:.5,rr:.4,f:.1},9:{c:.65,rr:.1,f:.25},10:{c:.5,rr:.05,f:.45},11:{c:.5,rr:.35,f:.15},12:{c:.35,rr:0,f:.65},13:{c:.1,rr:0,f:.9},14:{c:.05,rr:0,f:.95},15:{c:0,rr:0,f:1}},
@@ -2792,17 +2792,17 @@ var HandStateMachine=(function(){
   // River决策表 (简化: 基于手牌类别+主动权)
   var _RIV={
     // 主动下注(有主动权/率先行动)
-    // V2.9.158: 补全缺key——暗三条/两对/坚果听/组合听/卡顺/超牌/后门
+    // V2.9.159: 补全缺key——暗三条/两对/坚果听/组合听/卡顺/超牌/后门
     bet:{0:{a:'bet',s:1},1:{a:'bet',s:.75},2:{a:'bet',s:.66},3:{a:'bet',s:.5},4:{a:'bet',s:.5},5:{a:'bet',s:.4},6:{a:'bet',s:.33},7:{a:'check',s:0},8:{a:'bluff',s:.66},9:{a:'bluff',s:.66},10:{a:'bluff',s:.5},11:{a:'bluff',s:.66},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
     // 面对下注(用MDF + 手牌类别)
-    // V2.9.158: 补全缺key——坚果听call/组合听call/卡顺fold/超牌fold/后门fold
+    // V2.9.159: 补全缺key——坚果听call/组合听call/卡顺fold/超牌fold/后门fold
     face:{0:{a:'raise',s:.75},1:{a:'raise',s:.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'fold',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}}
   };
 
   // ====== V2.9.157: 翻后防守决策逻辑 ======
   function _facingCBet(k,hcKey,btKey,ip,betSz,pot,street,isDonk){
     var szRatio=betSz/Math.max(pot,1);
-    // V2.9.158: 尺度三档 s/m/l (34-66%不再被当大注)
+    // V2.9.159: 尺度三档 s/m/l (34-66%不再被当大注)
     var szKey=szRatio<=.33?'s':szRatio<=.66?'m':'l';
     var table=ip?_FCB_IP:_FCB_OOP;
     var btFallback={6:'4',1:'0',3:'2'};
@@ -2821,7 +2821,7 @@ var HandStateMachine=(function(){
     if(!entry){entry=table[btKey+'_s'];}
     if(!entry||!entry[hcKey])return null;
     var e=entry[hcKey];
-    // V2.9.158: 频率调整——Turn更紧, River最紧, donk更call
+    // V2.9.159: 频率调整——Turn更紧, River最紧, donk更call
     var adjC=e.c,adjR=e.r,adjF=e.f;
     if(street==='turn'){adjC=Math.max(0,adjC-0.06);adjR=Math.max(0,adjR-0.02);adjF=Math.min(1,adjF+0.08);}
     if(street==='river'){adjC=Math.max(0,adjC-0.10);adjR=Math.max(0,adjR-0.03);adjF=Math.min(1,adjF+0.13);}
@@ -2869,7 +2869,7 @@ var HandStateMachine=(function(){
     if(!table||!table[hcKey])return null;
     var e=table[hcKey];
     var barrelFreq=e[0];
-    // V2.9.158: Flop未CBet时大幅降低barrel频率
+    // V2.9.159: Flop未CBet时大幅降低barrel频率
     if(didFlopCBet===false)barrelFreq=barrelFreq*0.3;
     var spr=calcSPR();
     if(Math.random()<barrelFreq){
@@ -2933,7 +2933,7 @@ var HandStateMachine=(function(){
 
 
     isEnabled:function(){return G._seEnabled!==false&&G.tt<=5;},
-    getVersion:function(){return'2.9.158';},
+    getVersion:function(){return'2.9.159';},
     getRFI:function(pos){return _RFI[pos]||null;},
     get3B:function(vs,from){return _3B[vs]?_3B[vs][from]:null;},
     getF3B:function(pos){return _F3B[pos]||null;},
