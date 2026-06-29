@@ -2619,7 +2619,7 @@ var HandStateMachine=(function(){
         if(fcbExploit){fcbR.exploit=fcbExploit.exploit;fcbR.eq=fcbExploit.eq;}
         fcbR.hClass=hClass;fcbR.bTexture=bTexture;
         if(isDonk)fcbR.scene='面对Donk';
-        console.log('[SE158] 面CBet/Donk: '+fcbR.a+' '+btKey+'/'+hcKey+(isDonk?' donk':''));
+        console.log('[SE159] 面CBet/Donk: '+fcbR.a+' '+btKey+'/'+hcKey+(isDonk?' donk':''));
         return fcbR;
       }
     }
@@ -2634,7 +2634,7 @@ var HandStateMachine=(function(){
         var fcrExploit=applyExploit(eq,fcrR.a,oppType,{bet:crSz,pot:pot});
         if(fcrExploit){fcrR.exploit=fcrExploit.exploit;fcrR.eq=fcrExploit.eq;}
         fcrR.hClass=hClass;fcrR.bTexture=bTexture;
-        console.log('[SE158] 面CR: '+fcrR.a+' '+btKey+'/'+hcKey);
+        console.log('[SE159] 面CR: '+fcrR.a+' '+btKey+'/'+hcKey);
         return fcrR;
       }
     }
@@ -2650,7 +2650,7 @@ var HandStateMachine=(function(){
         if(fcb2Exploit){fcbR2.exploit=fcb2Exploit.exploit;fcbR2.eq=fcb2Exploit.eq;}
         fcbR2.hClass=hClass;fcbR2.bTexture=bTexture;
         if(isDonkR)fcbR2.scene='面对Donk';
-        console.log('[SE158] River面CBet/Donk: '+fcbR2.a);
+        console.log('[SE159] River面CBet/Donk: '+fcbR2.a);
         return fcbR2;
       }
     }
@@ -2667,7 +2667,7 @@ var HandStateMachine=(function(){
         var tbExploit=applyExploit(eq,tbR.a,oppType,{bet:0,pot:pot});
         if(tbExploit){tbR.exploit=tbExploit.exploit;tbR.eq=tbExploit.eq;}
         tbR.hClass=hClass;tbR.bTexture=bTexture;
-        console.log('[SE158] Turn barrel: '+tbR.a+' '+btKey+'/'+tType);
+        console.log('[SE159] Turn barrel: '+tbR.a+' '+btKey+'/'+tType);
         return tbR;
       }
     }
@@ -2682,7 +2682,7 @@ var HandStateMachine=(function(){
         var rivExploit=applyExploit(eq,rivR.a,oppType,{bet:rivBet,pot:pot});
         if(rivExploit){rivR.exploit=rivExploit.exploit;rivR.eq=rivExploit.eq;}
         rivR.hClass=hClass;rivR.bTexture=bTexture;
-        console.log('[SE158] River: '+rivR.a+' hcKey='+hcKey);
+        console.log('[SE159] River: '+rivR.a+' hcKey='+hcKey);
         return rivR;
       }
     }
