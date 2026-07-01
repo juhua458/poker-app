@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.160 · 识别急救:Schema+FewShot+VPP</title>
+<title>青云 v2.9.161 · 识别急救:Schema+FewShot+VPP</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -950,7 +950,7 @@ var HandHistory={
       _decisionMs=Date.now()-window._goStartTime;
       window._goStartTime=0;
     }
-    // V2.9.160: 增强记录—完整决策链+摊牌结果
+    // V2.9.161: 增强记录—完整决策链+摊牌结果
     var _decisionChain=G._decisionChain||[];
     var rec={
       ts:Date.now(),
@@ -1159,7 +1159,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.160',
+    version:'2.9.161',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1277,7 +1277,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.160',
+  CURRENT_VERSION:'2.9.161',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2298,7 +2298,7 @@ var HandStateMachine=(function(){
   };
 
   
-  // V2.9.160: OOP Turn Barrel
+  // V2.9.161: OOP Turn Barrel
   var _TB_OOP={
     '0_i':{0:[0.72,0.49],1:[0.72,0.49],2:[0.65,0.38],3:[0.61,0.38],4:[0.58,0.38],5:[0.43,0.3],6:[0.36,0.3],7:[0.22,0.25],8:[0.5,0.38],9:[0.43,0.38],10:[0.36,0.38],11:[0.5,0.49],12:[0.22,0.38],13:[0.14,0.38],14:[0.07,0.38],15:[0.07,0.38]},
     '0_b':{0:[0.6,0.49],1:[0.6,0.49],2:[0.54,0.38],3:[0.51,0.38],4:[0.48,0.38],5:[0.36,0.3],6:[0.3,0.3],7:[0.18,0.25],8:[0.42,0.38],9:[0.36,0.38],10:[0.3,0.38],11:[0.42,0.49],12:[0.18,0.38],13:[0.12,0.38],14:[0.06,0.38],15:[0.06,0.38]},
@@ -2362,7 +2362,7 @@ var HandStateMachine=(function(){
     if(!hc)return 15;
     var n=hc.name;
     if(n==='NUTS')return 0;
-    // V2.9.160: STRONG细分——暗三条/两对不再一律当顶对
+    // V2.9.161: STRONG细分——暗三条/两对不再一律当顶对
     if(n==='STRONG'){
       if(hc.desc){
         if(hc.desc.indexOf('四条')>=0)return 0;
@@ -2372,14 +2372,14 @@ var HandStateMachine=(function(){
       }
       return 4; // 顶对好踢
     }
-    // V2.9.160: MEDIUM细分——顶对弱踢不再一律当第二对
+    // V2.9.161: MEDIUM细分——顶对弱踢不再一律当第二对
     if(n==='MEDIUM'){
       if(hc.desc&&hc.desc.indexOf('顶对')>=0)return 5;
       return 6; // 第二对/中等
     }
-    // V2.9.160: DRAW低outs(<=3)修正→超牌而非卡顺
+    // V2.9.161: DRAW低outs(<=3)修正→超牌而非卡顺
     // handClassify可能把超牌outs误判为DRAW(如AK on Q72被判3outs卡顺)
-    // V2.9.160: 用isOvercard区分超牌和真正听牌
+    // V2.9.161: 用isOvercard区分超牌和真正听牌
     if(n==='DRAW'){
       if(hc.outs>=12)return 11; // 组合听牌
       if(hc.outs>=8)return 9; // 同花听
@@ -2458,9 +2458,9 @@ var HandStateMachine=(function(){
     }
 
     // ====== 场景2: 面对开池 ======
-    // V2.9.160fix: Squeeze优先于3bet（有callers时先检查squeeze）
-    if(scene==='raise'&&G._numCallersBefore>=1&&(p==='BTN'||p==='SB'||p==='btn'||p==='sb')){
-      var openP5=G._raiserPos||'UTG1';
+    // V2.9.161fix: Squeeze优先于3bet（有callers时先检查squeeze）
+    if(scene==='raise'&&G._numCallersBefore>=1&&(['btn','sb'].indexOf(p)>=0)){
+      var openP5=_pos5(G._raiserPos||'utg1');
       var sqTable=_SQUEEZE['vs_'+openP5+'_vs_caller'];
       if(sqTable&&(sqTable[p]||sqTable['BTN'])){
         var sqEntry=(sqTable[p]||sqTable['BTN'])[k];
@@ -2580,11 +2580,11 @@ var HandStateMachine=(function(){
     if(hole.length>0&&typeof hole[0]==='string'){hole=hole.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});}
     if(bc.length>0&&typeof bc[0]==='string'){bc=bc.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});comm=bc;}
     var pot=G.pot||1,bet=G.bet||0,stk=G.stk||100000;
-    // V2.9.160: 多桌检测
+    // V2.9.161: 多桌检测
     MultiTableDetector.recordAction();
 
     var spr=calcSPR();
-    // V2.9.160fix2: IP判定——用postflop行动顺序(非preflop)
+    // V2.9.161fix2: IP判定——用postflop行动顺序(非preflop)
     // postflop行动序: SB(1)→BB(2)→UTG(3)→...→CO(8)→BTN(9), 越大越后=IP
     var _pfOrd={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};
     var _heroOrd=_pfOrd[G.pos]||5;
@@ -2604,7 +2604,7 @@ var HandStateMachine=(function(){
     else{var mcI=bc.length===4?1200:1000;if(bet/(pot+bet)>=.66)mcI=Math.round(mcI*2);else if(bet/(pot+bet)>=.33)mcI=Math.round(mcI*1.3);var ms=mcVsRange(hole,comm,getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry'),Math.min(mcI,4000));eq=ms.eq;}
     _mcSimCache=null;
 
-    // V2.9.160: 3bet底池+多人池检测
+    // V2.9.161: 3bet底池+多人池检测
     var _is3betPot=spr<10&&(ActionLine.didPreflopRaise()||G._faced3bet||G._heroDid4bet);
     G._is3betPot=_is3betPot;
     var _nActive=0;
@@ -2614,7 +2614,7 @@ var HandStateMachine=(function(){
     G._isMultiway=_isMultiway;
 
 
-    // V2.9.160: SPR区频率调整
+    // V2.9.161: SPR区频率调整
     var _sprZone=SPRZone.getZone(spr);
     var _sprAdj={cbet:1,fcb:1,bluff:1};
     if(_sprZone==='ultra_short'){
@@ -2630,7 +2630,7 @@ var HandStateMachine=(function(){
     var didPFR=ActionLine.didPreflopRaise();
     var weights=DRTA.getWeights?DRTA.getWeights(profile):{};
 
-    // ====== V2.9.160: 翻后面对allin——赔率计算 ======
+    // ====== V2.9.161: 翻后面对allin——赔率计算 ======
     if(scene==='allin'&&cc>0){
       var allinBet=bet||pot;
       var allinRatio=allinBet/(pot+allinBet*2);
@@ -2645,9 +2645,10 @@ var HandStateMachine=(function(){
       return _fold(exploitAllin.eq,'SE vs allin eq'+Math.round(exploitAllin.eq)+'%<'+callThresh+'%',spr);
     }
 
+    var _wasHeroPFR=didPFR||G._heroDidPFR;
     // ====== CBet场景: PFR, 面对check ======
-    var _wasPFR3=didPFR||G._heroDidPFR;
-    if(_wasPFR3&&scene==='check'&&street!=='river'){
+    
+    if(_wasHeroPFR&&scene==='check'&&street==='flop'){
       var cbTable=ip?_CBET_IP[btKey]:_CBET_OOP[btKey];
       if(cbTable&&cbTable[hcKey]){
         var cb=cbTable[hcKey];
@@ -2662,18 +2663,19 @@ var HandStateMachine=(function(){
             if(hcKey>=13)cbFreq=Math.round(cbFreq*0.3); // vs鱼不诈唬CBet
           }
         }
-        // V2.9.160: 3bet底池→CBet更极化
-        if(_is3betPot){
-          if(hcKey<=4)cbFreq=Math.min(.95,cbFreq*1.15);
-          if(hcKey>=13)cbFreq=cbFreq*0.6;
-        }
-        // V2.9.160: 多人池→CBet频率降低
-        if(_isMultiway)cbFreq=cbFreq*0.7;
+        // V2.9.161: 统一pipeline替代分散的3bet/Multiway/EA/Range/SPR调整
+        cbFreq=_applyPipeline(cbFreq,'bet',hcKey,oppType,street,'cbet',_sprAdj,_is3betPot,_isMultiway);
 
-        var _cbEA=ExploitAdjuster(cbFreq,'bet',hcKey,oppType,street,'cbet');
-        cbFreq=_cbEA.freq;
-        cbFreq=RangeEstimator.adjustForRange(cbFreq,oppType,street,'bet');if(_cbEA.label)console.log('[SE160] EA: '+_cbEA.label);
-        cbFreq=cbFreq*_sprAdj.cbet;if(hcKey>=12)cbFreq=cbFreq*_sprAdj.bluff;
+
+
+
+
+
+
+
+
+
+
         if(Math.random()<cbFreq){
           // 决定sizing
           var cbPct=cbSmall>.5?.33:.66;
@@ -2705,7 +2707,7 @@ var HandStateMachine=(function(){
           if(oppCB>.7)crFreq=Math.min(.3,crFreq*1.5);
         }
 
-        if(Math.random()<crFreq){
+crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPot,_isMultiway);        if(Math.random()<crFreq){
           var crSz=Math.round(bet*crSzMult);
           crSz=Math.min(crSz,stk);
           var exploitCR=applyExploit(eq,'raise',oppType,{bet:bet,pot:pot});
@@ -2714,13 +2716,13 @@ var HandStateMachine=(function(){
       }
     }
 
-    // V2.9.160: 旧River诈唬路径已删除——统一由_riverDecision处理
+    // V2.9.161: 旧River诈唬路径已删除——统一由_riverDecision处理
 
 
 
-    // ====== V2.9.160: OOP Donk场景 ======
+    // ====== V2.9.161: OOP Donk场景 ======
     if(scene==='check'&&!ip&&!didPFR&&(street==='flop'||street==='turn')){
-      var donkR=_donkDecision(k,hcKey,btKey,ip,pot);
+      var donkR=_donkDecision(k,hcKey,btKey,ip,pot,oppType,_sprAdj,_is3betPot,_isMultiway,street);
       if(donkR){
         donkR.eq=eq;donkR.hClass=hClass;donkR.bTexture=bTexture;
         console.log('[SE160] Donk: '+donkR.a+' bt='+btKey);
@@ -2728,10 +2730,10 @@ var HandStateMachine=(function(){
       }
     }
 
-    // ====== V2.9.160: 面对下注防守(统一Flop/Turn/River) ======
+    // ====== V2.9.161: 面对下注防守(统一Flop/Turn/River) ======
     if(scene==='raise'&&street!=='river'){
       // 非PFR面对CBet(对手先加注/我们跟注后的翻后)
-      var isDonk=_wasPFR3; // PFR面对对手主动下注=donk
+      var isDonk=_wasHeroPFR; // PFR面对对手主动下注=donk
       var cbetSz=bet||Math.round(pot*0.5);
       var fcbR=_facingCBet(k,hcKey,btKey,ip,cbetSz,pot,street,isDonk);
       if(fcbR){
@@ -2746,8 +2748,8 @@ var HandStateMachine=(function(){
     }
 
     // ====== V2.9.157: 面对Check-Raise(我们CBet后被CR) ======
-    var _wasPFR=didPFR||G._heroDidPFR;
-    if(_wasPFR&&scene==='reraise'&&(street==='flop'||street==='turn')){
+
+    if(_wasHeroPFR&&scene==='reraise'&&(street==='flop'||street==='turn')){
       var crSz=bet||Math.round(pot*0.66);
       var fcrR=_facingCR(k,hcKey,btKey,crSz,pot);
       if(fcrR){
@@ -2760,10 +2762,10 @@ var HandStateMachine=(function(){
       }
     }
 
-    // V2.9.160: Turn/River面下注(已合并到上面的统一条件，此处保留River面下注)
+    // V2.9.161: Turn/River面下注(已合并到上面的统一条件，此处保留River面下注)
     if(scene==='raise'&&street==='river'){
       var rSz=bet||Math.round(pot*0.5);
-      var isDonkR=_wasPFR3;
+      var isDonkR=_wasHeroPFR;
       var fcbR2=_facingCBet(k,hcKey,btKey,ip,rSz,pot,street,isDonkR);
       if(fcbR2){
         fcbR2.eq=eq;
@@ -2776,13 +2778,13 @@ var HandStateMachine=(function(){
       }
     }
 
-    // ====== V2.9.160: Turn Barrel(PFR在Turn继续下注) ======
-    var _wasPFR2=didPFR||G._heroDidPFR;
-    // V2.9.160: Flop未CBet时降低Turn barrel频率(G._heroDidFlopCBet由实际操作设置)
+    // ====== V2.9.161: Turn Barrel(PFR在Turn继续下注) ======
+    
+    // V2.9.161: Flop未CBet时降低Turn barrel频率(G._heroDidFlopCBet由实际操作设置)
     var _didFlopCBet=G._heroDidFlopCBet!==false;
-    if(_wasPFR2&&scene==='check'&&street==='turn'){
+    if(_wasHeroPFR&&scene==='check'&&street==='turn'){
       var tType=_classifyTurnCard(hole,comm);
-      var tbR=_turnBarrel(k,hcKey,btKey,tType,bet,pot,_didFlopCBet,ip);
+      var tbR=_turnBarrel(k,hcKey,btKey,tType,bet,pot,_didFlopCBet,ip,oppType,_sprAdj,_is3betPot,_isMultiway);
       if(tbR){
         tbR.eq=eq;
         var tbExploit=applyExploit(eq,tbR.a,oppType,{bet:0,pot:pot});
@@ -2797,7 +2799,7 @@ var HandStateMachine=(function(){
     if(street==='river'){
       var rivScene=scene==='check'?'check':'face';
       var rivBet=bet||0;
-      var rivR=_riverDecision(k,hcKey,didPFR,rivScene,rivBet,pot,btKey,ip);
+      var rivR=_riverDecision(k,hcKey,didPFR,rivScene,rivBet,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway);
       if(rivR){
         rivR.eq=eq;
         var rivExploit=applyExploit(eq,rivR.a,oppType,{bet:rivBet,pot:pot});
@@ -2816,6 +2818,36 @@ var HandStateMachine=(function(){
   function _fold(eq,reason,spr){
     return{a:'fold',r:'[SE]'+reason,eq:eq,c:'l',scene:'',spr:spr||0,sprAdvice:spr?getSPRAdvice(spr):'',_se:true};
   }
+
+  // V2.9.161: 统一调整管道
+  function _applyPipeline(baseFreq,action,hcKey,oppType,street,context,sprAdj,is3bP,isMW){
+    var f=baseFreq;
+    sprAdj=sprAdj||{cbet:1,fcb:1,bluff:1};
+    // 1) SPR调整
+    if(context==='cbet'||context==='barrel'||context==='donk'||context==='cr'){
+      f=f*sprAdj.cbet;if(hcKey>=12)f=f*sprAdj.bluff;
+    }else if(context==='facing'){
+      f=f*sprAdj.fcb;
+    }
+    // 2) 3bet底池
+    if(is3bP){
+      if(context==='facing'){/* FCB内部已处理 */}
+      else if(hcKey<=4){f=Math.min(.95,f*1.15);}
+      else if(hcKey>=13){f=f*0.6;}
+    }
+    // 3) 多人池
+    if(isMW){
+      if(context==='facing'){/* FCB内部已处理 */}
+      else{f=f*0.7;}
+    }
+    // 4) ExploitAdjuster
+    var ea=ExploitAdjuster(f,action,hcKey,oppType,street||'flop',context);
+    f=ea.freq;if(ea.label)console.log('[SE161] EA: '+ea.label);
+    // 5) RangeEstimator
+    f=RangeEstimator.adjustForRange(f,oppType,street||'flop',action);
+    return f;
+  }
+
 
   function _preflopSizing(pos,pot,scene,spr){
     var base=Math.round(pot*2.5);
@@ -2908,7 +2940,7 @@ var HandStateMachine=(function(){
   // 面对Check-Raise表
   // 格式: {callFreq, reraiseFreq, foldFreq}
   var _FCR={
-    // V2.9.160: 补全6(第二对)/7(弱对)/10(OESD)/11(组合听)/12(卡顺)/13(超牌)/14(后门)
+    // V2.9.161: 补全6(第二对)/7(弱对)/10(OESD)/11(组合听)/12(卡顺)/13(超牌)/14(后门)
     '0':{0:{c:.2,rr:.8,f:0},1:{c:.4,rr:.6,f:0},2:{c:.7,rr:.3,f:0},3:{c:.8,rr:.2,f:0},4:{c:.85,rr:.05,f:.1},5:{c:.5,rr:0,f:.5},6:{c:.4,rr:0,f:.6},7:{c:.3,rr:0,f:.7},8:{c:.8,rr:.1,f:.1},9:{c:.6,rr:0,f:.4},10:{c:.5,rr:0,f:.5},11:{c:.6,rr:.1,f:.3},12:{c:.4,rr:0,f:.6},13:{c:.2,rr:0,f:.8},14:{c:.1,rr:0,f:.9},15:{c:0,rr:0,f:1}},
     '2':{0:{c:.1,rr:.9,f:0},1:{c:.3,rr:.7,f:0},2:{c:.5,rr:.5,f:0},3:{c:.8,rr:.1,f:.1},4:{c:.7,rr:.1,f:.2},5:{c:.4,rr:0,f:.6},6:{c:.35,rr:0,f:.65},7:{c:.25,rr:0,f:.75},8:{c:.5,rr:.3,f:.2},9:{c:.7,rr:.1,f:.2},10:{c:.5,rr:.05,f:.45},11:{c:.7,rr:.2,f:.1},12:{c:.4,rr:0,f:.6},13:{c:.15,rr:0,f:.85},14:{c:.05,rr:0,f:.95},15:{c:0,rr:0,f:1}},
     '4':{0:{c:.15,rr:.85,f:0},1:{c:.35,rr:.65,f:0},2:{c:.6,rr:.3,f:.1},3:{c:.75,rr:.1,f:.15},4:{c:.65,rr:.05,f:.3},6:{c:.4,rr:0,f:.6},7:{c:.3,rr:0,f:.7},8:{c:.5,rr:.4,f:.1},9:{c:.65,rr:.1,f:.25},10:{c:.5,rr:.05,f:.45},11:{c:.5,rr:.35,f:.15},12:{c:.35,rr:0,f:.65},13:{c:.1,rr:0,f:.9},14:{c:.05,rr:0,f:.95},15:{c:0,rr:0,f:1}},
@@ -2919,7 +2951,7 @@ var HandStateMachine=(function(){
   // turnCardType: i=improved, b=brick, w=worsened
   // 格式: {barrelFreq, sizingPct}
   var _TB_IP={
-    // V2.9.160: Turn IP barrel补全 8→21
+    // V2.9.161: Turn IP barrel补全 8→21
     '0_i':{0:[1,0.66],1:[1,0.66],2:[1,0.5],3:[0.94,0.5],4:[0.88,0.5],5:[0.66,0.5],6:[0.55,0.5],7:[0.33,0.5],8:[0.77,0.5],9:[0.66,0.5],10:[0.55,0.5],11:[0.94,0.66],12:[0.33,0.5],13:[0.22,0.5],14:[0.11,0.5],15:[0.06,0.5]},
     '0_b':{0:[1,0.66],1:[1,0.66],2:[0.95,0.5],3:[0.85,0.5],4:[0.8,0.5],5:[0.6,0.5],6:[0.5,0.5],7:[0.3,0.5],8:[0.7,0.5],9:[0.6,0.5],10:[0.5,0.5],11:[0.85,0.66],12:[0.3,0.5],13:[0.2,0.5],14:[0.1,0.5],15:[0.05,0.5]},
     '0_w':{0:[0.7,0.66],1:[0.7,0.66],2:[0.66,0.5],3:[0.59,0.5],4:[0.56,0.5],5:[0.42,0.5],6:[0.35,0.5],7:[0.21,0.5],8:[0.49,0.5],9:[0.42,0.5],10:[0.35,0.5],11:[0.59,0.66],12:[0.21,0.5],13:[0.14,0.5],14:[0.07,0.5],15:[0.03,0.5]},
@@ -2944,7 +2976,7 @@ var HandStateMachine=(function(){
   };
 
   // River决策表 (简化: 基于手牌类别+主动权)
-    // V2.9.160: Donk bet独立策略表
+    // V2.9.161: Donk bet独立策略表
   var _DONK={
     '0_ip':{0:[0.66,0.75],1:[0.55,0.66],2:[0.44,0.66],3:[0.39,0.5],4:[0.33,0.5],5:[0.22,0.4],6:[0.17,0.33],7:[0.06,0],8:[0.28,0.8],9:[0.22,0.8],10:[0.17,0.75],11:[0.33,0.75],12:[0.09,0.8],13:[0.04,0.8],14:[0.02,0.75]},
     '0_oop':{0:[0.53,0.68],1:[0.44,0.59],2:[0.35,0.59],3:[0.31,0.45],4:[0.26,0.45],5:[0.18,0.36],6:[0.13,0.3],7:[0.04,0],8:[0.22,0.72],9:[0.18,0.72],10:[0.13,0.68],11:[0.26,0.68],12:[0.05,0.5],13:[0.02,0.5],14:[0.01,0.5]},
@@ -2957,7 +2989,7 @@ var HandStateMachine=(function(){
   };
 
   
-  // V2.9.160: Squeeze策略
+  // V2.9.161: Squeeze策略
   var _SQUEEZE={
     vs_UTG1_vs_caller:{
       BTN:{AA:{a:'sq',f:1},KK:{a:'sq',f:1},QQ:{a:'sq',f:.8},AKs:{a:'sq',f:.7},AKo:{a:'sq',f:.6},A5s:{a:'sq',f:.4},A4s:{a:'sq',f:.3},KQs:{a:'sq',f:.2},JJ:{a:'c',f:.7},TT:{a:'c',f:.6},AQs:{a:'c',f:.5},AQo:{a:'c',f:.4}},
@@ -2970,7 +3002,7 @@ var HandStateMachine=(function(){
   };
 
   var _RIV={
-    // V2.9.160: River策略全面重建 - 4btKey×16hcKey×bet/face×IP/OOP
+    // V2.9.161: River策略全面重建 - 4btKey×16hcKey×bet/face×IP/OOP
     IP:{
     '0_bet':{0:{a:'bet',s:1.0},1:{a:'bet',s:0.83},2:{a:'bet',s:0.73},3:{a:'bet',s:0.55},4:{a:'bet',s:0.55},5:{a:'bet',s:0.44},6:{a:'bet',s:0.36},7:{a:'bet',s:0},8:{a:'bet',s:0.73},9:{a:'bet',s:0.73},10:{a:'bet',s:0.55},11:{a:'bet',s:0.73},12:{a:'bluff',s:0.3},13:{a:'bluff',s:0.15},14:{a:'check',s:0},15:{a:'check',s:0}},
     '1_bet':{0:{a:'bet',s:1},1:{a:'bet',s:0.75},2:{a:'bet',s:0.66},3:{a:'bet',s:0.5},4:{a:'bet',s:0.5},5:{a:'bet',s:0.4},6:{a:'bet',s:0.33},7:{a:'bet',s:0},8:{a:'bet',s:0.66},9:{a:'bet',s:0.66},10:{a:'bet',s:0.5},11:{a:'bet',s:0.66},12:{a:'bluff',s:0.25},13:{a:'bluff',s:0.12},14:{a:'check',s:0},15:{a:'check',s:0}},
@@ -2996,7 +3028,7 @@ var HandStateMachine=(function(){
   // ====== V2.9.157: 翻后防守决策逻辑 ======
   function _facingCBet(k,hcKey,btKey,ip,betSz,pot,street,isDonk){
     var szRatio=betSz/Math.max(pot,1);
-    // V2.9.160: 尺度三档 s/m/l (34-66%不再被当大注)
+    // V2.9.161: 尺度三档 s/m/l (34-66%不再被当大注)
     var szKey=szRatio<=.33?'s':szRatio<=.66?'m':'l';
     var table=ip?_FCB_IP:_FCB_OOP;
     var btFallback={6:'4',1:'0',3:'2'};
@@ -3015,21 +3047,21 @@ var HandStateMachine=(function(){
     if(!entry){entry=table[btKey+'_s'];}
     if(!entry||!entry[hcKey])return null;
     var e=entry[hcKey];
-    // V2.9.160: 频率调整——Turn更紧, River最紧, donk更call
+    // V2.9.161: 频率调整——Turn更紧, River最紧, donk更call
     var adjC=e.c,adjR=e.r,adjF=e.f;
     if(street==='turn'){adjC=Math.max(0,adjC-0.06);adjR=Math.max(0,adjR-0.02);adjF=Math.min(1,adjF+0.08);}
     if(street==='river'){adjC=Math.max(0,adjC-0.10);adjR=Math.max(0,adjR-0.03);adjF=Math.min(1,adjF+0.13);}
     if(isDonk){adjC=adjC+adjF*0.25;adjF=adjF*0.75;adjR=adjR*1.1;} // donk range偏弱→更call
-    // V2.9.160: 3bet底池面CBet——更难fold
+    // V2.9.161: 3bet底池面CBet——更难fold
     if(G._is3betPot){adjF=adjF*0.7;adjC=adjC+(1-adjC-adjR)*0.3;}
-    // V2.9.160: 多人池面CBet——更紧
+    // V2.9.161: 多人池面CBet——更紧
     if(G._isMultiway){adjF=Math.min(1,adjF*1.2);adjR=adjR*0.6;}
     // 归一化
     var sum=adjC+adjR+adjF;
     if(sum>0.01){adjC/=sum;adjR/=sum;adjF/=sum;}else{adjC=e.c;adjR=e.r;adjF=e.f;}
     var _fcbEA=ExploitAdjuster(1,'facing_cbet',hcKey,oppType,street||'flop','facing_cbet');
     if(_fcbEA.label){adjR=adjR*_fcbEA.freq;adjC=adjC+(1-_fcbEA.freq)*adjC;adjF=1-adjR-adjC;if(adjF<0)adjF=0;}
-    // V2.9.160: SPR区面CBet调整
+    // V2.9.161: SPR区面CBet调整
     adjF=adjF*_sprAdj.fcb;
     // 频率随机决策
     var r=Math.random();
@@ -3064,15 +3096,15 @@ var HandStateMachine=(function(){
     return _fold(0,'面CR fold '+btKey+'/'+hcKey+'('+Math.round(e.f*100)+'%)',spr);
   }
 
-  function _turnBarrel(k,hcKey,btKey,turnType,betSz,pot,didFlopCBet,ip){
+  function _turnBarrel(k,hcKey,btKey,turnType,betSz,pot,didFlopCBet,ip,_oppType,_sprAdj2,_is3bP2,_isMW2){
     var btFallback={6:'4',1:'0',3:'2'};
     var _tbTable=ip?_TB_IP:_TB_OOP;
     if(!_tbTable[btKey+'_'+turnType]){btKey=btFallback[btKey]||btKey;}
     var table=_tbTable[btKey+'_'+turnType];
     if(!table||!table[hcKey])return null;
     var e=table[hcKey];
-    var barrelFreq=e[0];
-    // V2.9.160: Flop未CBet时大幅降低barrel频率
+    var barrelFreq=e[0];barrelFreq=_applyPipeline(barrelFreq,'bet',hcKey,_oppType||oppType,'turn','barrel',_sprAdj2||_sprAdj,_is3bP2!==undefined?_is3bP2:_is3betPot,_isMW2!==undefined?_isMW2:_isMultiway);
+    // V2.9.161: Flop未CBet时大幅降低barrel频率
     if(didFlopCBet===false)barrelFreq=barrelFreq*0.3;
     var spr=calcSPR();
     if(Math.random()<barrelFreq){
@@ -3084,14 +3116,27 @@ var HandStateMachine=(function(){
     return{a:'check',r:'GTO Turn giveup '+btKey+'/'+turnType+'/'+hcKey,eq:0,c:'m',scene:'Turn Check',spr:spr,_se:true};
   }
 
-  function _riverDecision(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip){
-    // V2.9.160: River按面纹理+位置选择策略表
+  function _riverDecision(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip,_sprAdj3,_is3bP3,_isMW3){
+    // V2.9.161: River按面纹理+位置选择策略表
     var rivTbl=ip?_RIV.IP:_RIV.OOP;
     var rivKey=btKey+'_'+(scene==='check'?'bet':'face');
     var table=rivTbl[rivKey];
     if(!table){rivKey='0_'+(scene==='check'?'bet':'face');table=rivTbl[rivKey];}
     if(!table||!table[hcKey])return null;
-    var e=table[hcKey];
+    var e=table[hcKey];// V2.9.161: River SPR/3bet/Multiway调整
+        var _rivAdj=1;
+        if(e.a==='bluff'){
+          if(_sprAdj.bluff<0.5)_rivAdj=0; // 短码不诈唬
+          else _rivAdj=_sprAdj.bluff;
+          if(_is3betPot)_rivAdj*=0.5; // 3bet底池诈唬减半
+          if(_isMultiway)_rivAdj*=0.3; // 多人池几乎不诈唬
+        }
+        if(e.a==='bet'&&hcKey>=9&&hcKey<=11){
+          // 听牌未成: SPR调整
+          _rivAdj*=_sprAdj.cbet;
+          if(_is3betPot)_rivAdj*=0.7;
+        }
+        if(_rivAdj<0.3&&e.a==='bluff'){e={a:'check',s:0};} // 调整后诈唬概率太低→check
     var spr=calcSPR();
     if(e.a==='bet'||e.a==='bluff'){
       var rSz=Math.round(pot*e.s);
@@ -3134,8 +3179,8 @@ var HandStateMachine=(function(){
 
 
   
-  // V2.9.160: Donk bet决策
-  function _donkDecision(k,hcKey,btKey,ip,pot){
+  // V2.9.161: Donk bet决策
+  function _donkDecision(k,hcKey,btKey,ip,pot,_oppType2,_sprAdj2,_is3bP2,_isMW2,_street2){
     var dkTable=ip?_DONK[btKey+'_ip']:_DONK[btKey+'_oop'];
     if(!dkTable){dkTable=_DONK['0_'+(ip?'ip':'oop')];}
     if(!dkTable||!dkTable[hcKey])return null;
@@ -3147,14 +3192,14 @@ var HandStateMachine=(function(){
       if(oppCB>.7){freq*=1.3;} // 对手CBet多→我们donk更多
       else if(oppCB<.4){freq*=0.5;} // 对手不CBet→等他check我们bet
     }
-    if(Math.random()>freq)return null;
+freq=_applyPipeline(freq,'bet',hcKey,_oppType2||'unknown',_street2||'flop','donk',_sprAdj2||{cbet:1,fcb:1,bluff:1},_is3bP2||false,_isMW2||false);    if(Math.random()>freq)return null;
     var donkSz=Math.round(pot*sz);
     donkSz=Math.min(donkSz,G.stk||100000);
     return{a:'raise',v:donkSz,r:'SE160 Donk '+hcKey+'('+Math.round(freq*100)+'%)',eq:0,c:hcKey<=4?'h':'l',sizing:donkSz,scene:'Donk',_se:true};
   }
 
   
-  // ====== V2.9.160: RangeEstimator 对手范围推断 ======
+  // ====== V2.9.161: RangeEstimator 对手范围推断 ======
   var RangeEstimator={
     // 从OppProfiler统计推断范围宽度
     getWidth:function(oppType,street){
@@ -3199,7 +3244,7 @@ var HandStateMachine=(function(){
     }
   };
 
-  // ====== V2.9.160: ExploitAdjuster 剥削闭环 ======
+  // ====== V2.9.161: ExploitAdjuster 剥削闭环 ======
   var _exploitHistory={bluffAttempts:0,bluffWins:0,valueAttempts:0,valueCalls:0,valueWins:0,foldToFaced:0,foldToTotal:0,lastReset:Date.now()};
   function _resetExploitHistory(){if(Date.now()-_exploitHistory.lastReset>3600000){_exploitHistory={bluffAttempts:0,bluffWins:0,valueAttempts:0,valueCalls:0,valueWins:0,foldToFaced:0,foldToTotal:0,lastReset:Date.now()};}}
   function ExploitAdjuster(freq,action,hcKey,oppType,street,scene){
@@ -3229,7 +3274,7 @@ var HandStateMachine=(function(){
   }
 
   
-  // ====== V2.9.160: SessionTracker 盈亏追踪 ======
+  // ====== V2.9.161: SessionTracker 盈亏追踪 ======
   var SessionTracker={
     KEY:'poker_session_v160',
     current:null,
@@ -3275,7 +3320,7 @@ var HandStateMachine=(function(){
   SessionTracker.init();
 
   
-  // V2.9.160: 多桌检测
+  // V2.9.161: 多桌检测
   var MultiTableDetector={
     _lastActionTime:0,
     _intervals:[],
@@ -3312,7 +3357,7 @@ var HandStateMachine=(function(){
 
 
     isEnabled:function(){return G._seEnabled!==false&&G.tt<=5;},
-    getVersion:function(){return'2.9.160';},
+    getVersion:function(){return'2.9.161';},
     getRFI:function(pos){return _RFI[pos]||null;},
     get3B:function(vs,from){return _3B[vs]?_3B[vs][from]:null;},
     getF3B:function(pos){return _F3B[pos]||null;},
@@ -5771,7 +5816,7 @@ function handClassify(hole,comm){
     if(flushDraw)outs+=9;
     if((isOpenEnd||isGutshot)&&flushDraw)hasComboDraw=true;
   }
-    // V2.9.160: Ace-high超牌=3outs但不标记isGutshot(根修误判)
+    // V2.9.161: Ace-high超牌=3outs但不标记isGutshot(根修误判)
   var isOvercard=false;
   if(madeType==="AIR"
     &&holeRanks.indexOf(12)>=0&&commCount>=3){
@@ -5779,7 +5824,7 @@ function handClassify(hole,comm){
     _maxComm=_maxComm.length>0?Math.max.apply(null,_maxComm):-1;
     if(_maxComm<12){madeType="DRAW";outs=3;isOvercard=true;pairSubType='Ace-high超牌';}
   }
-  // V2.9.160: 其他超牌(K/Q-high on low board)
+  // V2.9.161: 其他超牌(K/Q-high on low board)
   if(madeType==="AIR"&&!isOvercard&&commCount>=3){
     var _bestHole=holeRanks.length>0?Math.max.apply(null,holeRanks):-1;
     var _maxComm2=comm.filter(function(c){return c;}).map(function(c){return RV[c.rank];});
@@ -7179,9 +7224,9 @@ function _decideInner(){
     result._colorInfo={colorKey:_colorKey,color:ColorStrategy.COLORS[_colorKey],signalType:_signalType,signalClass:_signalType==='TILT'?'signal-tilt':_signalType==='COUNTER'?'signal-counter':_signalType==='UNCERTAIN'?'signal-uncertain':''};
     result._reliability=_reliability;
     // 计算EV(仅展示用,不影响决策)
-    try{
+    try{var _pfOrdDI={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};var _diH=_pfOrdDI[G.pos]||5;var _diO=_pfOrdDI[G._raiserRole||G._raiserPos||""]||5;var _diIP=_diH>_diO;
       var _raiseSz=result.v||Math.round(_pot*0.66);
-      var _evs=EVCalc.calc(_eq,_pot,_bet,_raiseSz,_oppType,cc===5?'river':cc===4?'turn':cc===3?'flop':'preflop',pA(G.pos)>=0.5,_spr);
+      var _evs=EVCalc.calc(_eq,_pot,_bet,_raiseSz,_oppType,cc===5?'river':cc===4?'turn':cc===3?'flop':'preflop',_diIP,_spr);
       result._evs=_evs;
       result._evBest=EVCalc.best(_evs);
     }catch(e){}
@@ -7419,7 +7464,7 @@ function preF(k){
   var _specPosMult={utg:0.6,utg1:0.7,mp:0.8,mp1:0.85,hj:0.95,co:1.1,btn:1.2,sb:0.9,bb:1.0}[p]||1.0;
   _specBonus=Math.round(_specBonus*_specSPRMult*_specPosMult);
   if(_specBonus>0){eq+=_specBonus;console.log('[V2.9.141投机动能] bonus='+_specBonus+' SPR×'+_specSPRMult+' pos×'+_specPosMult+'('+p+')');}
-  var pa=pA(p);
+  var pa=pA(p);var _pfOrdPF={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};var _pfIP=_pfOrdPF[p]>=5;
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
   // V2.9.123: Ante感知——修复单位bug(chips/chips，不再BB/chips)
@@ -7613,7 +7658,7 @@ function preF(k){
       return{a:'raise',v:_sqDec.sizing,r:_sqDec.reason,eq:exploitSq.eq,c:_sqDec.type==='value'?'h':'l',sizing:_sqDec.sizing,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,bet,_sqDec.sizing),exploit:exploitSq.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: 多人池iso-raise尺寸加大(非squeeze的隔离加注)
-    if(oS.indexOf(k)!==-1&&pA(p)>=0.5){
+    if(oS.indexOf(k)!==-1&&_pfIP){
       var _isoMul=Multiway.isoRaiseAdj();
       var rSz3=Math.round((pot*0.6+actualBet)*_isoMul);
       var exploitResult8=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot});
