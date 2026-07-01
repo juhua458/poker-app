@@ -2458,6 +2458,24 @@ var HandStateMachine=(function(){
     }
 
     // ====== 场景2: 面对开池 ======
+    // V2.9.160fix: Squeeze优先于3bet（有callers时先检查squeeze）
+    if(scene==='raise'&&G._numCallersBefore>=1&&(p==='BTN'||p==='SB'||p==='btn'||p==='sb')){
+      var openP5=G._raiserPos||'UTG1';
+      var sqTable=_SQUEEZE['vs_'+openP5+'_vs_caller'];
+      if(sqTable&&(sqTable[p]||sqTable['BTN'])){
+        var sqEntry=(sqTable[p]||sqTable['BTN'])[k];
+        if(sqEntry&&sqEntry.a==='sq'){
+          var sqFreq=sqEntry.f;
+          if(oppType==='nit'||oppType==='tight')sqFreq=Math.min(1,sqFreq*1.3);
+          else if(oppType==='fish'||oppType==='calling_station')sqFreq*=0.5;
+          if(Math.random()<sqFreq){
+            var sqSz=Math.round((pot+bet)*3);
+            sqSz=Math.min(sqSz,stk);
+            return{a:'raise',v:sqSz,r:'Squeeze '+k+' vs '+openP5+'('+Math.round(sqFreq*100)+'%)',eq:eq,c:'h',sizing:sqSz,scene:'Squeeze',spr:spr,sprAdvice:getSPRAdvice(spr),_se:true};
+          }
+        }
+      }
+    }
     if(scene==='raise'){
       var raiserRole=G._raiserRole||'unknown';
       var rP5=_pos5(raiserRole);
@@ -2501,25 +2519,6 @@ var HandStateMachine=(function(){
     }
 
     // ====== 场景3: 面对3bet(reraise) ======
-    // V2.9.160: Squeeze场景检测(open+call→我们squeeze)
-    if(scene==='raise'&&G._numCallersBefore>=1&&(p==='BTN'||p==='SB')){
-      var openP5=G._raiserPos||'UTG1';
-      var sqTable=_SQUEEZE['vs_'+openP5+'_vs_caller'];
-      if(sqTable&&(sqTable[p]||sqTable['BTN'])){
-        var sqEntry=(sqTable[p]||sqTable['BTN'])[k];
-        if(sqEntry&&sqEntry.a==='sq'){
-          var sqFreq=sqEntry.f;
-          if(oppType==='nit'||oppType==='tight')sqFreq=Math.min(1,sqFreq*1.3);
-          else if(oppType==='fish'||oppType==='calling_station')sqFreq*=0.5;
-          if(Math.random()<sqFreq){
-            var sqSz=Math.round((pot+bet)*3);
-            sqSz=Math.min(sqSz,stk);
-            return{a:'raise',v:sqSz,r:'Squeeze '+k+' vs '+openP5+'('+Math.round(sqFreq*100)+'%)',eq:eq,c:'h',sizing:sqSz,scene:'Squeeze',spr:spr,sprAdvice:getSPRAdvice(spr),_se:true};
-          }
-        }
-      }
-    }
-
     if(scene==='reraise'){
       var f3b=_F3B[p5];
       if(!f3b)return null;
@@ -2585,7 +2584,13 @@ var HandStateMachine=(function(){
     MultiTableDetector.recordAction();
 
     var spr=calcSPR();
-    var ip=pA(G.pos)>=0.5;
+    // V2.9.160fix2: IP判定——用postflop行动顺序(非preflop)
+    // postflop行动序: SB(1)→BB(2)→UTG(3)→...→CO(8)→BTN(9), 越大越后=IP
+    var _pfOrd={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};
+    var _heroOrd=_pfOrd[G.pos]||5;
+    var _oppRole=G._raiserRole||G._raiserPos||'';
+    var _oppOrd=_pfOrd[_oppRole]||5;
+    var ip=_heroOrd>_oppOrd;
     var scene=G.scene||'check';
     var street=getCurrentStreet();
     var bTexture=boardTexture(bc);
@@ -2942,7 +2947,7 @@ var HandStateMachine=(function(){
     // V2.9.160: Donk bet独立策略表
   var _DONK={
     '0_ip':{0:[0.66,0.75],1:[0.55,0.66],2:[0.44,0.66],3:[0.39,0.5],4:[0.33,0.5],5:[0.22,0.4],6:[0.17,0.33],7:[0.06,0],8:[0.28,0.8],9:[0.22,0.8],10:[0.17,0.75],11:[0.33,0.75],12:[0.09,0.8],13:[0.04,0.8],14:[0.02,0.75]},
-    '0_oop':{0:[0.53,0.68],1:[0.44,0.59],2:[0.35,0.59],3:[0.31,0.45],4:[0.26,0.45],5:[0.18,0.36],6:[0.13,0.3],7:[0.04,0],8:[0.22,0.72],9:[0.18,0.72],10:[0.13,0.68],11:[0.26,0.68],12:[0.07,0.72],13:[0.04,0.72],14:[0.02,0.68]},
+    '0_oop':{0:[0.53,0.68],1:[0.44,0.59],2:[0.35,0.59],3:[0.31,0.45],4:[0.26,0.45],5:[0.18,0.36],6:[0.13,0.3],7:[0.04,0],8:[0.22,0.72],9:[0.18,0.72],10:[0.13,0.68],11:[0.26,0.68],12:[0.05,0.5],13:[0.02,0.5],14:[0.01,0.5]},
     '1_ip':{0:[0.6,0.75],1:[0.5,0.66],2:[0.4,0.66],3:[0.35,0.5],4:[0.3,0.5],5:[0.2,0.4],6:[0.15,0.33],7:[0.05,0],8:[0.25,0.8],9:[0.2,0.8],10:[0.15,0.75],11:[0.3,0.75],12:[0.08,0.8],13:[0.04,0.8],14:[0.02,0.75]},
     '1_oop':{0:[0.48,0.68],1:[0.4,0.59],2:[0.32,0.59],3:[0.28,0.45],4:[0.24,0.45],5:[0.16,0.36],6:[0.12,0.3],7:[0.04,0],8:[0.2,0.72],9:[0.16,0.72],10:[0.12,0.68],11:[0.24,0.68],12:[0.06,0.72],13:[0.03,0.72],14:[0.02,0.68]},
     '2_ip':{0:[0.42,0.75],1:[0.35,0.66],2:[0.28,0.66],3:[0.24,0.5],4:[0.21,0.5],5:[0.14,0.4],6:[0.1,0.33],7:[0.03,0],8:[0.17,0.8],9:[0.14,0.8],10:[0.1,0.75],11:[0.21,0.75],12:[0.06,0.8],13:[0.03,0.8]},
@@ -2967,18 +2972,18 @@ var HandStateMachine=(function(){
   var _RIV={
     // V2.9.160: River策略全面重建 - 4btKey×16hcKey×bet/face×IP/OOP
     IP:{
-    '0_bet':{0:{a:'bet',s:1.0},1:{a:'bet',s:0.83},2:{a:'bet',s:0.73},3:{a:'bet',s:0.55},4:{a:'bet',s:0.55},5:{a:'bet',s:0.44},6:{a:'bet',s:0.36},7:{a:'bet',s:0},8:{a:'bet',s:0.73},9:{a:'bet',s:0.73},10:{a:'bet',s:0.55},11:{a:'bet',s:0.73},12:{a:'bluff',s:0},13:{a:'bluff',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
-    '1_bet':{0:{a:'bet',s:1},1:{a:'bet',s:0.75},2:{a:'bet',s:0.66},3:{a:'bet',s:0.5},4:{a:'bet',s:0.5},5:{a:'bet',s:0.4},6:{a:'bet',s:0.33},7:{a:'bet',s:0},8:{a:'bet',s:0.66},9:{a:'bet',s:0.66},10:{a:'bet',s:0.5},11:{a:'bet',s:0.66},12:{a:'bluff',s:0},13:{a:'bluff',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
-    '2_bet':{0:{a:'bet',s:0.85},1:{a:'bet',s:0.64},2:{a:'bet',s:0.56},3:{a:'bet',s:0.42},4:{a:'bet',s:0.42},5:{a:'bet',s:0.34},6:{a:'bet',s:0.33},7:{a:'bet',s:0.33},8:{a:'bet',s:0.56},9:{a:'bet',s:0.56},10:{a:'bet',s:0.42},11:{a:'bet',s:0.56},12:{a:'bluff',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
-    '3_bet':{0:{a:'bet',s:0.85},1:{a:'bet',s:0.64},2:{a:'bet',s:0.56},3:{a:'bet',s:0.42},4:{a:'bet',s:0.42},5:{a:'bet',s:0.34},6:{a:'bet',s:0.33},7:{a:'bet',s:0.33},8:{a:'bet',s:0.56},9:{a:'bet',s:0.56},10:{a:'bet',s:0.42},11:{a:'bet',s:0.56},12:{a:'bluff',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '0_bet':{0:{a:'bet',s:1.0},1:{a:'bet',s:0.83},2:{a:'bet',s:0.73},3:{a:'bet',s:0.55},4:{a:'bet',s:0.55},5:{a:'bet',s:0.44},6:{a:'bet',s:0.36},7:{a:'bet',s:0},8:{a:'bet',s:0.73},9:{a:'bet',s:0.73},10:{a:'bet',s:0.55},11:{a:'bet',s:0.73},12:{a:'bluff',s:0.3},13:{a:'bluff',s:0.15},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '1_bet':{0:{a:'bet',s:1},1:{a:'bet',s:0.75},2:{a:'bet',s:0.66},3:{a:'bet',s:0.5},4:{a:'bet',s:0.5},5:{a:'bet',s:0.4},6:{a:'bet',s:0.33},7:{a:'bet',s:0},8:{a:'bet',s:0.66},9:{a:'bet',s:0.66},10:{a:'bet',s:0.5},11:{a:'bet',s:0.66},12:{a:'bluff',s:0.25},13:{a:'bluff',s:0.12},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '2_bet':{0:{a:'bet',s:0.85},1:{a:'bet',s:0.64},2:{a:'bet',s:0.56},3:{a:'bet',s:0.42},4:{a:'bet',s:0.42},5:{a:'bet',s:0.34},6:{a:'bet',s:0.33},7:{a:'bet',s:0.33},8:{a:'bet',s:0.56},9:{a:'bet',s:0.56},10:{a:'bet',s:0.42},11:{a:'bet',s:0.56},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '3_bet':{0:{a:'bet',s:0.85},1:{a:'bet',s:0.64},2:{a:'bet',s:0.56},3:{a:'bet',s:0.42},4:{a:'bet',s:0.42},5:{a:'bet',s:0.34},6:{a:'bet',s:0.33},7:{a:'bet',s:0.33},8:{a:'bet',s:0.56},9:{a:'bet',s:0.56},10:{a:'bet',s:0.42},11:{a:'bet',s:0.56},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
     '0_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'fold',s:0},8:{a:'fold',s:0},9:{a:'fold',s:0},10:{a:'fold',s:0},11:{a:'fold',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
     '1_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'fold',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
     '2_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'call',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
     '3_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'call',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}}
     },
     OOP:{
-    '0_bet':{0:{a:'bet',s:0.9},1:{a:'bet',s:0.74},2:{a:'bet',s:0.65},3:{a:'bet',s:0.5},4:{a:'bet',s:0.5},5:{a:'bet',s:0.4},6:{a:'bet',s:0.33},7:{a:'bet',s:0},8:{a:'bet',s:0.65},9:{a:'bet',s:0.65},10:{a:'bet',s:0.5},11:{a:'bet',s:0.65},12:{a:'bluff',s:0},13:{a:'bluff',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
-    '1_bet':{0:{a:'bet',s:0.9},1:{a:'bet',s:0.68},2:{a:'bet',s:0.59},3:{a:'bet',s:0.45},4:{a:'bet',s:0.45},5:{a:'bet',s:0.36},6:{a:'bet',s:0.3},7:{a:'bet',s:0},8:{a:'bet',s:0.59},9:{a:'bet',s:0.59},10:{a:'bet',s:0.45},11:{a:'bet',s:0.59},12:{a:'bluff',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '0_bet':{0:{a:'bet',s:0.9},1:{a:'bet',s:0.74},2:{a:'bet',s:0.65},3:{a:'bet',s:0.5},4:{a:'bet',s:0.5},5:{a:'bet',s:0.4},6:{a:'bet',s:0.33},7:{a:'bet',s:0},8:{a:'bet',s:0.65},9:{a:'bet',s:0.65},10:{a:'bet',s:0.5},11:{a:'bet',s:0.65},12:{a:'bluff',s:0.25},13:{a:'bluff',s:0.12},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '1_bet':{0:{a:'bet',s:0.9},1:{a:'bet',s:0.68},2:{a:'bet',s:0.59},3:{a:'bet',s:0.45},4:{a:'bet',s:0.45},5:{a:'bet',s:0.36},6:{a:'bet',s:0.3},7:{a:'bet',s:0},8:{a:'bet',s:0.59},9:{a:'bet',s:0.59},10:{a:'bet',s:0.45},11:{a:'bet',s:0.59},12:{a:'bluff',s:0.2},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
     '2_bet':{0:{a:'bet',s:0.77},1:{a:'bet',s:0.57},2:{a:'bet',s:0.5},3:{a:'bet',s:0.38},4:{a:'bet',s:0.38},5:{a:'bet',s:0.31},6:{a:'bet',s:0.3},7:{a:'bet',s:0.3},8:{a:'bet',s:0.5},9:{a:'bet',s:0.5},10:{a:'bet',s:0.38},11:{a:'bet',s:0.5},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
     '3_bet':{0:{a:'bet',s:0.77},1:{a:'bet',s:0.57},2:{a:'bet',s:0.5},3:{a:'bet',s:0.38},4:{a:'bet',s:0.38},5:{a:'bet',s:0.31},6:{a:'bet',s:0.3},7:{a:'bet',s:0.3},8:{a:'bet',s:0.5},9:{a:'bet',s:0.5},10:{a:'bet',s:0.38},11:{a:'bet',s:0.5},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
     '0_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'fold',s:0},6:{a:'fold',s:0},7:{a:'fold',s:0},8:{a:'fold',s:0},9:{a:'fold',s:0},10:{a:'fold',s:0},11:{a:'fold',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
@@ -7814,7 +7819,7 @@ function postF(k){
   var bc=comm.filter(function(c){return c;});
   var spr=calcSPR();
   var sprAdvice=getSPRAdvice(spr);
-  var ip=pA(G.pos)>=0.5;
+  var _pfOrd={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};var _hOrd=_pfOrd[G.pos]||5;var _oRole=G._raiserRole||G._raiserPos||'';var _oOrd=_pfOrd[_oRole]||5;var ip=_hOrd>_oOrd;
   var scene=G.scene;
   var street=getCurrentStreet();
   var bTexture=boardTexture(bc);
