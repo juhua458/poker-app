@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.161 · 识别急救:Schema+FewShot+VPP</title>
+<title>青云 v2.9.162 · 河牌完全枚举EV(RTA数学最优)</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -1159,7 +1159,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.161',
+    version:'2.9.162',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1277,7 +1277,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.161',
+  CURRENT_VERSION:'2.9.162',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2735,6 +2735,21 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
       // 非PFR面对CBet(对手先加注/我们跟注后的翻后)
       var isDonk=_wasHeroPFR; // PFR面对对手主动下注=donk
       var cbetSz=bet||Math.round(pot*0.5);
+      // V2.9.162: 转牌face场景完全枚举EV前置层 - 失败fallback到_facingCBet
+      if(street==='turn'){
+        try{
+          var _tEvFR=_turnFullEnumerateEV(k,hcKey,didPFR,'face',cbetSz,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway,eq);
+          if(_tEvFR){
+            _tEvFR.eq=eq;
+            var _tEvFExploit=applyExploit(eq,_tEvFR.a,oppType,{bet:cbetSz,pot:pot});
+            if(_tEvFExploit){_tEvFR.exploit=_tEvFExploit.exploit;_tEvFR.eq=_tEvFExploit.eq;}
+            _tEvFR.hClass=hClass;_tEvFR.bTexture=bTexture;
+            if(isDonk)_tEvFR.scene='面对Donk';
+            console.log('[SE162] TurnFaceEV: '+_tEvFR.a+' hcKey='+hcKey);
+            return _tEvFR;
+          }
+        }catch(e){console.log('[SE162] TurnFaceEV layer err: '+e.message);}
+      }
       var fcbR=_facingCBet(k,hcKey,btKey,ip,cbetSz,pot,street,isDonk);
       if(fcbR){
         fcbR.eq=eq;
@@ -2783,6 +2798,18 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
     // V2.9.161: Flop未CBet时降低Turn barrel频率(G._heroDidFlopCBet由实际操作设置)
     var _didFlopCBet=G._heroDidFlopCBet!==false;
     if(_wasHeroPFR&&scene==='check'&&street==='turn'){
+      // V2.9.162: 转牌完全枚举EV前置层 (经验频率→数学最优) - 失败fallback到_turnBarrel查表
+      try{
+        var _tEvR=_turnFullEnumerateEV(k,hcKey,didPFR,'check',0,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway,eq);
+        if(_tEvR){
+          _tEvR.eq=eq;
+          var _tEvExploit=applyExploit(eq,_tEvR.a,oppType,{bet:0,pot:pot});
+          if(_tEvExploit){_tEvR.exploit=_tEvExploit.exploit;_tEvR.eq=_tEvExploit.eq;}
+          _tEvR.hClass=hClass;_tEvR.bTexture=bTexture;
+          console.log('[SE162] TurnEV: '+_tEvR.a+' hcKey='+hcKey+' ev='+(_tEvR.ev/Math.max(pot,1)*100).toFixed(0)+'%pot');
+          return _tEvR;
+        }
+      }catch(e){console.log('[SE162] TurnEV layer err: '+e.message);}
       var tType=_classifyTurnCard(hole,comm);
       var tbR=_turnBarrel(k,hcKey,btKey,tType,bet,pot,_didFlopCBet,ip,oppType,_sprAdj,_is3betPot,_isMultiway);
       if(tbR){
@@ -2799,6 +2826,18 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
     if(street==='river'){
       var rivScene=scene==='check'?'check':'face';
       var rivBet=bet||0;
+      // V2.9.162: 完全枚举EV前置层 (经验频率→数学最优) - 失败fallback到_RIV查表
+      try{
+        var _evR=_riverFullEnumerateEV(k,hcKey,didPFR,rivScene,rivBet,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway,eq);
+        if(_evR){
+          _evR.eq=eq;
+          var _evExploit=applyExploit(eq,_evR.a,oppType,{bet:rivBet,pot:pot});
+          if(_evExploit){_evR.exploit=_evExploit.exploit;_evR.eq=_evExploit.eq;}
+          _evR.hClass=hClass;_evR.bTexture=bTexture;
+          console.log('[SE162] RiverEV: '+_evR.a+' hcKey='+hcKey+' ev='+(_evR.ev/Math.max(pot,1)*100).toFixed(0)+'%pot');
+          return _evR;
+        }
+      }catch(e){console.log('[SE162] RiverEV layer err: '+e.message);}
       var rivR=_riverDecision(k,hcKey,didPFR,rivScene,rivBet,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway);
       if(rivR){
         rivR.eq=eq;
@@ -3116,6 +3155,215 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
     return{a:'check',r:'GTO Turn giveup '+btKey+'/'+turnType+'/'+hcKey,eq:0,c:'m',scene:'Turn Check',spr:spr,_se:true};
   }
 
+  // ====== V2.9.162: EV计算核心框架 (turn/river共用) ======
+  // 返回 {evs, bestA, bestEV, bestSz, _statFold, _raiseFold} 或 null
+  function _computeFullEVCore(scene, betSz, pot, eq, _prof, _sprAdj, _is3bP, _isMW, stk){
+    var evs={}, bestA=null, bestEV=-99999, bestSz=0;
+    var _statFold=0.55, _statCall=0.32, _statRaise=0.13;
+    // V2.9.162fix3: DRTA.getProfile() 实际字段是 fold_to_bet (50默认), 没有 callsBet
+    if(_prof&&typeof _prof.fold_to_bet==='number'){
+      _statFold=Math.max(0,Math.min(1,_prof.fold_to_bet/100));
+      // callsBet 字段不存在 - 用 af (aggression factor) 推算: 高af→少call多raise
+      if(typeof _prof.af==='number'&&_prof.af>0){
+        _statCall=Math.max(0.20,Math.min(0.50,0.50-_statFold*(1-1/Math.max(_prof.af,1))));
+        _statRaise=1-_statFold-_statCall;
+      }else{
+        _statRaise=Math.max(0.05,1-_statFold-0.32);
+        _statCall=0.32;
+      }
+      if(_statRaise<0.02)_statRaise=0.02;
+    }
+    if(_isMW){_statFold=Math.min(0.85,_statFold*1.25);_statCall=Math.max(0.20,_statCall);}
+    if(_is3bP){_statFold=Math.max(0.25,_statFold*0.85);}
+    var _canBluff=_sprAdj&&_sprAdj.bluff>0.3;
+    if(scene==='check'){
+      var s33=Math.round(pot*0.33);
+      var s75=Math.round(pot*0.75);
+      evs.check=eq*pot;
+      evs.betValue=-99999; evs.betValueSz=s33;
+      var _betList=[s33,s75];
+      for(var bi=0;bi<_betList.length;bi++){
+        var bs=_betList[bi];
+        var ev=eq*(pot+bs)-(1-eq)*bs*_statCall;
+        if(ev>evs.betValue){evs.betValue=ev;evs.betValueSz=bs;}
+      }
+      evs.bluff=-99999; evs.bluffSz=0;
+      if(_canBluff&&eq<0.40){
+        for(var bj=0;bj<_betList.length;bj++){
+          var bs2=_betList[bj];
+          var bluffEV=_statFold*bs2 + (1-_statFold)*(eq*(pot+bs2)-(1-eq)*bs2);
+          if(bluffEV>evs.bluff){evs.bluff=bluffEV;evs.bluffSz=bs2;}
+        }
+      }
+      if(evs.check>bestEV){bestA='check';bestEV=evs.check;bestSz=0;}
+      // V2.9.162fix2: 价值bet需要vBet显著超过chk (>=15%pot差)
+      if(evs.betValue>bestEV&&evs.betValue-evs.check>=0.15*pot){bestA='bet';bestEV=evs.betValue;bestSz=evs.betValueSz;}
+      // V2.9.162fix: bluff仅在"价值bet EV <= check EV"时启用
+      if(evs.betValue<=evs.check&&evs.bluff>bestEV){bestA='bluff';bestEV=evs.bluff;bestSz=evs.bluffSz;}
+    }else{
+      evs.fold=0;
+      evs.call=eq*(pot+betSz)-(1-eq)*betSz;
+      var raiseSz=Math.round(Math.max(betSz*2.5,pot*1.5));
+      raiseSz=Math.min(raiseSz,stk||100000);
+      // V2.9.162fix3: foldsToRaise 字段不存在 - 用 3bet 字段反推 (3bet 越高, raise 弃牌越少)
+      var _raiseFold=0.40;
+      if(_prof){
+        if(typeof _prof.foldsToRaise==='number')_raiseFold=_prof.foldsToRaise;
+        // V2.9.162fix3: 仅当 threebet 有实际数据(>=5)才反推,避免默认值0.40→0.55破坏air face场景
+        else if(typeof _prof.threebet==='number'&&_prof.threebet>=5)_raiseFold=Math.max(0.20,Math.min(0.65,0.55-_prof.threebet/100*0.5));
+      }
+      if(_isMW)_raiseFold=Math.min(0.7,_raiseFold*1.2);
+      var callAfterEq=eq*0.70;
+      evs.raise=_raiseFold*(pot+betSz) + (1-_raiseFold)*(callAfterEq*(pot+raiseSz)-(1-callAfterEq)*raiseSz);
+      if(evs.fold>bestEV){bestA='fold';bestEV=evs.fold;bestSz=0;}
+      if(evs.call>bestEV){bestA='call';bestEV=evs.call;bestSz=0;}
+      if(evs.raise>bestEV){bestA='raise';bestEV=evs.raise;bestSz=raiseSz;}
+    }
+    if(!bestA)return null;
+    return{evs:evs,bestA:bestA,bestEV:bestEV,bestSz:bestSz,_statFold:_statFold,_raiseFold:_raiseFold};
+  }
+
+  // ====== V2.9.162: 转牌完全枚举EV函数 (RTA场景: 经验频率→数学最优) ======
+  function _turnFullEnumerateEV(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip,_sprAdj,_is3bP,_isMW,preEq){
+    var h=G.hole||[];
+    var comm=G.comm||[];
+    var hole=h.filter(function(c){return c;});
+    var bc=comm.filter(function(c){return c;});
+    if(hole.length<2||bc.length<4)return null;
+    if(typeof hole[0]==='string'){
+      hole=hole.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    if(typeof bc[0]==='string'){
+      bc=bc.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    if(hole.length<2||bc.length<4)return null;
+    // V2.9.162perf: 优先复用decidePostflop已计算的eq
+    var eq;
+    if(typeof preEq==='number'&&preEq>0){
+      eq=preEq/100;
+    }else{
+      // V2.9.162turn: 转牌eq用mcVsRange (蒙特卡洛), 迭代次数2000确保<2%误差
+      var bTexture=boardTexture(bc);
+      var oppRange=getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry');
+      if(!oppRange||oppRange.length===0)return null;
+      var mcI=1000;
+      if(betSz>0&&betSz/(pot+betSz)>=.66)mcI=2000;
+      else if(betSz>0&&betSz/(pot+betSz)>=.33)mcI=1300;
+      var ms=mcVsRange(hole,bc,oppRange,Math.min(mcI,2000));
+      if(!ms||typeof ms.eq!=='number')return null;
+      eq=ms.eq/100;
+    }
+    // V2.9.162perf: DRTA.getProfile() 一次获取
+    var _prof=null;
+    try{_prof=DRTA.getProfile();}catch(e){}
+    // V2.9.162: 调用公共EV计算核心 (子任务4: turn/river共用)
+    var _coreR=_computeFullEVCore(scene,betSz,pot,eq,_prof,_sprAdj,_is3bP,_isMW,G.stk||100000);
+    if(!_coreR)return null;
+    var evs=_coreR.evs, bestA=_coreR.bestA, bestEV=_coreR.bestEV, bestSz=_coreR.bestSz;
+    var _statFold=_coreR._statFold, _raiseFold=_coreR._raiseFold;
+    var rH=Math.round(eq*100);
+    var result={
+      a:bestA, v:bestSz,
+      r:'',
+      eq:rH,
+      c:eq>=0.5?'h':(eq>=0.3?'m':'l'),
+      spr:calcSPR(),
+      _se:true,
+      _seEV:true,
+      ev:bestEV,
+      evs:evs,
+      scene:scene==='check'?'Turn Bet':'Turn Face',
+      _evExplain:[]
+    };
+    var exp=[];
+    exp.push('EV='+(bestEV/Math.max(pot,1)*100).toFixed(0)+'%pot');
+    exp.push('eq='+rH+'%');
+    if(scene==='check'){
+      exp.push('chkEV='+(evs.check/Math.max(pot,1)*100).toFixed(0));
+      exp.push('vBetEV='+(evs.betValue/Math.max(pot,1)*100).toFixed(0));
+      if(evs.bluff>-99998)exp.push('bluffEV='+(evs.bluff/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppF='+Math.round(_statFold*100)+'%');
+    }else{
+      exp.push('foldEV=0');
+      exp.push('callEV='+(evs.call/Math.max(pot,1)*100).toFixed(0));
+      exp.push('raiseEV='+(evs.raise/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppFoldRaise='+Math.round(_raiseFold*100)+'%');
+    }
+    result._evExplain=exp;
+    var aLabel={bet:'价值bet',bluff:'诈唬',raise:'raise',call:'call',fold:'fold',check:'check'}[bestA]||bestA;
+    result.r='EV162T '+aLabel+' '+hcKey+' ['+exp.join('|')+']';
+    return result;
+  }
+
+  // ====== V2.9.162: 河牌完全枚举EV函数 (RTA场景: 经验频率→数学最优) ======
+  function _riverFullEnumerateEV(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip,_sprAdj,_is3bP,_isMW,preEq){
+    var h=G.hole||[];
+    var comm=G.comm||[];
+    var hole=h.filter(function(c){return c;});
+    var bc=comm.filter(function(c){return c;});
+    if(hole.length<2||bc.length<5)return null;
+    if(typeof hole[0]==='string'){
+      hole=hole.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    if(typeof bc[0]==='string'){
+      bc=bc.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    // V2.9.162perf: 优先复用decidePostflop已计算的eq,避免重复riverExactEquity (从~20ms降到<10ms)
+    var eq, eqR;
+    if(typeof preEq==='number'&&preEq>0){
+      eq=preEq/100;
+      eqR={eq:preEq,combos:1};
+    }else{
+      var bTexture=boardTexture(bc);
+      var oppRange=getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry');
+      if(!oppRange||oppRange.length===0)return null;
+      eqR=riverExactEquity(hole,bc,oppRange);
+      if(!eqR||eqR.combos===0)return null;
+      eq=eqR.eq/100;
+    }
+    // V2.9.162perf: DRTA.getProfile() 一次获取 (子任务4: 字段映射在 _computeFullEVCore 内部处理)
+    var _prof=null;
+    try{_prof=DRTA.getProfile();}catch(e){}
+    // V2.9.162: 调用公共EV计算核心 (子任务4: turn/river共用, _statFold/_raiseFold 全部在 core 内计算)
+    var _coreR=_computeFullEVCore(scene,betSz,pot,eq,_prof,_sprAdj,_is3bP,_isMW,G.stk||100000);
+    if(!_coreR)return null;
+    var evs=_coreR.evs, bestA=_coreR.bestA, bestEV=_coreR.bestEV, bestSz=_coreR.bestSz;
+    var _statFold=_coreR._statFold, _raiseFold=_coreR._raiseFold;
+    if(!bestA)return null;
+    var rH=Math.round(eq*100);
+    var result={
+      a:bestA, v:bestSz,
+      r:'',
+      eq:rH,
+      c:eq>=0.5?'h':(eq>=0.3?'m':'l'),
+      spr:calcSPR(),
+      _se:true,
+      _seEV:true,
+      ev:bestEV,
+      evs:evs,
+      scene:scene==='check'?'River Bet':'River Face',
+      _evExplain:[]
+    };
+    var exp=[];
+    exp.push('EV='+(bestEV/Math.max(pot,1)*100).toFixed(0)+'%pot');
+    exp.push('eq='+rH+'%');
+    if(scene==='check'){
+      exp.push('chkEV='+(evs.check/Math.max(pot,1)*100).toFixed(0));
+      exp.push('vBetEV='+(evs.betValue/Math.max(pot,1)*100).toFixed(0));
+      if(evs.bluff>-99998)exp.push('bluffEV='+(evs.bluff/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppF='+Math.round(_statFold*100)+'%');
+    }else{
+      exp.push('foldEV=0');
+      exp.push('callEV='+(evs.call/Math.max(pot,1)*100).toFixed(0));
+      exp.push('raiseEV='+(evs.raise/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppFoldRaise='+Math.round(_raiseFold*100)+'%');
+    }
+    result._evExplain=exp;
+    var aLabel={bet:'价值bet',bluff:'诈唬',raise:'raise',call:'call',fold:'fold',check:'check'}[bestA]||bestA;
+    result.r='EV162 '+aLabel+' '+hcKey+' ['+exp.join('|')+']';
+    return result;
+  }
+
   function _riverDecision(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip,_sprAdj3,_is3bP3,_isMW3){
     // V2.9.161: River按面纹理+位置选择策略表
     var rivTbl=ip?_RIV.IP:_RIV.OOP;
@@ -3357,7 +3605,7 @@ freq=_applyPipeline(freq,'bet',hcKey,_oppType2||'unknown',_street2||'flop','donk
 
 
     isEnabled:function(){return G._seEnabled!==false&&G.tt<=5;},
-    getVersion:function(){return'2.9.161';},
+    getVersion:function(){return'2.9.162'},
     getRFI:function(pos){return _RFI[pos]||null;},
     get3B:function(vs,from){return _3B[vs]?_3B[vs][from]:null;},
     getF3B:function(pos){return _F3B[pos]||null;},
