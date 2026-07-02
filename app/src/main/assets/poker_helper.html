@@ -1445,35 +1445,33 @@ var OppProfiler={
           },p);
           count++;
         }else{
-          // 已有: 合并统计（运行时优先，但补充持久化中缺失的）
+          // V2.9.164: 防倍加——加载数据是完整快照，用max不累加
           var existing=this._profiles[nk];
           if(p.hands>existing.hands){
-            // 持久化数据更新→合并统计
-            existing.hands=(existing.hands||0)+(p.hands||0);
-            existing.entered=(existing.entered||0)+(p.entered||0);
-            existing.folded=(existing.folded||0)+(p.folded||0);
-            if(p._pfRaise)existing._pfRaise=(existing._pfRaise||0)+(p._pfRaise||0);
-            if(p._pf3bet)existing._pf3bet=(existing._pf3bet||0)+(p._pf3bet||0);
-            if(p._pfOpenOpp)existing._pfOpenOpp=(existing._pfOpenOpp||0)+(p._pfOpenOpp||0);
-            if(p._faced3bet)existing._faced3bet=(existing._faced3bet||0)+(p._faced3bet||0);
-            if(p._foldTo3bet)existing._foldTo3bet=(existing._foldTo3bet||0)+(p._foldTo3bet||0);
-            if(p._facedCBet)existing._facedCBet=(existing._facedCBet||0)+(p._facedCBet||0);
-            if(p._foldToCBet)existing._foldToCBet=(existing._foldToCBet||0)+(p._foldToCBet||0);
-            if(p._checkRaise)existing._checkRaise=(existing._checkRaise||0)+(p._checkRaise||0);
-            if(p._donkBets)existing._donkBets=(existing._donkBets||0)+(p._donkBets||0);
-            // V2.9.164: 翻后统计合并
-            if(p._sawTurn)existing._sawTurn=(existing._sawTurn||0)+(p._sawTurn||0);
-            if(p._sawRiver)existing._sawRiver=(existing._sawRiver||0)+(p._sawRiver||0);
-            if(p._facedTurnCBet)existing._facedTurnCBet=(existing._facedTurnCBet||0)+(p._facedTurnCBet||0);
-            if(p._foldToTurnCBet)existing._foldToTurnCBet=(existing._foldToTurnCBet||0)+(p._foldToTurnCBet||0);
-            if(p._facedRiverCBet)existing._facedRiverCBet=(existing._facedRiverCBet||0)+(p._facedRiverCBet||0);
-            if(p._foldToRiverCBet)existing._foldToRiverCBet=(existing._foldToRiverCBet||0)+(p._foldToRiverCBet||0);
-            if(p._cbetFlop)existing._cbetFlop=(existing._cbetFlop||0)+(p._cbetFlop||0);
-            if(p._cbetTurn)existing._cbetTurn=(existing._cbetTurn||0)+(p._cbetTurn||0);
-            if(p._cbetRiver)existing._cbetRiver=(existing._cbetRiver||0)+(p._cbetRiver||0);
-            if(p._raiseFlop)existing._raiseFlop=(existing._raiseFlop||0)+(p._raiseFlop||0);
-            if(p._raiseTurn)existing._raiseTurn=(existing._raiseTurn||0)+(p._raiseTurn||0);
-            if(p._raiseRiver)existing._raiseRiver=(existing._raiseRiver||0)+(p._raiseRiver||0);
+            existing.hands=Math.max(existing.hands||0,p.hands||0);
+            existing.entered=Math.max(existing.entered||0,p.entered||0);
+            existing.folded=Math.max(existing.folded||0,p.folded||0);
+            if(p._pfRaise)existing._pfRaise=Math.max(existing._pfRaise||0,p._pfRaise||0);
+            if(p._pf3bet)existing._pf3bet=Math.max(existing._pf3bet||0,p._pf3bet||0);
+            if(p._pfOpenOpp)existing._pfOpenOpp=Math.max(existing._pfOpenOpp||0,p._pfOpenOpp||0);
+            if(p._faced3bet)existing._faced3bet=Math.max(existing._faced3bet||0,p._faced3bet||0);
+            if(p._foldTo3bet)existing._foldTo3bet=Math.max(existing._foldTo3bet||0,p._foldTo3bet||0);
+            if(p._facedCBet)existing._facedCBet=Math.max(existing._facedCBet||0,p._facedCBet||0);
+            if(p._foldToCBet)existing._foldToCBet=Math.max(existing._foldToCBet||0,p._foldToCBet||0);
+            if(p._checkRaise)existing._checkRaise=Math.max(existing._checkRaise||0,p._checkRaise||0);
+            if(p._donkBets)existing._donkBets=Math.max(existing._donkBets||0,p._donkBets||0);
+            if(p._sawTurn)existing._sawTurn=Math.max(existing._sawTurn||0,p._sawTurn||0);
+            if(p._sawRiver)existing._sawRiver=Math.max(existing._sawRiver||0,p._sawRiver||0);
+            if(p._facedTurnCBet)existing._facedTurnCBet=Math.max(existing._facedTurnCBet||0,p._facedTurnCBet||0);
+            if(p._foldToTurnCBet)existing._foldToTurnCBet=Math.max(existing._foldToTurnCBet||0,p._foldToTurnCBet||0);
+            if(p._facedRiverCBet)existing._facedRiverCBet=Math.max(existing._facedRiverCBet||0,p._facedRiverCBet||0);
+            if(p._foldToRiverCBet)existing._foldToRiverCBet=Math.max(existing._foldToRiverCBet||0,p._foldToRiverCBet||0);
+            if(p._cbetFlop)existing._cbetFlop=Math.max(existing._cbetFlop||0,p._cbetFlop||0);
+            if(p._cbetTurn)existing._cbetTurn=Math.max(existing._cbetTurn||0,p._cbetTurn||0);
+            if(p._cbetRiver)existing._cbetRiver=Math.max(existing._cbetRiver||0,p._cbetRiver||0);
+            if(p._raiseFlop)existing._raiseFlop=Math.max(existing._raiseFlop||0,p._raiseFlop||0);
+            if(p._raiseTurn)existing._raiseTurn=Math.max(existing._raiseTurn||0,p._raiseTurn||0);
+            if(p._raiseRiver)existing._raiseRiver=Math.max(existing._raiseRiver||0,p._raiseRiver||0);
           }
           // V2.9.142: bet sizing tells合并
           if(p._betSizes){
@@ -1498,6 +1496,16 @@ var OppProfiler={
     if(now-this._lastSaveTime>this.PROFILE_SAVE_INTERVAL){
       this.saveProfiles();
     }
+  },
+  // V2.9.164: 独立定时保存——不依赖Vision API成功，每5分钟兜底保存
+  _initAutoSave:function(){
+    var self=this;
+    setInterval(function(){
+      var now=Date.now();
+      if(now-self._lastSaveTime>self.PROFILE_SAVE_INTERVAL){
+        self.saveProfiles();
+      }
+    },300000); // 5分钟检查一次
   },
   // V2.9.142: 记录对手下注大小（bet sizing tells）
   recordBetSize:function(nickname,betAmount,potSize,street){
@@ -1557,6 +1565,7 @@ var OppProfiler={
     if(!this._profilesLoaded){
       this.loadProfiles();
       this._profilesLoaded=true;
+      this._initAutoSave(); // V2.9.164: 启动定时保存
     }
     
     // 检测新一手牌
@@ -10588,6 +10597,11 @@ function revertLocal(){
       var rv=document.getElementById('revertBtn');
       if(rv)rv.style.display='inline-block';
     }
+    // V2.9.164: 热更新后自动重载
+    if(d.hotloadReload){
+      console.log('[V2.9.164] 热更新完成，3秒后自动重载...');
+      setTimeout(function(){location.reload();},3000);
+    }
   }).catch(function(){});
 })();
 
@@ -11001,7 +11015,7 @@ var NashPushFold={
     var bbKey=this._getBBKey(effectiveBB);
     if(scene==='check'||scene==='call'){
       if(this.isNashPush(k,p,effectiveBB)){
-        return{a:'raise',v:G.stk||100000,r:'Nash push('+p+'/'+bbKey+'BB) '+k,eq:55,c:'h',scene:'纳什push',spr:spr,_se:true,_seFreq:1,_nash:true};
+        return{a:'raise',v:G.stk>0?G.stk:(effectiveBB*100000)||100000,r:'Nash push('+p+'/'+bbKey+'BB) '+k,eq:55,c:'h',scene:'纳什push',spr:spr,_se:true,_seFreq:1,_nash:true};
       }
       return{a:'fold',r:'Nash fold('+p+'/'+bbKey+'BB) '+k,eq:0,c:'l',scene:'纳什fold',spr:spr,_se:true,_nash:true};
     }

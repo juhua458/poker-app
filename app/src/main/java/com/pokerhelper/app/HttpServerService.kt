@@ -23,8 +23,9 @@ class HttpServerService : Service() {
     companion object {
         private const val CHANNEL_ID = "poker_http"
         private const val NOTIFICATION_ID = 3
-        // v2.9.35: 热更新远程JS地址（ghfast代理GitHub raw）
+        // v2.9.35: 热更新远程JS地址（ghfast代理 + 直连GitHub双保险）
         private const val HOTLOAD_URL = "https://ghfast.top/https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
+        private const val HOTLOAD_URL_FALLBACK = "https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
         private const val HOTLOAD_FILE = "poker_helper_hot.html"
         private const val HOTLOAD_TIMEOUT = 15000 // 15秒超时
     }
@@ -158,6 +159,16 @@ class HttpServerService : Service() {
                                 put("version", "2.9.164")
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
+                                // V2.9.164: 热更新后通知WebView重载
+                                val hotloadUpdated = try {
+                                    getSharedPreferences("poker_prefs", MODE_PRIVATE).getBoolean("hotload_updated", false)
+                                } catch (_: Exception) { false }
+                                put("hotloadReload", hotloadUpdated)
+                                if (hotloadUpdated) {
+                                    try {
+                                        getSharedPreferences("poker_prefs", MODE_PRIVATE).edit().putBoolean("hotload_updated", false).apply()
+                                    } catch (_: Exception) {}
+                                }
                             }.toString()
                             newFixedLengthResponse(Response.Status.OK, "application/json", json).apply {
                                 addHeader("Access-Control-Allow-Origin", "*")
@@ -199,19 +210,38 @@ class HttpServerService : Service() {
                             }
                         }
                         // v2.9.35: 热更新——从GitHub下载最新poker_helper.html
+                        // V2.9.164: 双URL保险——ghfast代理失败时直连GitHub
                         session.uri == "/api/hotload" -> {
                             try {
-                                val conn = URL(HOTLOAD_URL).openConnection()
-                                conn.connectTimeout = HOTLOAD_TIMEOUT
-                                conn.readTimeout = HOTLOAD_TIMEOUT
-                                val html = conn.getInputStream().bufferedReader(Charsets.UTF_8).readText()
-                                if (html.isNotEmpty() && html.contains("poker") && html.length > 1000) {
+                                var html: String? = null
+                                var lastError: String? = null
+                                // 先试ghfast代理（国内快）
+                                try {
+                                    val conn = URL(HOTLOAD_URL).openConnection()
+                                    conn.connectTimeout = HOTLOAD_TIMEOUT / 2
+                                    conn.readTimeout = HOTLOAD_TIMEOUT / 2
+                                    html = conn.getInputStream().bufferedReader(Charsets.UTF_8).readText()
+                                } catch (e1: Exception) { lastError = e1.message }
+                                // ghfast失败→直连GitHub
+                                if (html == null || html.isEmpty() || !html.contains("poker")) {
+                                    try {
+                                        val conn2 = URL(HOTLOAD_URL_FALLBACK).openConnection()
+                                        conn2.connectTimeout = HOTLOAD_TIMEOUT
+                                        conn2.readTimeout = HOTLOAD_TIMEOUT
+                                        html = conn2.getInputStream().bufferedReader(Charsets.UTF_8).readText()
+                                    } catch (e2: Exception) { lastError = (lastError ?: "") + " | fallback: " + e2.message }
+                                }
+                                if (html != null && html.isNotEmpty() && html.contains("poker") && html.length > 1000) {
                                     // 验证下载内容有效（包含poker关键词且大于1KB）
                                     pokerHelperHtml = html
                                     hotloadSource = "remote"
                                     // 持久化到文件，重启App也能用
                                     try {
                                         File(filesDir, HOTLOAD_FILE).writeText(html, Charsets.UTF_8)
+                                    } catch (_: Exception) {}
+                                    // V2.9.164: 标记热更新完成，通知WebView重载
+                                    try {
+                                        getSharedPreferences("poker_prefs", MODE_PRIVATE).edit().putBoolean("hotload_updated", true).apply()
                                     } catch (_: Exception) {}
                                     // 提取版本号
                                     val verMatch = Regex("""V(\d+\.\d+\.\d+)""").find(html)

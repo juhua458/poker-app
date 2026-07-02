@@ -269,7 +269,10 @@ opp_hud: 识别对手头像旁的统计数字[{"seat":2,"vpip":35,"pfr":18,"ats"
             put("model", model ?: modelName)
             put("max_tokens", 800)
             put("temperature", 0.0)  // V2.9.156: 确定性输出
-            put("response_format", JSONObject().put("type", "json_object"))  // V2.9.156: JSON Mode
+            // V2.9.164: DeepSeek vision模型不支持JSON Mode，跳过
+            if (!modelName.contains("deepseek", ignoreCase = true)) {
+                put("response_format", JSONObject().put("type", "json_object"))
+            }
             put("messages", JSONArray().apply { put(JSONObject().apply {
                 put("role", "user"); put("content", JSONArray().apply {
                     put(JSONObject().apply { put("type", "text"); put("text", prompt) })
@@ -434,6 +437,7 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
             "dashscope" -> { apiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"; modelName = "qwen-vl-plus" }
             "deepseek" -> { apiUrl = "https://api.deepseek.com/v1/chat/completions"; modelName = "deepseek-chat-vision" }
             "siliconflow" -> { apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; modelName = "Qwen/Qwen3-VL-8B-Instruct" }
+            else -> { Log.w(TAG, "未知供应商: $provider，保持当前配置"); lastError = "未知供应商: $provider" }
         }
     }
 }
