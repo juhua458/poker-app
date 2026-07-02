@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.158 · 识别急救:Schema+FewShot+VPP</title>
+<title>青云 v2.9.163 · 翻前对手定量剥削+自适应截屏(RTA数学最优)</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
@@ -950,6 +950,8 @@ var HandHistory={
       _decisionMs=Date.now()-window._goStartTime;
       window._goStartTime=0;
     }
+    // V2.9.161: 增强记录—完整决策链+摊牌结果
+    var _decisionChain=G._decisionChain||[];
     var rec={
       ts:Date.now(),
       hole:G.hole.map(function(c){return c?c.rank+c.suit:'?';}),
@@ -1157,7 +1159,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.158',
+    version:'2.9.163',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1275,7 +1277,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.158',
+  CURRENT_VERSION:'2.9.163',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
@@ -2275,28 +2277,61 @@ var HandStateMachine=(function(){
 
   // IP CBet: [freq, small%] 小尺度=33%底池, 大尺度=66%+
   var _CBET_IP={
-    '0':{0:[1,.9],1:[1,.9],"2":[1,.9],"3":[1,.9],"4":[.9,.9],"5":[.7,.9],"6":[.5,.9],"8":[.8,.9],"9":[.6,.8],10:[.5,.8],11:[.9,.8],12:[.2,.9],13:[.4,.9],14:[.3,.9],15:[.3,.9]}, // 干燥高牌: 高频小尺度
-    '2':{0:[1,.2],1:[.85,.2],"2":[.8,.2],"3":[.7,.3],"4":[.7,.3],"5":[.4,.4],"8":[.8,.2],"9":[.6,.3],10:[.5,.3],11:[.9,.2],12:[.15,.5],13:[.2,.3],15:[.1,.3]}, // 湿润连接: 低频大尺度
-    '3':{0:[1,.1],1:[.9,.1],"2":[.9,.1],"3":[.5,.4],"4":[.5,.4],11:[.8,.1],"9":[.5,.3],12:[.1,.5],13:[.15,.5],15:[.05,.5]}, // 低牌连接: 极低频大尺度
-    '4':{0:[1,.3],1:[.85,.3],"4":[.6,.4],"8":[.9,.2],"9":[.5,.4],11:[.9,.2],13:[.2,.5],15:[.1,.5]}, // 同花面
-    '5':{0:[1,.8],1:[.9,.8],"2":[.85,.7],"3":[.9,.8],"4":[.8,.8],"5":[.6,.8],"6":[.4,.8],"8":[.7,.7],"9":[.5,.7],10:[.4,.7],11:[.75,.7],12:[.35,.8],14:[.2,.8],15:[.25,.8]}  // 对子面: 高频小尺度
+    '0':{"0":[1,0.9],"1":[1,0.9],"2":[1,0.9],"3":[1,0.9],"4":[0.9,0.9],"5":[0.7,0.9],"6":[0.5,0.9],"7":[0.3,0.8],"8":[0.8,0.9],"9":[0.6,0.8],"10":[0.5,0.8],"11":[0.9,0.8],"12":[0.2,0.9],"13":[0.4,0.9],"14":[0.3,0.9],"15":[0.3,0.9]},
+    '1':{"0":[0.95,0.7],"1":[0.95,0.7],"2":[0.95,0.7],"3":[0.95,0.7],"4":[0.85,0.7],"5":[0.66,0.7],"6":[0.47,0.7],"7":[0.28,0.7],"8":[0.76,0.7],"9":[0.57,0.7],"10":[0.47,0.7],"11":[0.85,0.7],"12":[0.19,0.7],"13":[0.38,0.7],"14":[0.28,0.7],"15":[0.28,0.7]},
+    '2':{"0":[1,0.9],"1":[1,0.9],"2":[1,0.9],"3":[1,0.9],"4":[0.9,0.9],"5":[0.7,0.9],"6":[0.5,0.9],"7":[0.3,0.8],"8":[0.8,0.9],"9":[0.6,0.8],"10":[0.5,0.8],"11":[0.9,0.8],"12":[0.2,0.9],"13":[0.4,0.9],"14":[0.3,0.9],"15":[0.3,0.9]},
+    '3':{"0":[1,0.9],"1":[1,0.9],"2":[1,0.9],"3":[1,0.9],"4":[0.9,0.9],"5":[0.7,0.9],"6":[0.5,0.9],"7":[0.3,0.8],"8":[0.8,0.9],"9":[0.6,0.8],"10":[0.5,0.8],"11":[0.9,0.8],"12":[0.2,0.9],"13":[0.4,0.9],"14":[0.3,0.9],"15":[0.3,0.9]},
+    '4':{"0":[1,0.9],"1":[1,0.9],"2":[1,0.9],"3":[1,0.9],"4":[0.9,0.9],"5":[0.7,0.9],"6":[0.5,0.9],"7":[0.3,0.8],"8":[0.8,0.9],"9":[0.6,0.8],"10":[0.5,0.8],"11":[0.9,0.8],"12":[0.2,0.9],"13":[0.4,0.9],"14":[0.3,0.9],"15":[0.3,0.9]},
+    '5':{"0":[1,0.9],"1":[1,0.9],"2":[1,0.9],"3":[1,0.9],"4":[0.9,0.9],"5":[0.7,0.9],"6":[0.5,0.9],"7":[0.3,0.8],"8":[0.8,0.9],"9":[0.6,0.8],"10":[0.5,0.8],"11":[0.9,0.8],"12":[0.2,0.9],"13":[0.4,0.9],"14":[0.3,0.9],"15":[0.3,0.9]},
+    '6':{"0":[0.9,0.6],"1":[0.9,0.6],"2":[0.9,0.6],"3":[0.9,0.6],"4":[0.81,0.6],"5":[0.63,0.6],"6":[0.45,0.6],"7":[0.27,0.6],"8":[0.72,0.6],"9":[0.54,0.6],"10":[0.45,0.6],"11":[0.81,0.6],"12":[0.18,0.6],"13":[0.36,0.6],"14":[0.27,0.6],"15":[0.27,0.6]}
   };
 
   // OOP CBet: [freq, small%]
   var _CBET_OOP={
-    '0':{0:[1,.9],1:[.95,.9],"3":[.9,.9],"4":[.8,.9],"8":[.6,.9],12:[.1,.9],13:[.25,.9],15:[.2,.9]},
-    '2':{0:[.9,.2],1:[.7,.2],"2":[.6,.2],11:[.5,.2],"9":[.3,.3],12:[.08,.5],13:[.1,.5],15:[.05,.5]},
-    '3':{0:[.9,.1],1:[.5,.1],"2":[.5,.1],11:[.4,.1],12:[.05,.5],15:[.03,.5]},
-    '4':{0:[.9,.3],1:[.7,.3],"4":[.5,.4],"8":[.8,.2],"9":[.4,.4],15:[.08,.5]},
-    '5':{0:[1,.8],1:[.85,.8],"2":[.75,.7],"3":[.85,.8],"4":[.7,.8],"5":[.45,.8],"6":[.3,.8],"8":[.6,.7],"9":[.4,.7],11:[.65,.7],12:[.25,.8],15:[.2,.8]}
+    '0':{"0":[0.85,0.77],"1":[0.85,0.77],"2":[0.85,0.77],"3":[0.85,0.77],"4":[0.77,0.77],"5":[0.59,0.77],"6":[0.42,0.77],"7":[0.26,0.68],"8":[0.68,0.77],"9":[0.51,0.68],"10":[0.42,0.68],"11":[0.77,0.68],"12":[0.17,0.77],"13":[0.34,0.77],"14":[0.26,0.77],"15":[0.26,0.77]},
+    '1':{"0":[0.81,0.59],"1":[0.81,0.59],"2":[0.81,0.59],"3":[0.81,0.59],"4":[0.73,0.59],"5":[0.57,0.59],"6":[0.4,0.59],"7":[0.24,0.59],"8":[0.65,0.59],"9":[0.48,0.59],"10":[0.4,0.59],"11":[0.73,0.59],"12":[0.16,0.59],"13":[0.32,0.59],"14":[0.24,0.59],"15":[0.24,0.59]},
+    '2':{"0":[0.85,0.77],"1":[0.85,0.77],"2":[0.85,0.77],"3":[0.85,0.77],"4":[0.77,0.77],"5":[0.59,0.77],"6":[0.42,0.77],"7":[0.26,0.68],"8":[0.68,0.77],"9":[0.51,0.68],"10":[0.42,0.68],"11":[0.77,0.68],"12":[0.17,0.77],"13":[0.34,0.77],"14":[0.26,0.77],"15":[0.26,0.77]},
+    '3':{"0":[0.85,0.77],"1":[0.85,0.77],"2":[0.85,0.77],"3":[0.85,0.77],"4":[0.77,0.77],"5":[0.59,0.77],"6":[0.42,0.77],"7":[0.26,0.68],"8":[0.68,0.77],"9":[0.51,0.68],"10":[0.42,0.68],"11":[0.77,0.68],"12":[0.17,0.77],"13":[0.34,0.77],"14":[0.26,0.77],"15":[0.26,0.77]},
+    '4':{"0":[0.85,0.77],"1":[0.85,0.77],"2":[0.85,0.77],"3":[0.85,0.77],"4":[0.77,0.77],"5":[0.59,0.77],"6":[0.42,0.77],"7":[0.26,0.68],"8":[0.68,0.77],"9":[0.51,0.68],"10":[0.42,0.68],"11":[0.77,0.68],"12":[0.17,0.77],"13":[0.34,0.77],"14":[0.26,0.77],"15":[0.26,0.77]},
+    '5':{"0":[0.85,0.77],"1":[0.85,0.77],"2":[0.85,0.77],"3":[0.85,0.77],"4":[0.77,0.77],"5":[0.59,0.77],"6":[0.42,0.77],"7":[0.26,0.68],"8":[0.68,0.77],"9":[0.51,0.68],"10":[0.42,0.68],"11":[0.77,0.68],"12":[0.17,0.77],"13":[0.34,0.77],"14":[0.26,0.77],"15":[0.26,0.77]},
+    '6':{"0":[0.77,0.51],"1":[0.77,0.51],"2":[0.77,0.51],"3":[0.77,0.51],"4":[0.69,0.51],"5":[0.54,0.51],"6":[0.38,0.51],"7":[0.23,0.51],"8":[0.61,0.51],"9":[0.46,0.51],"10":[0.38,0.51],"11":[0.69,0.51],"12":[0.15,0.51],"13":[0.31,0.51],"14":[0.23,0.51],"15":[0.23,0.51]}
+  };
+
+  
+  // V2.9.161: OOP Turn Barrel
+  var _TB_OOP={
+    '0_i':{0:[0.72,0.49],1:[0.72,0.49],2:[0.65,0.38],3:[0.61,0.38],4:[0.58,0.38],5:[0.43,0.3],6:[0.36,0.3],7:[0.22,0.25],8:[0.5,0.38],9:[0.43,0.38],10:[0.36,0.38],11:[0.5,0.49],12:[0.22,0.38],13:[0.14,0.38],14:[0.07,0.38],15:[0.07,0.38]},
+    '0_b':{0:[0.6,0.49],1:[0.6,0.49],2:[0.54,0.38],3:[0.51,0.38],4:[0.48,0.38],5:[0.36,0.3],6:[0.3,0.3],7:[0.18,0.25],8:[0.42,0.38],9:[0.36,0.38],10:[0.3,0.38],11:[0.42,0.49],12:[0.18,0.38],13:[0.12,0.38],14:[0.06,0.38],15:[0.06,0.38]},
+    '0_w':{0:[0.3,0.49],1:[0.3,0.49],2:[0.27,0.38],3:[0.26,0.38],4:[0.24,0.38],5:[0.18,0.3],6:[0.15,0.3],7:[0.09,0.25],8:[0.21,0.38],9:[0.18,0.38],10:[0.15,0.38],11:[0.21,0.49],12:[0.09,0.38],13:[0.06,0.38],14:[0.03,0.38],15:[0.03,0.38]},
+    '1_i':{0:[0.72,0.49],1:[0.72,0.49],2:[0.65,0.38],3:[0.61,0.38],4:[0.58,0.38],5:[0.43,0.3],6:[0.36,0.3],7:[0.22,0.25],8:[0.5,0.38],9:[0.43,0.38],10:[0.36,0.38],11:[0.5,0.49],12:[0.22,0.38],13:[0.14,0.38],14:[0.07,0.38],15:[0.07,0.38]},
+    '1_b':{0:[0.6,0.49],1:[0.6,0.49],2:[0.54,0.38],3:[0.51,0.38],4:[0.48,0.38],5:[0.36,0.3],6:[0.3,0.3],7:[0.18,0.25],8:[0.42,0.38],9:[0.36,0.38],10:[0.3,0.38],11:[0.42,0.49],12:[0.18,0.38],13:[0.12,0.38],14:[0.06,0.38],15:[0.06,0.38]},
+    '1_w':{0:[0.3,0.49],1:[0.3,0.49],2:[0.27,0.38],3:[0.26,0.38],4:[0.24,0.38],5:[0.18,0.3],6:[0.15,0.3],7:[0.09,0.25],8:[0.21,0.38],9:[0.18,0.38],10:[0.15,0.38],11:[0.21,0.49],12:[0.09,0.38],13:[0.06,0.38],14:[0.03,0.38],15:[0.03,0.38]},
+    '2_i':{0:[0.72,0.49],1:[0.72,0.49],2:[0.65,0.38],3:[0.61,0.38],4:[0.58,0.38],5:[0.43,0.3],6:[0.36,0.3],7:[0.22,0.25],8:[0.6,0.38],9:[0.52,0.38],10:[0.43,0.38],11:[0.6,0.49],12:[0.26,0.38],13:[0.17,0.38],14:[0.09,0.38],15:[0.09,0.38]},
+    '2_b':{0:[0.6,0.49],1:[0.6,0.49],2:[0.54,0.38],3:[0.51,0.38],4:[0.48,0.38],5:[0.36,0.3],6:[0.3,0.3],7:[0.18,0.25],8:[0.5,0.38],9:[0.43,0.38],10:[0.36,0.38],11:[0.5,0.49],12:[0.22,0.38],13:[0.14,0.38],14:[0.07,0.38],15:[0.07,0.38]},
+    '2_w':{0:[0.3,0.49],1:[0.3,0.49],2:[0.27,0.38],3:[0.26,0.38],4:[0.24,0.38],5:[0.18,0.3],6:[0.15,0.3],7:[0.09,0.25],8:[0.25,0.38],9:[0.22,0.38],10:[0.18,0.38],11:[0.25,0.49],12:[0.11,0.38],13:[0.07,0.38],14:[0.04,0.38],15:[0.04,0.38]},
+    '3_i':{0:[0.72,0.49],1:[0.72,0.49],2:[0.65,0.38],3:[0.61,0.38],4:[0.58,0.38],5:[0.43,0.3],6:[0.36,0.3],7:[0.22,0.25],8:[0.5,0.38],9:[0.43,0.38],10:[0.36,0.38],11:[0.5,0.49],12:[0.22,0.38],13:[0.14,0.38],14:[0.07,0.38],15:[0.07,0.38]},
+    '3_b':{0:[0.6,0.49],1:[0.6,0.49],2:[0.54,0.38],3:[0.51,0.38],4:[0.48,0.38],5:[0.36,0.3],6:[0.3,0.3],7:[0.18,0.25],8:[0.42,0.38],9:[0.36,0.38],10:[0.3,0.38],11:[0.42,0.49],12:[0.18,0.38],13:[0.12,0.38],14:[0.06,0.38],15:[0.06,0.38]},
+    '3_w':{0:[0.3,0.49],1:[0.3,0.49],2:[0.27,0.38],3:[0.26,0.38],4:[0.24,0.38],5:[0.18,0.3],6:[0.15,0.3],7:[0.09,0.25],8:[0.21,0.38],9:[0.18,0.38],10:[0.15,0.38],11:[0.21,0.49],12:[0.09,0.38],13:[0.06,0.38],14:[0.03,0.38],15:[0.03,0.38]},
+    '4_i':{0:[0.72,0.49],1:[0.72,0.49],2:[0.65,0.38],3:[0.61,0.38],4:[0.58,0.38],5:[0.43,0.3],6:[0.36,0.3],7:[0.22,0.25],8:[0.6,0.38],9:[0.52,0.38],10:[0.43,0.38],11:[0.6,0.49],12:[0.26,0.38],13:[0.17,0.38],14:[0.09,0.38],15:[0.09,0.38]},
+    '4_b':{0:[0.6,0.49],1:[0.6,0.49],2:[0.54,0.38],3:[0.51,0.38],4:[0.48,0.38],5:[0.36,0.3],6:[0.3,0.3],7:[0.18,0.25],8:[0.5,0.38],9:[0.43,0.38],10:[0.36,0.38],11:[0.5,0.49],12:[0.22,0.38],13:[0.14,0.38],14:[0.07,0.38],15:[0.07,0.38]},
+    '4_w':{0:[0.3,0.49],1:[0.3,0.49],2:[0.27,0.38],3:[0.26,0.38],4:[0.24,0.38],5:[0.18,0.3],6:[0.15,0.3],7:[0.09,0.25],8:[0.25,0.38],9:[0.22,0.38],10:[0.18,0.38],11:[0.25,0.49],12:[0.11,0.38],13:[0.07,0.38],14:[0.04,0.38],15:[0.04,0.38]},
+    '5_i':{0:[0.58,0.49],1:[0.58,0.49],2:[0.52,0.38],3:[0.49,0.38],4:[0.46,0.38],5:[0.35,0.3],6:[0.29,0.3],7:[0.17,0.25],8:[0.4,0.38],9:[0.35,0.38],10:[0.29,0.38],11:[0.4,0.49],12:[0.17,0.38],13:[0.12,0.38],14:[0.06,0.38],15:[0.06,0.38]},
+    '5_b':{0:[0.48,0.49],1:[0.48,0.49],2:[0.43,0.38],3:[0.41,0.38],4:[0.38,0.38],5:[0.29,0.3],6:[0.24,0.3],7:[0.14,0.25],8:[0.34,0.38],9:[0.29,0.38],10:[0.24,0.38],11:[0.34,0.49],12:[0.14,0.38],13:[0.1,0.38],14:[0.05,0.38],15:[0.05,0.38]},
+    '5_w':{0:[0.24,0.49],1:[0.24,0.49],2:[0.22,0.38],3:[0.2,0.38],4:[0.19,0.38],5:[0.14,0.3],6:[0.12,0.3],7:[0.07,0.25],8:[0.17,0.38],9:[0.14,0.38],10:[0.12,0.38],11:[0.17,0.49],12:[0.07,0.38],13:[0.05,0.38],14:[0.02,0.38],15:[0.02,0.38]},
+    '6_i':{0:[0.72,0.49],1:[0.72,0.49],2:[0.65,0.38],3:[0.61,0.38],4:[0.58,0.38],5:[0.43,0.3],6:[0.36,0.3],7:[0.22,0.25],8:[0.6,0.38],9:[0.52,0.38],10:[0.43,0.38],11:[0.6,0.49],12:[0.26,0.38],13:[0.17,0.38],14:[0.09,0.38],15:[0.09,0.38]},
+    '6_b':{0:[0.6,0.49],1:[0.6,0.49],2:[0.54,0.38],3:[0.51,0.38],4:[0.48,0.38],5:[0.36,0.3],6:[0.3,0.3],7:[0.18,0.25],8:[0.5,0.38],9:[0.43,0.38],10:[0.36,0.38],11:[0.5,0.49],12:[0.22,0.38],13:[0.14,0.38],14:[0.07,0.38],15:[0.07,0.38]},
+    '6_w':{0:[0.3,0.49],1:[0.3,0.49],2:[0.27,0.38],3:[0.26,0.38],4:[0.24,0.38],5:[0.18,0.3],6:[0.15,0.3],7:[0.09,0.25],8:[0.25,0.38],9:[0.22,0.38],10:[0.18,0.38],11:[0.25,0.49],12:[0.11,0.38],13:[0.07,0.38],14:[0.04,0.38],15:[0.04,0.38]}
   };
 
   // Check-Raise: [freq, sizing_mult] sizing_mult=倍对手下注
   var _CR={
-    '2':{1:[.7,3],"2":[.6,3],11:[.5,3.5],"9":[.35,3.5],10:[.25,3.5],15:[.03,3]},
-    '3':{1:[.7,3],"2":[.65,3],11:[.5,3.5],"9":[.3,3.5],10:[.25,3.5]},
-    '0':{1:[.3,2.5],"2":[.2,2.5],"9":[.15,2.5],15:[.02,2.5]},
-    '4':{1:[.5,3],"8":[.5,3.5],"9":[.3,3.5],11:[.5,3.5]}
+    '0':{0:[0.8,3.5],1:[0.7,3],2:[0.6,3],3:[0.5,2.5],4:[0.4,2.5],5:[0.25,2.5],6:[0.15,2.5],7:[0.08,2.5],8:[0.5,3.5],9:[0.35,3.5],10:[0.25,3.5],11:[0.5,3.5],12:[0.15,2.5],13:[0.05,2.5],14:[0.03,2.5],15:[0.02,2.5]},
+    '1':{0:[0.68,3.5],1:[0.59,3],2:[0.51,3],3:[0.42,2.5],4:[0.34,2.5],5:[0.21,2.5],6:[0.13,2.5],7:[0.07,2.5],8:[0.42,3.5],9:[0.3,3.5],10:[0.21,3.5],11:[0.42,3.5],12:[0.13,2.5],13:[0.04,2.5],14:[0.03,2.5],15:[0.02,2.5]},
+    '2':{0:[0.8,3.5],1:[0.7,3],2:[0.6,3],3:[0.5,2.5],4:[0.4,2.5],5:[0.25,2.5],6:[0.15,2.5],7:[0.08,2.5],8:[0.5,3.5],9:[0.35,3.5],10:[0.25,3.5],11:[0.5,3.5],12:[0.15,2.5],13:[0.05,2.5],14:[0.03,2.5],15:[0.02,2.5]},
+    '3':{0:[0.8,3.5],1:[0.7,3],2:[0.6,3],3:[0.5,2.5],4:[0.4,2.5],5:[0.25,2.5],6:[0.15,2.5],7:[0.08,2.5],8:[0.5,3.5],9:[0.35,3.5],10:[0.25,3.5],11:[0.5,3.5],12:[0.15,2.5],13:[0.05,2.5],14:[0.03,2.5],15:[0.02,2.5]},
+    '4':{0:[0.8,3.5],1:[0.7,3],2:[0.6,3],3:[0.5,2.5],4:[0.4,2.5],5:[0.25,2.5],6:[0.15,2.5],7:[0.08,2.5],8:[0.5,3.5],9:[0.35,3.5],10:[0.25,3.5],11:[0.5,3.5],12:[0.15,2.5],13:[0.05,2.5],14:[0.03,2.5],15:[0.02,2.5]},
+    '5':{0:[0.96,3.5],1:[0.84,3],2:[0.72,3],3:[0.6,2.5],4:[0.48,2.5],5:[0.3,2.5],6:[0.18,2.5],7:[0.1,2.5],8:[0.6,3.5],9:[0.42,3.5],10:[0.3,3.5],11:[0.6,3.5],12:[0.18,2.5],13:[0.06,2.5],14:[0.04,2.5],15:[0.02,2.5]},
+    '6':{0:[0.92,3.5],1:[0.8,3],2:[0.69,3],3:[0.57,2.5],4:[0.46,2.5],5:[0.29,2.5],6:[0.17,2.5],7:[0.09,2.5],8:[0.57,3.5],9:[0.4,3.5],10:[0.29,3.5],11:[0.57,3.5],12:[0.17,2.5],13:[0.06,2.5],14:[0.03,2.5],15:[0.02,2.5]}
   };
 
   // River诈唬比: {pot倍数: 诈唬频率}
@@ -2327,7 +2362,7 @@ var HandStateMachine=(function(){
     if(!hc)return 15;
     var n=hc.name;
     if(n==='NUTS')return 0;
-    // V2.9.158: STRONG细分——暗三条/两对不再一律当顶对
+    // V2.9.161: STRONG细分——暗三条/两对不再一律当顶对
     if(n==='STRONG'){
       if(hc.desc){
         if(hc.desc.indexOf('四条')>=0)return 0;
@@ -2337,19 +2372,21 @@ var HandStateMachine=(function(){
       }
       return 4; // 顶对好踢
     }
-    // V2.9.158: MEDIUM细分——顶对弱踢不再一律当第二对
+    // V2.9.161: MEDIUM细分——顶对弱踢不再一律当第二对
     if(n==='MEDIUM'){
       if(hc.desc&&hc.desc.indexOf('顶对')>=0)return 5;
       return 6; // 第二对/中等
     }
-    // V2.9.158: DRAW低outs(<=3)修正→超牌而非卡顺
+    // V2.9.161: DRAW低outs(<=3)修正→超牌而非卡顺
     // handClassify可能把超牌outs误判为DRAW(如AK on Q72被判3outs卡顺)
+    // V2.9.161: 用isOvercard区分超牌和真正听牌
     if(n==='DRAW'){
       if(hc.outs>=12)return 11; // 组合听牌
       if(hc.outs>=8)return 9; // 同花听
       if(hc.outs>=6)return 10; // OESD
-      if(hc.outs<=3)return 13; // 低outs=超牌(修正误判)
-      return 12; // 卡顺(4-5outs)
+      if(hc.isOvercard)return 13; // 超牌(AK/AQ等)
+      if(hc.outs<=3)return 12; // 真正卡顺
+      return 12; // 卡顺
     }
     if(n==='AIR')return 15;
     return 6;
@@ -2377,6 +2414,47 @@ var HandStateMachine=(function(){
     var profile=DRTA.getProfile();
     var oppType=G.opp||'unknown';
     var p5=_pos5(p);
+
+    // V2.9.163: 翻前对手定量剥削——用OppProfiler数值数据替代粗粒度7类调整
+    var _oppAdj=0,_oppAdjDesc='';
+    try{
+      if(typeof OppProfiler!=='undefined'&&OppProfiler._profiles){
+        if(scene==='check'||scene==='call'){
+          // 开池→找盲注位对手的实际弃牌率
+          for(var _onk in OppProfiler._profiles){
+            var _op=OppProfiler._profiles[_onk];
+            if(!_op||!_op.pos)continue;
+            if(_op.pos==='bb'||_op.pos===1){
+              var _bbHands=Math.max(_op.hands||1,1);
+              var _bbFoldToBet=((_op._facedCBet>0?_op._foldToCBet/_op._facedCBet:0)*100)||50;
+              var _bb3betRate=((_op._pf3bet||0)/_bbHands*100)||5;
+              if(['co','btn','sb'].indexOf(p)>=0){
+                if(_bbFoldToBet>65){_oppAdj+=Math.min(8,(_bbFoldToBet-65)/5);_oppAdjDesc+='盲注弃牌'+_bbFoldToBet.toFixed(0)+'%';}
+                if(_bb3betRate>12){_oppAdj-=Math.min(6,(_bb3betRate-10)/3);_oppAdjDesc+='盲注3bet'+_bb3betRate.toFixed(0)+'%';}
+              }
+              break;
+            }
+          }
+        }else if(scene==='raise'&&G._raiserRole){
+          // 面对加注→找加注者的PFR和弃牌率
+          var _rPosMap={'utg':'utg','utg1':'utg1','mp':'mp','mp1':'mp1','hj':'hj','co':'co','btn':'btn','sb':'sb','bb':'bb'};
+          var _rRole=_rPosMap[G._raiserRole]||'';
+          for(var _onk2 in OppProfiler._profiles){
+            var _op2=OppProfiler._profiles[_onk2];
+            if(!_op2||!_op2.pos)continue;
+            if(_op2.pos===_rRole||_op2.pos===G._raiserRole){
+              var _rHands=Math.max(_op2.hands||1,1);
+              var _rPFR=((_op2._pfRaise||0)/_rHands*100)||20;
+              var _rFold3bet=((_op2._faced3bet>0?_op2._foldTo3bet/_op2._faced3bet:0)*100)||40;
+              if(_rFold3bet>60&&['btn','sb'].indexOf(p)>=0){_oppAdj+=5;_oppAdjDesc+='3bet弃牌'+_rFold3bet.toFixed(0)+'%';}
+              if(_rPFR<14){_oppAdj-=4;_oppAdjDesc+='PFR狭窄'+_rPFR.toFixed(0)+'%';}
+              break;
+            }
+          }
+        }
+      }
+    }catch(_e){console.log('[V2.9.163] 对手统计解析: '+_e.message);}
+    if(_oppAdj!==0)eq+=_oppAdj;
 
     // V2.9.141投机加成(复用)
     var _specBonus=0;
@@ -2417,10 +2495,32 @@ var HandStateMachine=(function(){
       var sz=_preflopSizing(p,pot,scene,spr);
       var exploitR=applyExploit(eq,'raise',oppType,{bet:0,pot:pot});
       var weights=DRTA.getWeights?DRTA.getWeights(profile):{};
-      return{a:'raise',v:sz,r:p5+' GTO RFI('+Math.round(freq*100)+'%) eq'+Math.round(eq),eq:exploitR.eq,c:eq>=60?'h':eq>=50?'m':'l',sizing:sz,scene:'开池',spr:spr,sprAdvice:getSPRAdvice(spr),exploit:exploitR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:freq};
+      var _rfiReason=p5+' GTO RFI('+Math.round(freq*100)+'%)';
+      if(_oppAdjDesc)_rfiReason+=' '+_oppAdjDesc;
+      return{a:'raise',v:sz,r:_rfiReason+' eq'+Math.round(eq),eq:exploitR.eq,c:eq>=60?'h':eq>=50?'m':'l',sizing:sz,scene:'开池',spr:spr,sprAdvice:getSPRAdvice(spr),exploit:exploitR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:freq};
     }
 
     // ====== 场景2: 面对开池 ======
+    // V2.9.161fix: Squeeze优先于3bet（有callers时先检查squeeze）
+    if(scene==='raise'&&G._numCallersBefore>=1&&(['btn','sb'].indexOf(p)>=0)){
+      var openP5=_pos5(G._raiserPos||'utg1');
+      var sqTable=_SQUEEZE['vs_'+openP5+'_vs_caller'];
+      if(sqTable&&(sqTable[p]||sqTable['BTN'])){
+        var sqEntry=(sqTable[p]||sqTable['BTN'])[k];
+        if(sqEntry&&sqEntry.a==='sq'){
+          var sqFreq=sqEntry.f;
+          if(oppType==='nit'||oppType==='tight')sqFreq=Math.min(1,sqFreq*1.3);
+          else if(oppType==='fish'||oppType==='calling_station')sqFreq*=0.5;
+          if(Math.random()<sqFreq){
+            var sqSz=Math.round((pot+bet)*3);
+            sqSz=Math.min(sqSz,stk);
+            var _sqReason='Squeeze '+k+' vs '+openP5+'('+Math.round(sqFreq*100)+'%)';
+            if(_oppAdjDesc)_sqReason+=' '+_oppAdjDesc;
+            return{a:'raise',v:sqSz,r:_sqReason,eq:eq,c:'h',sizing:sqSz,scene:'Squeeze',spr:spr,sprAdvice:getSPRAdvice(spr),_se:true};
+          }
+        }
+      }
+    }
     if(scene==='raise'){
       var raiserRole=G._raiserRole||'unknown';
       var rP5=_pos5(raiserRole);
@@ -2453,7 +2553,9 @@ var HandStateMachine=(function(){
         sz3=Math.min(sz3,stk);
         var exploitR2=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot,facing3bet:true});
         var weights2=DRTA.getWeights?DRTA.getWeights(profile):{};
-        return{a:'raise',v:sz3,r:'GTO 3bet vs '+rP5+'('+Math.round(f*100)+'%)',eq:exploitR2.eq,c:'h',sizing:sz3,scene:'面对加注',spr:spr,sprAdvice:getSPRAdvice(spr),exploit:exploitR2.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights2},_se:true,_seFreq:f};
+        var _3bReason='GTO 3bet vs '+rP5+'('+Math.round(f*100)+'%)';
+        if(_oppAdjDesc)_3bReason+=' '+_oppAdjDesc;
+        return{a:'raise',v:sz3,r:_3bReason,eq:exploitR2.eq,c:'h',sizing:sz3,scene:'面对加注',spr:spr,sprAdvice:getSPRAdvice(spr),exploit:exploitR2.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights2},_se:true,_seFreq:f};
       }
       if(act==='c'){
         var exploitR3=applyExploit(eq,'call',oppType,{bet:actualBet,pot:pot});
@@ -2525,8 +2627,17 @@ var HandStateMachine=(function(){
     if(hole.length>0&&typeof hole[0]==='string'){hole=hole.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});}
     if(bc.length>0&&typeof bc[0]==='string'){bc=bc.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});comm=bc;}
     var pot=G.pot||1,bet=G.bet||0,stk=G.stk||100000;
+    // V2.9.161: 多桌检测
+    MultiTableDetector.recordAction();
+
     var spr=calcSPR();
-    var ip=pA(G.pos)>=0.5;
+    // V2.9.161fix2: IP判定——用postflop行动顺序(非preflop)
+    // postflop行动序: SB(1)→BB(2)→UTG(3)→...→CO(8)→BTN(9), 越大越后=IP
+    var _pfOrd={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};
+    var _heroOrd=_pfOrd[G.pos]||5;
+    var _oppRole=G._raiserRole||G._raiserPos||'';
+    var _oppOrd=_pfOrd[_oppRole]||5;
+    var ip=_heroOrd>_oppOrd;
     var scene=G.scene||'check';
     var street=getCurrentStreet();
     var bTexture=boardTexture(bc);
@@ -2540,14 +2651,51 @@ var HandStateMachine=(function(){
     else{var mcI=bc.length===4?1200:1000;if(bet/(pot+bet)>=.66)mcI=Math.round(mcI*2);else if(bet/(pot+bet)>=.33)mcI=Math.round(mcI*1.3);var ms=mcVsRange(hole,comm,getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry'),Math.min(mcI,4000));eq=ms.eq;}
     _mcSimCache=null;
 
+    // V2.9.161: 3bet底池+多人池检测
+    var _is3betPot=spr<10&&(ActionLine.didPreflopRaise()||G._faced3bet||G._heroDid4bet);
+    G._is3betPot=_is3betPot;
+    var _nActive=0;
+    try{var _pl=G._lastPlayers||[];for(var _pi=0;_pi<_pl.length;_pi++){if(_pl[_pi]&&!_pl[_pi].folded&&_pl[_pi].active)_nActive++;}}catch(e){}
+    if(_nActive<2)_nActive=2;
+    var _isMultiway=_nActive>=3;
+    G._isMultiway=_isMultiway;
+
+
+    // V2.9.161: SPR区频率调整
+    var _sprZone=SPRZone.getZone(spr);
+    var _sprAdj={cbet:1,fcb:1,bluff:1};
+    if(_sprZone==='ultra_short'){
+      _sprAdj.cbet=1.3; _sprAdj.fcb=0.5; _sprAdj.bluff=0;
+    }else if(_sprZone==='short'){
+      _sprAdj.cbet=1.15; _sprAdj.fcb=0.7; _sprAdj.bluff=0.2;
+    }else if(_sprZone==='deep'){
+      _sprAdj.cbet=0.9; _sprAdj.fcb=1.1; _sprAdj.bluff=1.2;
+    }
+
     var btKey=_bt2key(bTexture);
     var hcKey=_hc2key(hClass);
     var didPFR=ActionLine.didPreflopRaise();
     var weights=DRTA.getWeights?DRTA.getWeights(profile):{};
 
+    // ====== V2.9.161: 翻后面对allin——赔率计算 ======
+    if(scene==='allin'&&cc>0){
+      var allinBet=bet||pot;
+      var allinRatio=allinBet/(pot+allinBet*2);
+      var callThresh=Math.round(allinRatio*100);
+      callThresh=Math.max(callThresh,40);
+      if(_is3betPot)callThresh=Math.max(35,callThresh-5);
+      if(_isMultiway)callThresh+=8;
+      var exploitAllin=applyExploit(eq,'call',oppType,{bet:allinBet,pot:pot});
+      if(exploitAllin.eq>=callThresh){
+        return{a:'call',r:'SE vs allin eq'+Math.round(exploitAllin.eq)+'%≥'+callThresh+'%',eq:exploitAllin.eq,c:exploitAllin.eq>=65?'h':'m',scene:'面对allin',spr:spr,exploit:exploitAllin.exploit,_se:true};
+      }
+      return _fold(exploitAllin.eq,'SE vs allin eq'+Math.round(exploitAllin.eq)+'%<'+callThresh+'%',spr);
+    }
+
+    var _wasHeroPFR=didPFR||G._heroDidPFR;
     // ====== CBet场景: PFR, 面对check ======
-    var _wasPFR3=didPFR||G._heroDidPFR;
-    if(_wasPFR3&&scene==='check'&&street!=='river'){
+    
+    if(_wasHeroPFR&&scene==='check'&&street==='flop'){
       var cbTable=ip?_CBET_IP[btKey]:_CBET_OOP[btKey];
       if(cbTable&&cbTable[hcKey]){
         var cb=cbTable[hcKey];
@@ -2562,6 +2710,18 @@ var HandStateMachine=(function(){
             if(hcKey>=13)cbFreq=Math.round(cbFreq*0.3); // vs鱼不诈唬CBet
           }
         }
+        // V2.9.161: 统一pipeline替代分散的3bet/Multiway/EA/Range/SPR调整
+        cbFreq=_applyPipeline(cbFreq,'bet',hcKey,oppType,street,'cbet',_sprAdj,_is3betPot,_isMultiway);
+
+
+
+
+
+
+
+
+
+
 
         if(Math.random()<cbFreq){
           // 决定sizing
@@ -2571,7 +2731,7 @@ var HandStateMachine=(function(){
           var cbSz=Math.round(pot*cbPct);
           cbSz=Math.min(cbSz,stk);
           var exploitR=applyExploit(eq,ip?'bet':'bet',oppType,{bet:bet,pot:pot});
-          return{a:'raise',v:cbSz,r:'GTO CBet '+btKey+'/'+hcKey+'('+Math.round(cbFreq*100)+'%) '+(cbPct<.5?'小':'大')+'尺度',eq:exploitR.eq,c:eq>=55?'h':eq>=45?'m':'l',sizing:cbSz,scene:'CBet',spr:spr,sprAdvice:getSPRAdvice(spr),hClass:hClass,bTexture:bTexture,exploit:exploitR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:cbFreq};
+          return{a:'raise',v:cbSz,r:'GTO CBet '+btKey+'/'+hcKey+'('+Math.round(cbFreq*100)+'%) '+(cbPct<.5?'小':'大')+'尺度',eq:exploitR.eq,c:eq>=55?'h':eq>=45?'m':'l',sizing:cbSz,scene:'CBet',spr:spr,sprAdvice:getSPRAdvice(spr),hClass:hClass,bTexture:bTexture,multiTableAdvice:MultiTableDetector.getAdvice(hcKey,'cbet'),exploit:exploitR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:cbFreq};
         }else{
           // 不CBet → check
           var exploitR2=applyExploit(eq,'check',oppType,{bet:0,pot:pot});
@@ -2594,7 +2754,7 @@ var HandStateMachine=(function(){
           if(oppCB>.7)crFreq=Math.min(.3,crFreq*1.5);
         }
 
-        if(Math.random()<crFreq){
+crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPot,_isMultiway);        if(Math.random()<crFreq){
           var crSz=Math.round(bet*crSzMult);
           crSz=Math.min(crSz,stk);
           var exploitCR=applyExploit(eq,'raise',oppType,{bet:bet,pot:pot});
@@ -2603,15 +2763,40 @@ var HandStateMachine=(function(){
       }
     }
 
-    // V2.9.158: 旧River诈唬路径已删除——统一由_riverDecision处理
+    // V2.9.161: 旧River诈唬路径已删除——统一由_riverDecision处理
 
 
 
-    // ====== V2.9.158: 面对下注防守(统一Flop/Turn/River) ======
+    // ====== V2.9.161: OOP Donk场景 ======
+    if(scene==='check'&&!ip&&!didPFR&&(street==='flop'||street==='turn')){
+      var donkR=_donkDecision(k,hcKey,btKey,ip,pot,oppType,_sprAdj,_is3betPot,_isMultiway,street);
+      if(donkR){
+        donkR.eq=eq;donkR.hClass=hClass;donkR.bTexture=bTexture;
+        console.log('[SE160] Donk: '+donkR.a+' bt='+btKey);
+        return donkR;
+      }
+    }
+
+    // ====== V2.9.161: 面对下注防守(统一Flop/Turn/River) ======
     if(scene==='raise'&&street!=='river'){
       // 非PFR面对CBet(对手先加注/我们跟注后的翻后)
-      var isDonk=_wasPFR3; // PFR面对对手主动下注=donk
+      var isDonk=_wasHeroPFR; // PFR面对对手主动下注=donk
       var cbetSz=bet||Math.round(pot*0.5);
+      // V2.9.162: 转牌face场景完全枚举EV前置层 - 失败fallback到_facingCBet
+      if(street==='turn'){
+        try{
+          var _tEvFR=_turnFullEnumerateEV(k,hcKey,didPFR,'face',cbetSz,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway,eq);
+          if(_tEvFR){
+            _tEvFR.eq=eq;
+            var _tEvFExploit=applyExploit(eq,_tEvFR.a,oppType,{bet:cbetSz,pot:pot});
+            if(_tEvFExploit){_tEvFR.exploit=_tEvFExploit.exploit;_tEvFR.eq=_tEvFExploit.eq;}
+            _tEvFR.hClass=hClass;_tEvFR.bTexture=bTexture;
+            if(isDonk)_tEvFR.scene='面对Donk';
+            console.log('[SE162] TurnFaceEV: '+_tEvFR.a+' hcKey='+hcKey);
+            return _tEvFR;
+          }
+        }catch(e){console.log('[SE162] TurnFaceEV layer err: '+e.message);}
+      }
       var fcbR=_facingCBet(k,hcKey,btKey,ip,cbetSz,pot,street,isDonk);
       if(fcbR){
         fcbR.eq=eq;
@@ -2619,14 +2804,14 @@ var HandStateMachine=(function(){
         if(fcbExploit){fcbR.exploit=fcbExploit.exploit;fcbR.eq=fcbExploit.eq;}
         fcbR.hClass=hClass;fcbR.bTexture=bTexture;
         if(isDonk)fcbR.scene='面对Donk';
-        console.log('[SE158] 面CBet/Donk: '+fcbR.a+' '+btKey+'/'+hcKey+(isDonk?' donk':''));
+        console.log('[SE160] 面CBet/Donk: '+fcbR.a+' '+btKey+'/'+hcKey+(isDonk?' donk':''));
         return fcbR;
       }
     }
 
     // ====== V2.9.157: 面对Check-Raise(我们CBet后被CR) ======
-    var _wasPFR=didPFR||G._heroDidPFR;
-    if(_wasPFR&&scene==='reraise'&&(street==='flop'||street==='turn')){
+
+    if(_wasHeroPFR&&scene==='reraise'&&(street==='flop'||street==='turn')){
       var crSz=bet||Math.round(pot*0.66);
       var fcrR=_facingCR(k,hcKey,btKey,crSz,pot);
       if(fcrR){
@@ -2634,15 +2819,15 @@ var HandStateMachine=(function(){
         var fcrExploit=applyExploit(eq,fcrR.a,oppType,{bet:crSz,pot:pot});
         if(fcrExploit){fcrR.exploit=fcrExploit.exploit;fcrR.eq=fcrExploit.eq;}
         fcrR.hClass=hClass;fcrR.bTexture=bTexture;
-        console.log('[SE158] 面CR: '+fcrR.a+' '+btKey+'/'+hcKey);
+        console.log('[SE160] 面CR: '+fcrR.a+' '+btKey+'/'+hcKey);
         return fcrR;
       }
     }
 
-    // V2.9.158: Turn/River面下注(已合并到上面的统一条件，此处保留River面下注)
+    // V2.9.161: Turn/River面下注(已合并到上面的统一条件，此处保留River面下注)
     if(scene==='raise'&&street==='river'){
       var rSz=bet||Math.round(pot*0.5);
-      var isDonkR=_wasPFR3;
+      var isDonkR=_wasHeroPFR;
       var fcbR2=_facingCBet(k,hcKey,btKey,ip,rSz,pot,street,isDonkR);
       if(fcbR2){
         fcbR2.eq=eq;
@@ -2650,24 +2835,36 @@ var HandStateMachine=(function(){
         if(fcb2Exploit){fcbR2.exploit=fcb2Exploit.exploit;fcbR2.eq=fcb2Exploit.eq;}
         fcbR2.hClass=hClass;fcbR2.bTexture=bTexture;
         if(isDonkR)fcbR2.scene='面对Donk';
-        console.log('[SE158] River面CBet/Donk: '+fcbR2.a);
+        console.log('[SE160] River面CBet/Donk: '+fcbR2.a);
         return fcbR2;
       }
     }
 
-    // ====== V2.9.158: Turn Barrel(PFR在Turn继续下注) ======
-    var _wasPFR2=didPFR||G._heroDidPFR;
-    // V2.9.158: Flop未CBet时降低Turn barrel频率(G._heroDidFlopCBet由实际操作设置)
+    // ====== V2.9.161: Turn Barrel(PFR在Turn继续下注) ======
+    
+    // V2.9.161: Flop未CBet时降低Turn barrel频率(G._heroDidFlopCBet由实际操作设置)
     var _didFlopCBet=G._heroDidFlopCBet!==false;
-    if(_wasPFR2&&scene==='check'&&street==='turn'){
+    if(_wasHeroPFR&&scene==='check'&&street==='turn'){
+      // V2.9.162: 转牌完全枚举EV前置层 (经验频率→数学最优) - 失败fallback到_turnBarrel查表
+      try{
+        var _tEvR=_turnFullEnumerateEV(k,hcKey,didPFR,'check',0,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway,eq);
+        if(_tEvR){
+          _tEvR.eq=eq;
+          var _tEvExploit=applyExploit(eq,_tEvR.a,oppType,{bet:0,pot:pot});
+          if(_tEvExploit){_tEvR.exploit=_tEvExploit.exploit;_tEvR.eq=_tEvExploit.eq;}
+          _tEvR.hClass=hClass;_tEvR.bTexture=bTexture;
+          console.log('[SE162] TurnEV: '+_tEvR.a+' hcKey='+hcKey+' ev='+(_tEvR.ev/Math.max(pot,1)*100).toFixed(0)+'%pot');
+          return _tEvR;
+        }
+      }catch(e){console.log('[SE162] TurnEV layer err: '+e.message);}
       var tType=_classifyTurnCard(hole,comm);
-      var tbR=_turnBarrel(k,hcKey,btKey,tType,bet,pot,_didFlopCBet);
+      var tbR=_turnBarrel(k,hcKey,btKey,tType,bet,pot,_didFlopCBet,ip,oppType,_sprAdj,_is3betPot,_isMultiway);
       if(tbR){
         tbR.eq=eq;
         var tbExploit=applyExploit(eq,tbR.a,oppType,{bet:0,pot:pot});
         if(tbExploit){tbR.exploit=tbExploit.exploit;tbR.eq=tbExploit.eq;}
         tbR.hClass=hClass;tbR.bTexture=bTexture;
-        console.log('[SE158] Turn barrel: '+tbR.a+' '+btKey+'/'+tType);
+        console.log('[SE160] Turn barrel: '+tbR.a+' '+btKey+'/'+tType);
         return tbR;
       }
     }
@@ -2676,13 +2873,25 @@ var HandStateMachine=(function(){
     if(street==='river'){
       var rivScene=scene==='check'?'check':'face';
       var rivBet=bet||0;
-      var rivR=_riverDecision(k,hcKey,didPFR,rivScene,rivBet,pot);
+      // V2.9.162: 完全枚举EV前置层 (经验频率→数学最优) - 失败fallback到_RIV查表
+      try{
+        var _evR=_riverFullEnumerateEV(k,hcKey,didPFR,rivScene,rivBet,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway,eq);
+        if(_evR){
+          _evR.eq=eq;
+          var _evExploit=applyExploit(eq,_evR.a,oppType,{bet:rivBet,pot:pot});
+          if(_evExploit){_evR.exploit=_evExploit.exploit;_evR.eq=_evExploit.eq;}
+          _evR.hClass=hClass;_evR.bTexture=bTexture;
+          console.log('[SE162] RiverEV: '+_evR.a+' hcKey='+hcKey+' ev='+(_evR.ev/Math.max(pot,1)*100).toFixed(0)+'%pot');
+          return _evR;
+        }
+      }catch(e){console.log('[SE162] RiverEV layer err: '+e.message);}
+      var rivR=_riverDecision(k,hcKey,didPFR,rivScene,rivBet,pot,btKey,ip,_sprAdj,_is3betPot,_isMultiway);
       if(rivR){
         rivR.eq=eq;
         var rivExploit=applyExploit(eq,rivR.a,oppType,{bet:rivBet,pot:pot});
         if(rivExploit){rivR.exploit=rivExploit.exploit;rivR.eq=rivExploit.eq;}
         rivR.hClass=hClass;rivR.bTexture=bTexture;
-        console.log('[SE158] River: '+rivR.a+' hcKey='+hcKey);
+        console.log('[SE160] River: '+rivR.a+' hcKey='+hcKey);
         return rivR;
       }
     }
@@ -2695,6 +2904,36 @@ var HandStateMachine=(function(){
   function _fold(eq,reason,spr){
     return{a:'fold',r:'[SE]'+reason,eq:eq,c:'l',scene:'',spr:spr||0,sprAdvice:spr?getSPRAdvice(spr):'',_se:true};
   }
+
+  // V2.9.161: 统一调整管道
+  function _applyPipeline(baseFreq,action,hcKey,oppType,street,context,sprAdj,is3bP,isMW){
+    var f=baseFreq;
+    sprAdj=sprAdj||{cbet:1,fcb:1,bluff:1};
+    // 1) SPR调整
+    if(context==='cbet'||context==='barrel'||context==='donk'||context==='cr'){
+      f=f*sprAdj.cbet;if(hcKey>=12)f=f*sprAdj.bluff;
+    }else if(context==='facing'){
+      f=f*sprAdj.fcb;
+    }
+    // 2) 3bet底池
+    if(is3bP){
+      if(context==='facing'){/* FCB内部已处理 */}
+      else if(hcKey<=4){f=Math.min(.95,f*1.15);}
+      else if(hcKey>=13){f=f*0.6;}
+    }
+    // 3) 多人池
+    if(isMW){
+      if(context==='facing'){/* FCB内部已处理 */}
+      else{f=f*0.7;}
+    }
+    // 4) ExploitAdjuster
+    var ea=ExploitAdjuster(f,action,hcKey,oppType,street||'flop',context);
+    f=ea.freq;if(ea.label)console.log('[SE161] EA: '+ea.label);
+    // 5) RangeEstimator
+    f=RangeEstimator.adjustForRange(f,oppType,street||'flop',action);
+    return f;
+  }
+
 
   function _preflopSizing(pos,pot,scene,spr){
     var base=Math.round(pot*2.5);
@@ -2737,38 +2976,57 @@ var HandStateMachine=(function(){
   // 面对CBet防守表 (IP/OOP分别)
   // 格式: {callFreq, raiseFreq, foldFreq}
   var _FCB_IP={
-    // dry_high(0) + small
-    '0_s':{0:{c:.2,r:.8,f:0},1:{c:.3,r:.7,f:0},2:{c:.5,r:.5,f:0},3:{c:.7,r:.3,f:0},4:{c:.8,r:.15,f:.05},5:{c:.75,r:.05,f:.2},6:{c:.7,r:0,f:.3},8:{c:.7,r:.3,f:0},9:{c:.8,r:.1,f:.1},10:{c:.7,r:.05,f:.25},11:{c:.5,r:.5,f:0},12:{c:.5,r:0,f:.5},13:{c:.4,r:0,f:.6},14:{c:.2,r:0,f:.8},15:{c:.05,r:0,f:.95}},
-    // dry_high(0) + large
-    '0_l':{0:{c:.3,r:.7,f:0},1:{c:.4,r:.6,f:0},2:{c:.6,r:.4,f:0},3:{c:.8,r:.2,f:0},4:{c:.85,r:.1,f:.05},5:{c:.5,r:0,f:.5},6:{c:.3,r:0,f:.7},8:{c:.6,r:.3,f:.1},9:{c:.5,r:.1,f:.4},10:{c:.3,r:0,f:.7},11:{c:.5,r:.4,f:.1},12:{c:.2,r:0,f:.8},13:{c:.1,r:0,f:.9},15:{c:0,r:0,f:1}},
-    // wet_conn(2) + small
-    '2_s':{0:{c:.1,r:.9,f:0},1:{c:.2,r:.8,f:0},2:{c:.4,r:.6,f:0},3:{c:.7,r:.3,f:0},4:{c:.8,r:.15,f:.05},5:{c:.6,r:.05,f:.35},8:{c:.6,r:.4,f:0},9:{c:.8,r:.1,f:.1},10:{c:.7,r:.05,f:.25},11:{c:.5,r:.5,f:0},12:{c:.5,r:0,f:.5},13:{c:.3,r:0,f:.7},15:{c:.05,r:0,f:.95}},
-    // wet_conn(2) + large
-    '2_l':{0:{c:.2,r:.8,f:0},1:{c:.3,r:.7,f:0},2:{c:.6,r:.4,f:0},3:{c:.7,r:.2,f:.1},4:{c:.7,r:.1,f:.2},5:{c:.3,r:0,f:.7},8:{c:.4,r:.4,f:.2},9:{c:.45,r:.15,f:.4},10:{c:.25,r:0,f:.75},11:{c:.5,r:.35,f:.15},15:{c:0,r:0,f:1}},
-    // paired(5) + small
-    '5_s':{0:{c:.2,r:.8,f:0},1:{c:.4,r:.6,f:0},3:{c:.8,r:.2,f:0},4:{c:.85,r:.1,f:.05},5:{c:.7,r:.05,f:.25},6:{c:.5,r:0,f:.5},9:{c:.7,r:.15,f:.15},13:{c:.35,r:0,f:.65},15:{c:.05,r:0,f:.95}},
-    // paired(5) + large
-    '5_l':{0:{c:.3,r:.7,f:0},1:{c:.5,r:.5,f:0},3:{c:.8,r:.15,f:.05},4:{c:.75,r:.05,f:.2},5:{c:.4,r:0,f:.6},9:{c:.4,r:.1,f:.5},15:{c:0,r:0,f:1}},
-    // flush_draw(4) + small
-    '4_s':{0:{c:.1,r:.9,f:0},1:{c:.25,r:.75,f:0},3:{c:.75,r:.25,f:0},4:{c:.75,r:.2,f:.05},8:{c:.5,r:.5,f:0},9:{c:.75,r:.15,f:.1},11:{c:.4,r:.55,f:.05},15:{c:.05,r:0,f:.95}},
-    // flush_draw(4) + large
-    '4_l':{0:{c:.2,r:.8,f:0},1:{c:.35,r:.65,f:0},3:{c:.7,r:.2,f:.1},4:{c:.6,r:.1,f:.3},8:{c:.45,r:.5,f:.05},9:{c:.4,r:.15,f:.45},11:{c:.5,r:.4,f:.1},15:{c:0,r:0,f:1}}
+    '0_s':{0:{c:0.3,r:0.7,f:0.0},1:{c:0.4,r:0.6,f:0.0},2:{c:0.6,r:0.4,f:0.0},3:{c:0.8,r:0.2,f:0.0},4:{c:0.85,r:0.1,f:0.05},5:{c:0.7,r:0.0,f:0.3},6:{c:0.5,r:0.0,f:0.5},7:{c:0.35,r:0.0,f:0.65},8:{c:0.6,r:0.3,f:0.1},9:{c:0.7,r:0.1,f:0.2},10:{c:0.5,r:0.0,f:0.5},11:{c:0.6,r:0.1,f:0.3},12:{c:0.4,r:0.0,f:0.6},13:{c:0.2,r:0.0,f:0.8},14:{c:0.1,r:0.0,f:0.9},15:{c:0.03,r:0.0,f:0.97}},
+    '0_m':{0:{c:0.31,r:0.69,f:0.0},1:{c:0.41,r:0.59,f:0.0},2:{c:0.61,r:0.39,f:0.0},3:{c:0.81,r:0.19,f:0.0},4:{c:0.85,r:0.09,f:0.06},5:{c:0.67,r:0.0,f:0.33},6:{c:0.46,r:0.0,f:0.54},7:{c:0.32,r:0.0,f:0.68},8:{c:0.6,r:0.28,f:0.12},9:{c:0.68,r:0.09,f:0.23},10:{c:0.46,r:0.0,f:0.54},11:{c:0.58,r:0.09,f:0.33},12:{c:0.37,r:0.0,f:0.63},13:{c:0.18,r:0.0,f:0.82},14:{c:0.09,r:0.0,f:0.91},15:{c:0.03,r:0.0,f:0.97}},
+    '0_l':{0:{c:0.31,r:0.69,f:0.0},1:{c:0.41,r:0.59,f:0.0},2:{c:0.61,r:0.39,f:0.0},3:{c:0.81,r:0.19,f:0.0},4:{c:0.84,r:0.09,f:0.07},5:{c:0.61,r:0.0,f:0.39},6:{c:0.4,r:0.0,f:0.6},7:{c:0.27,r:0.0,f:0.73},8:{c:0.58,r:0.27,f:0.15},9:{c:0.64,r:0.09,f:0.27},10:{c:0.4,r:0.0,f:0.6},11:{c:0.53,r:0.08,f:0.39},12:{c:0.31,r:0.0,f:0.69},13:{c:0.15,r:0.0,f:0.85},14:{c:0.07,r:0.0,f:0.93},15:{c:0.02,r:0.0,f:0.98}},
+    '1_s':{0:{c:0.31,r:0.69,f:0.0},1:{c:0.41,r:0.59,f:0.0},2:{c:0.61,r:0.39,f:0.0},3:{c:0.81,r:0.19,f:0.0},4:{c:0.85,r:0.09,f:0.06},5:{c:0.68,r:0.0,f:0.32},6:{c:0.47,r:0.0,f:0.53},7:{c:0.33,r:0.0,f:0.67},8:{c:0.6,r:0.29,f:0.11},9:{c:0.69,r:0.09,f:0.22},10:{c:0.47,r:0.0,f:0.53},11:{c:0.58,r:0.09,f:0.33},12:{c:0.38,r:0.0,f:0.62},13:{c:0.18,r:0.0,f:0.82},14:{c:0.09,r:0.0,f:0.91},15:{c:0.03,r:0.0,f:0.97}},
+    '1_m':{0:{c:0.32,r:0.68,f:0.0},1:{c:0.43,r:0.57,f:0.0},2:{c:0.63,r:0.37,f:0.0},3:{c:0.82,r:0.18,f:0.0},4:{c:0.85,r:0.09,f:0.06},5:{c:0.65,r:0.0,f:0.35},6:{c:0.44,r:0.0,f:0.56},7:{c:0.3,r:0.0,f:0.7},8:{c:0.6,r:0.27,f:0.13},9:{c:0.67,r:0.09,f:0.24},10:{c:0.44,r:0.0,f:0.56},11:{c:0.56,r:0.08,f:0.36},12:{c:0.34,r:0.0,f:0.66},13:{c:0.16,r:0.0,f:0.84},14:{c:0.08,r:0.0,f:0.92},15:{c:0.02,r:0.0,f:0.98}},
+    '1_l':{0:{c:0.32,r:0.68,f:0.0},1:{c:0.43,r:0.57,f:0.0},2:{c:0.63,r:0.37,f:0.0},3:{c:0.82,r:0.18,f:0.0},4:{c:0.83,r:0.09,f:0.08},5:{c:0.59,r:0.0,f:0.41},6:{c:0.38,r:0.0,f:0.62},7:{c:0.25,r:0.0,f:0.75},8:{c:0.58,r:0.26,f:0.16},9:{c:0.63,r:0.08,f:0.29},10:{c:0.38,r:0.0,f:0.62},11:{c:0.51,r:0.08,f:0.41},12:{c:0.29,r:0.0,f:0.71},13:{c:0.13,r:0.0,f:0.87},14:{c:0.06,r:0.0,f:0.94},15:{c:0.02,r:0.0,f:0.98}},
+    '2_s':{0:{c:0.28,r:0.72,f:0.0},1:{c:0.38,r:0.62,f:0.0},2:{c:0.58,r:0.42,f:0.0},3:{c:0.79,r:0.21,f:0.0},4:{c:0.85,r:0.11,f:0.04},5:{c:0.75,r:0.0,f:0.25},6:{c:0.56,r:0.0,f:0.44},7:{c:0.41,r:0.0,f:0.59},8:{c:0.6,r:0.33,f:0.07},9:{c:0.73,r:0.11,f:0.16},10:{c:0.56,r:0.0,f:0.44},11:{c:0.64,r:0.12,f:0.24},12:{c:0.46,r:0.0,f:0.54},13:{c:0.24,r:0.0,f:0.76},14:{c:0.13,r:0.0,f:0.87},15:{c:0.04,r:0.0,f:0.96}},
+    '2_m':{0:{c:0.29,r:0.71,f:0.0},1:{c:0.39,r:0.61,f:0.0},2:{c:0.59,r:0.41,f:0.0},3:{c:0.79,r:0.21,f:0.0},4:{c:0.85,r:0.1,f:0.05},5:{c:0.72,r:0.0,f:0.28},6:{c:0.53,r:0.0,f:0.47},7:{c:0.38,r:0.0,f:0.62},8:{c:0.6,r:0.31,f:0.09},9:{c:0.71,r:0.11,f:0.18},10:{c:0.53,r:0.0,f:0.47},11:{c:0.62,r:0.11,f:0.27},12:{c:0.43,r:0.0,f:0.57},13:{c:0.22,r:0.0,f:0.78},14:{c:0.11,r:0.0,f:0.89},15:{c:0.03,r:0.0,f:0.97}},
+    '2_l':{0:{c:0.29,r:0.71,f:0.0},1:{c:0.39,r:0.61,f:0.0},2:{c:0.59,r:0.41,f:0.0},3:{c:0.8,r:0.2,f:0.0},4:{c:0.84,r:0.1,f:0.06},5:{c:0.67,r:0.0,f:0.33},6:{c:0.47,r:0.0,f:0.53},7:{c:0.32,r:0.0,f:0.68},8:{c:0.59,r:0.3,f:0.11},9:{c:0.68,r:0.1,f:0.22},10:{c:0.47,r:0.0,f:0.53},11:{c:0.57,r:0.1,f:0.33},12:{c:0.37,r:0.0,f:0.63},13:{c:0.18,r:0.0,f:0.82},14:{c:0.09,r:0.0,f:0.91},15:{c:0.03,r:0.0,f:0.97}},
+    '3_s':{0:{c:0.35,r:0.65,f:0.0},1:{c:0.45,r:0.55,f:0.0},2:{c:0.65,r:0.35,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.87,r:0.08,f:0.05},5:{c:0.73,r:0.0,f:0.27},6:{c:0.54,r:0.0,f:0.46},7:{c:0.39,r:0.0,f:0.61},8:{c:0.65,r:0.26,f:0.09},9:{c:0.73,r:0.09,f:0.18},10:{c:0.54,r:0.0,f:0.46},11:{c:0.64,r:0.09,f:0.27},12:{c:0.44,r:0.0,f:0.56},13:{c:0.23,r:0.0,f:0.77},14:{c:0.11,r:0.0,f:0.89},15:{c:0.03,r:0.0,f:0.97}},
+    '3_m':{0:{c:0.36,r:0.64,f:0.0},1:{c:0.47,r:0.53,f:0.0},2:{c:0.66,r:0.34,f:0.0},3:{c:0.84,r:0.16,f:0.0},4:{c:0.87,r:0.08,f:0.05},5:{c:0.7,r:0.0,f:0.3},6:{c:0.5,r:0.0,f:0.5},7:{c:0.35,r:0.0,f:0.65},8:{c:0.65,r:0.25,f:0.1},9:{c:0.72,r:0.08,f:0.2},10:{c:0.5,r:0.0,f:0.5},11:{c:0.62,r:0.08,f:0.3},12:{c:0.4,r:0.0,f:0.6},13:{c:0.2,r:0.0,f:0.8},14:{c:0.1,r:0.0,f:0.9},15:{c:0.03,r:0.0,f:0.97}},
+    '3_l':{0:{c:0.36,r:0.64,f:0.0},1:{c:0.47,r:0.53,f:0.0},2:{c:0.66,r:0.34,f:0.0},3:{c:0.84,r:0.16,f:0.0},4:{c:0.86,r:0.08,f:0.06},5:{c:0.65,r:0.0,f:0.35},6:{c:0.44,r:0.0,f:0.56},7:{c:0.3,r:0.0,f:0.7},8:{c:0.63,r:0.24,f:0.13},9:{c:0.68,r:0.07,f:0.25},10:{c:0.44,r:0.0,f:0.56},11:{c:0.57,r:0.07,f:0.36},12:{c:0.35,r:0.0,f:0.65},13:{c:0.17,r:0.0,f:0.83},14:{c:0.08,r:0.0,f:0.92},15:{c:0.02,r:0.0,f:0.98}},
+    '4_s':{0:{c:0.27,r:0.73,f:0.0},1:{c:0.37,r:0.63,f:0.0},2:{c:0.57,r:0.43,f:0.0},3:{c:0.78,r:0.22,f:0.0},4:{c:0.85,r:0.11,f:0.04},5:{c:0.77,r:0.0,f:0.23},6:{c:0.59,r:0.0,f:0.41},7:{c:0.44,r:0.0,f:0.56},8:{c:0.59,r:0.34,f:0.07},9:{c:0.74,r:0.12,f:0.14},10:{c:0.59,r:0.0,f:0.41},11:{c:0.65,r:0.12,f:0.23},12:{c:0.49,r:0.0,f:0.51},13:{c:0.26,r:0.0,f:0.74},14:{c:0.14,r:0.0,f:0.86},15:{c:0.04,r:0.0,f:0.96}},
+    '4_m':{0:{c:0.29,r:0.71,f:0.0},1:{c:0.38,r:0.62,f:0.0},2:{c:0.58,r:0.42,f:0.0},3:{c:0.79,r:0.21,f:0.0},4:{c:0.85,r:0.11,f:0.04},5:{c:0.74,r:0.0,f:0.26},6:{c:0.55,r:0.0,f:0.45},7:{c:0.4,r:0.0,f:0.6},8:{c:0.6,r:0.32,f:0.08},9:{c:0.72,r:0.11,f:0.17},10:{c:0.55,r:0.0,f:0.45},11:{c:0.63,r:0.11,f:0.26},12:{c:0.45,r:0.0,f:0.55},13:{c:0.24,r:0.0,f:0.76},14:{c:0.12,r:0.0,f:0.88},15:{c:0.04,r:0.0,f:0.96}},
+    '4_l':{0:{c:0.29,r:0.71,f:0.0},1:{c:0.39,r:0.61,f:0.0},2:{c:0.59,r:0.41,f:0.0},3:{c:0.79,r:0.21,f:0.0},4:{c:0.84,r:0.11,f:0.05},5:{c:0.7,r:0.0,f:0.3},6:{c:0.49,r:0.0,f:0.51},7:{c:0.34,r:0.0,f:0.66},8:{c:0.59,r:0.31,f:0.1},9:{c:0.69,r:0.11,f:0.2},10:{c:0.49,r:0.0,f:0.51},11:{c:0.59,r:0.1,f:0.31},12:{c:0.39,r:0.0,f:0.61},13:{c:0.2,r:0.0,f:0.8},14:{c:0.1,r:0.0,f:0.9},15:{c:0.03,r:0.0,f:0.97}},
+    '5_s':{0:{c:0.33,r:0.67,f:0.0},1:{c:0.43,r:0.57,f:0.0},2:{c:0.63,r:0.37,f:0.0},3:{c:0.82,r:0.18,f:0.0},4:{c:0.85,r:0.09,f:0.06},5:{c:0.66,r:0.0,f:0.34},6:{c:0.45,r:0.0,f:0.55},7:{c:0.31,r:0.0,f:0.69},8:{c:0.61,r:0.27,f:0.12},9:{c:0.68,r:0.09,f:0.23},10:{c:0.45,r:0.0,f:0.55},11:{c:0.57,r:0.08,f:0.35},12:{c:0.35,r:0.0,f:0.65},13:{c:0.17,r:0.0,f:0.83},14:{c:0.08,r:0.0,f:0.92},15:{c:0.02,r:0.0,f:0.98}},
+    '5_m':{0:{c:0.34,r:0.66,f:0.0},1:{c:0.44,r:0.56,f:0.0},2:{c:0.64,r:0.36,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.85,r:0.08,f:0.07},5:{c:0.62,r:0.0,f:0.38},6:{c:0.41,r:0.0,f:0.59},7:{c:0.28,r:0.0,f:0.72},8:{c:0.6,r:0.25,f:0.15},9:{c:0.66,r:0.08,f:0.26},10:{c:0.41,r:0.0,f:0.59},11:{c:0.54,r:0.08,f:0.38},12:{c:0.32,r:0.0,f:0.68},13:{c:0.15,r:0.0,f:0.85},14:{c:0.07,r:0.0,f:0.93},15:{c:0.02,r:0.0,f:0.98}},
+    '5_l':{0:{c:0.34,r:0.66,f:0.0},1:{c:0.44,r:0.56,f:0.0},2:{c:0.64,r:0.36,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.83,r:0.08,f:0.09},5:{c:0.56,r:0.0,f:0.44},6:{c:0.36,r:0.0,f:0.64},7:{c:0.23,r:0.0,f:0.77},8:{c:0.58,r:0.24,f:0.18},9:{c:0.61,r:0.07,f:0.32},10:{c:0.36,r:0.0,f:0.64},11:{c:0.49,r:0.07,f:0.44},12:{c:0.27,r:0.0,f:0.73},13:{c:0.12,r:0.0,f:0.88},14:{c:0.06,r:0.0,f:0.94},15:{c:0.02,r:0.0,f:0.98}},
+    '6_s':{0:{c:0.29,r:0.71,f:0.0},1:{c:0.39,r:0.61,f:0.0},2:{c:0.59,r:0.41,f:0.0},3:{c:0.79,r:0.21,f:0.0},4:{c:0.86,r:0.11,f:0.03},5:{c:0.75,r:0.0,f:0.25},6:{c:0.56,r:0.0,f:0.44},7:{c:0.41,r:0.0,f:0.59},8:{c:0.61,r:0.32,f:0.07},9:{c:0.73,r:0.11,f:0.16},10:{c:0.56,r:0.0,f:0.44},11:{c:0.64,r:0.11,f:0.25},12:{c:0.46,r:0.0,f:0.54},13:{c:0.24,r:0.0,f:0.76},14:{c:0.13,r:0.0,f:0.87},15:{c:0.04,r:0.0,f:0.96}},
+    '6_m':{0:{c:0.3,r:0.7,f:0.0},1:{c:0.4,r:0.6,f:0.0},2:{c:0.6,r:0.4,f:0.0},3:{c:0.8,r:0.2,f:0.0},4:{c:0.86,r:0.1,f:0.04},5:{c:0.72,r:0.0,f:0.28},6:{c:0.53,r:0.0,f:0.47},7:{c:0.38,r:0.0,f:0.62},8:{c:0.61,r:0.3,f:0.09},9:{c:0.72,r:0.1,f:0.18},10:{c:0.53,r:0.0,f:0.47},11:{c:0.62,r:0.1,f:0.28},12:{c:0.43,r:0.0,f:0.57},13:{c:0.22,r:0.0,f:0.78},14:{c:0.11,r:0.0,f:0.89},15:{c:0.03,r:0.0,f:0.97}},
+    '6_l':{0:{c:0.3,r:0.7,f:0.0},1:{c:0.4,r:0.6,f:0.0},2:{c:0.6,r:0.4,f:0.0},3:{c:0.8,r:0.2,f:0.0},4:{c:0.85,r:0.1,f:0.05},5:{c:0.67,r:0.0,f:0.33},6:{c:0.47,r:0.0,f:0.53},7:{c:0.32,r:0.0,f:0.68},8:{c:0.59,r:0.29,f:0.12},9:{c:0.68,r:0.1,f:0.22},10:{c:0.47,r:0.0,f:0.53},11:{c:0.58,r:0.09,f:0.33},12:{c:0.37,r:0.0,f:0.63},13:{c:0.18,r:0.0,f:0.82},14:{c:0.09,r:0.0,f:0.91},15:{c:0.03,r:0.0,f:0.97}}
   };
 
   var _FCB_OOP={
-    // OOP面对CBet更紧，但CR更多
-    '0_s':{0:{c:.3,r:.7,f:0},1:{c:.4,r:.6,f:0},3:{c:.8,r:.2,f:0},4:{c:.85,r:.1,f:.05},5:{c:.7,r:0,f:.3},6:{c:.5,r:0,f:.5},8:{c:.6,r:.3,f:.1},9:{c:.7,r:.1,f:.2},15:{c:.03,r:0,f:.97}},
-    '0_l':{0:{c:.3,r:.7,f:0},1:{c:.5,r:.5,f:0},3:{c:.8,r:.1,f:.1},4:{c:.7,r:0,f:.3},8:{c:.5,r:.3,f:.2},9:{c:.4,r:.05,f:.55},15:{c:0,r:0,f:1}},
-    '2_s':{0:{c:.2,r:.8,f:0},1:{c:.3,r:.7,f:0},3:{c:.7,r:.2,f:.1},4:{c:.7,r:.1,f:.2},8:{c:.5,r:.4,f:.1},9:{c:.7,r:.1,f:.2},11:{c:.5,r:.4,f:.1},15:{c:.03,r:0,f:.97}},
-    '2_l':{0:{c:.2,r:.8,f:0},1:{c:.35,r:.65,f:0},3:{c:.6,r:.1,f:.3},8:{c:.4,r:.4,f:.2},9:{c:.35,r:.1,f:.55},11:{c:.45,r:.35,f:.2},15:{c:0,r:0,f:1}},
-    '5_s':{0:{c:.25,r:.75,f:0},1:{c:.45,r:.55,f:0},3:{c:.8,r:.15,f:.05},4:{c:.8,r:.05,f:.15},9:{c:.6,r:.1,f:.3},15:{c:.03,r:0,f:.97}},
-    '5_l':{0:{c:.3,r:.7,f:0},1:{c:.5,r:.5,f:0},3:{c:.75,r:.05,f:.2},4:{c:.65,r:0,f:.35},15:{c:0,r:0,f:1}}
+    '0_s':{0:{c:0.36,r:0.64,f:0.0},1:{c:0.46,r:0.54,f:0.0},2:{c:0.66,r:0.34,f:0.0},3:{c:0.84,r:0.16,f:0.0},4:{c:0.86,r:0.08,f:0.06},5:{c:0.65,r:0.0,f:0.35},6:{c:0.44,r:0.0,f:0.56},7:{c:0.3,r:0.0,f:0.7},8:{c:0.62,r:0.24,f:0.14},9:{c:0.68,r:0.08,f:0.24},10:{c:0.44,r:0.0,f:0.56},11:{c:0.57,r:0.07,f:0.36},12:{c:0.34,r:0.0,f:0.66},13:{c:0.16,r:0.0,f:0.84},14:{c:0.08,r:0.0,f:0.92},15:{c:0.02,r:0.0,f:0.98}},
+    '0_m':{0:{c:0.37,r:0.63,f:0.0},1:{c:0.47,r:0.53,f:0},2:{c:0.67,r:0.33,f:0.0},3:{c:0.84,r:0.16,f:0.0},4:{c:0.85,r:0.07,f:0.08},5:{c:0.61,r:0.0,f:0.39},6:{c:0.4,r:0.0,f:0.6},7:{c:0.27,r:0.0,f:0.73},8:{c:0.62,r:0.23,f:0.15},9:{c:0.65,r:0.07,f:0.28},10:{c:0.4,r:0.0,f:0.6},11:{c:0.54,r:0.07,f:0.39},12:{c:0.31,r:0.0,f:0.69},13:{c:0.14,r:0.0,f:0.86},14:{c:0.07,r:0.0,f:0.93},15:{c:0.02,r:0.0,f:0.98}},
+    '0_l':{0:{c:0.37,r:0.63,f:0.0},1:{c:0.48,r:0.52,f:0.0},2:{c:0.67,r:0.33,f:0.0},3:{c:0.85,r:0.15,f:0.0},4:{c:0.84,r:0.07,f:0.09},5:{c:0.55,r:0.0,f:0.45},6:{c:0.35,r:0.0,f:0.65},7:{c:0.22,r:0.0,f:0.78},8:{c:0.6,r:0.22,f:0.18},9:{c:0.61,r:0.06,f:0.33},10:{c:0.35,r:0.0,f:0.65},11:{c:0.49,r:0.06,f:0.45},12:{c:0.26,r:0.0,f:0.74},13:{c:0.12,r:0.0,f:0.88},14:{c:0.06,r:0.0,f:0.94},15:{c:0.02,r:0.0,f:0.98}},
+    '1_s':{0:{c:0.37,r:0.63,f:0.0},1:{c:0.47,r:0.53,f:0},2:{c:0.67,r:0.33,f:0.0},3:{c:0.84,r:0.16,f:0.0},4:{c:0.85,r:0.07,f:0.08},5:{c:0.62,r:0.0,f:0.38},6:{c:0.41,r:0.0,f:0.59},7:{c:0.28,r:0.0,f:0.72},8:{c:0.62,r:0.23,f:0.15},9:{c:0.66,r:0.07,f:0.27},10:{c:0.41,r:0.0,f:0.59},11:{c:0.55,r:0.07,f:0.38},12:{c:0.32,r:0.0,f:0.68},13:{c:0.15,r:0.0,f:0.85},14:{c:0.07,r:0.0,f:0.93},15:{c:0.02,r:0.0,f:0.98}},
+    '1_m':{0:{c:0.38,r:0.62,f:0.0},1:{c:0.49,r:0.51,f:0.0},2:{c:0.68,r:0.32,f:0.0},3:{c:0.85,r:0.15,f:0.0},4:{c:0.85,r:0.07,f:0.08},5:{c:0.59,r:0.0,f:0.41},6:{c:0.38,r:0.0,f:0.62},7:{c:0.25,r:0.0,f:0.75},8:{c:0.62,r:0.22,f:0.16},9:{c:0.64,r:0.06,f:0.3},10:{c:0.38,r:0.0,f:0.62},11:{c:0.52,r:0.06,f:0.42},12:{c:0.29,r:0.0,f:0.71},13:{c:0.13,r:0.0,f:0.87},14:{c:0.06,r:0.0,f:0.94},15:{c:0.02,r:0.0,f:0.98}},
+    '1_l':{0:{c:0.38,r:0.62,f:0.0},1:{c:0.49,r:0.51,f:0.0},2:{c:0.68,r:0.32,f:0.0},3:{c:0.85,r:0.15,f:0.0},4:{c:0.83,r:0.07,f:0.1},5:{c:0.53,r:0.0,f:0.47},6:{c:0.33,r:0.0,f:0.67},7:{c:0.21,r:0.0,f:0.79},8:{c:0.59,r:0.2,f:0.21},9:{c:0.59,r:0.06,f:0.35},10:{c:0.33,r:0.0,f:0.67},11:{c:0.46,r:0.05,f:0.49},12:{c:0.24,r:0.0,f:0.76},13:{c:0.11,r:0.0,f:0.89},14:{c:0.05,r:0.0,f:0.95},15:{c:0.01,r:0.0,f:0.99}},
+    '2_s':{0:{c:0.34,r:0.66,f:0.0},1:{c:0.44,r:0.56,f:0.0},2:{c:0.64,r:0.36,f:0.0},3:{c:0.82,r:0.17,f:0.01},4:{c:0.86,r:0.09,f:0.05},5:{c:0.7,r:0.0,f:0.3},6:{c:0.5,r:0.0,f:0.5},7:{c:0.35,r:0.0,f:0.65},8:{c:0.63,r:0.27,f:0.1},9:{c:0.71,r:0.09,f:0.2},10:{c:0.5,r:0.0,f:0.5},11:{c:0.61,r:0.09,f:0.3},12:{c:0.4,r:0.0,f:0.6},13:{c:0.2,r:0.0,f:0.8},14:{c:0.1,r:0.0,f:0.9},15:{c:0.03,r:0.0,f:0.97}},
+    '2_m':{0:{c:0.35,r:0.65,f:0.0},1:{c:0.45,r:0.55,f:0.0},2:{c:0.65,r:0.35,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.86,r:0.08,f:0.06},5:{c:0.67,r:0.0,f:0.33},6:{c:0.47,r:0.0,f:0.53},7:{c:0.32,r:0.0,f:0.68},8:{c:0.63,r:0.25,f:0.12},9:{c:0.69,r:0.08,f:0.23},10:{c:0.47,r:0.0,f:0.53},11:{c:0.59,r:0.08,f:0.33},12:{c:0.37,r:0.0,f:0.63},13:{c:0.18,r:0.0,f:0.82},14:{c:0.09,r:0.0,f:0.91},15:{c:0.03,r:0.0,f:0.97}},
+    '2_l':{0:{c:0.35,r:0.65,f:0.0},1:{c:0.45,r:0.55,f:0.0},2:{c:0.65,r:0.35,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.85,r:0.08,f:0.07},5:{c:0.62,r:0.0,f:0.38},6:{c:0.41,r:0.0,f:0.59},7:{c:0.27,r:0.0,f:0.73},8:{c:0.61,r:0.24,f:0.15},9:{c:0.65,r:0.07,f:0.28},10:{c:0.41,r:0.0,f:0.59},11:{c:0.54,r:0.07,f:0.39},12:{c:0.31,r:0.0,f:0.69},13:{c:0.15,r:0.0,f:0.85},14:{c:0.07,r:0.0,f:0.93},15:{c:0.02,r:0.0,f:0.98}},
+    '3_s':{0:{c:0.41,r:0.59,f:0.0},1:{c:0.51,r:0.49,f:0.0},2:{c:0.7,r:0.3,f:0.0},3:{c:0.86,r:0.14,f:0.0},4:{c:0.88,r:0.07,f:0.05},5:{c:0.68,r:0.0,f:0.32},6:{c:0.48,r:0.0,f:0.52},7:{c:0.33,r:0.0,f:0.67},8:{c:0.67,r:0.21,f:0.12},9:{c:0.71,r:0.06,f:0.23},10:{c:0.48,r:0.0,f:0.52},11:{c:0.61,r:0.06,f:0.33},12:{c:0.38,r:0.0,f:0.62},13:{c:0.19,r:0.0,f:0.81},14:{c:0.09,r:0.0,f:0.91},15:{c:0.03,r:0.0,f:0.97}},
+    '3_m':{0:{c:0.42,r:0.58,f:0.0},1:{c:0.53,r:0.47,f:0.0},2:{c:0.72,r:0.28,f:0.0},3:{c:0.87,r:0.13,f:0.0},4:{c:0.87,r:0.06,f:0.07},5:{c:0.65,r:0.0,f:0.35},6:{c:0.44,r:0.0,f:0.56},7:{c:0.3,r:0.0,f:0.7},8:{c:0.66,r:0.2,f:0.14},9:{c:0.69,r:0.06,f:0.25},10:{c:0.44,r:0.0,f:0.56},11:{c:0.58,r:0.06,f:0.36},12:{c:0.34,r:0.0,f:0.66},13:{c:0.16,r:0.0,f:0.84},14:{c:0.08,r:0.0,f:0.92},15:{c:0.02,r:0.0,f:0.98}},
+    '3_l':{0:{c:0.42,r:0.58,f:0.0},1:{c:0.53,r:0.47,f:0.0},2:{c:0.72,r:0.28,f:0.0},3:{c:0.87,r:0.13,f:0.0},4:{c:0.86,r:0.06,f:0.08},5:{c:0.59,r:0.0,f:0.41},6:{c:0.38,r:0.0,f:0.62},7:{c:0.25,r:0.0,f:0.75},8:{c:0.64,r:0.19,f:0.17},9:{c:0.65,r:0.05,f:0.3},10:{c:0.38,r:0.0,f:0.62},11:{c:0.53,r:0.05,f:0.42},12:{c:0.29,r:0.0,f:0.71},13:{c:0.13,r:0.0,f:0.87},14:{c:0.06,r:0.0,f:0.94},15:{c:0.02,r:0.0,f:0.98}},
+    '4_s':{0:{c:0.33,r:0.67,f:0.0},1:{c:0.43,r:0.57,f:0.0},2:{c:0.63,r:0.37,f:0.0},3:{c:0.82,r:0.18,f:0.0},4:{c:0.87,r:0.09,f:0.04},5:{c:0.72,r:0.0,f:0.28},6:{c:0.53,r:0.0,f:0.47},7:{c:0.38,r:0.0,f:0.62},8:{c:0.63,r:0.28,f:0.09},9:{c:0.72,r:0.09,f:0.19},10:{c:0.53,r:0.0,f:0.47},11:{c:0.63,r:0.09,f:0.28},12:{c:0.43,r:0.0,f:0.57},13:{c:0.22,r:0.0,f:0.78},14:{c:0.11,r:0.0,f:0.89},15:{c:0.03,r:0.0,f:0.97}},
+    '4_m':{0:{c:0.34,r:0.66,f:0.0},1:{c:0.44,r:0.56,f:0.0},2:{c:0.64,r:0.36,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.86,r:0.08,f:0.06},5:{c:0.69,r:0.0,f:0.31},6:{c:0.49,r:0.0,f:0.51},7:{c:0.34,r:0.0,f:0.66},8:{c:0.63,r:0.26,f:0.11},9:{c:0.71,r:0.08,f:0.21},10:{c:0.49,r:0.0,f:0.51},11:{c:0.6,r:0.08,f:0.32},12:{c:0.39,r:0.0,f:0.61},13:{c:0.2,r:0.0,f:0.8},14:{c:0.1,r:0.0,f:0.9},15:{c:0.03,r:0.0,f:0.97}},
+    '4_l':{0:{c:0.34,r:0.66,f:0.0},1:{c:0.45,r:0.55,f:0.0},2:{c:0.64,r:0.36,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.85,r:0.08,f:0.07},5:{c:0.64,r:0.0,f:0.36},6:{c:0.43,r:0.0,f:0.57},7:{c:0.29,r:0.0,f:0.71},8:{c:0.61,r:0.25,f:0.14},9:{c:0.67,r:0.08,f:0.25},10:{c:0.43,r:0.0,f:0.57},11:{c:0.56,r:0.08,f:0.36},12:{c:0.34,r:0.0,f:0.66},13:{c:0.16,r:0.0,f:0.84},14:{c:0.08,r:0.0,f:0.92},15:{c:0.02,r:0.0,f:0.98}},
+    '5_s':{0:{c:0.38,r:0.62,f:0.0},1:{c:0.49,r:0.51,f:0.0},2:{c:0.68,r:0.32,f:0.0},3:{c:0.85,r:0.15,f:0.0},4:{c:0.85,r:0.07,f:0.08},5:{c:0.6,r:0.0,f:0.4},6:{c:0.39,r:0.0,f:0.61},7:{c:0.26,r:0.0,f:0.74},8:{c:0.62,r:0.22,f:0.16},9:{c:0.65,r:0.06,f:0.29},10:{c:0.39,r:0.0,f:0.61},11:{c:0.53,r:0.06,f:0.41},12:{c:0.3,r:0.0,f:0.7},13:{c:0.14,r:0.0,f:0.86},14:{c:0.07,r:0.0,f:0.93},15:{c:0.02,r:0.0,f:0.98}},
+    '5_m':{0:{c:0.4,r:0.6,f:0.0},1:{c:0.5,r:0.5,f:0.0},2:{c:0.7,r:0.3,f:0.0},3:{c:0.86,r:0.14,f:0.0},4:{c:0.85,r:0.07,f:0.08},5:{c:0.56,r:0.0,f:0.44},6:{c:0.36,r:0.0,f:0.64},7:{c:0.23,r:0.0,f:0.77},8:{c:0.61,r:0.2,f:0.19},9:{c:0.62,r:0.06,f:0.32},10:{c:0.36,r:0.0,f:0.64},11:{c:0.5,r:0.05,f:0.45},12:{c:0.27,r:0.0,f:0.73},13:{c:0.12,r:0.0,f:0.88},14:{c:0.06,r:0.0,f:0.94},15:{c:0.02,r:0.0,f:0.98}},
+    '5_l':{0:{c:0.4,r:0.6,f:0.0},1:{c:0.51,r:0.49,f:0.0},2:{c:0.7,r:0.3,f:0.0},3:{c:0.86,r:0.14,f:0.0},4:{c:0.83,r:0.06,f:0.11},5:{c:0.5,r:0.0,f:0.5},6:{c:0.3,r:0.0,f:0.7},7:{c:0.19,r:0.0,f:0.81},8:{c:0.59,r:0.19,f:0.22},9:{c:0.57,r:0.05,f:0.38},10:{c:0.3,r:0.0,f:0.7},11:{c:0.44,r:0.05,f:0.51},12:{c:0.22,r:0.0,f:0.78},13:{c:0.1,r:0.0,f:0.9},14:{c:0.05,r:0.0,f:0.95},15:{c:0.01,r:0.0,f:0.99}},
+    '6_s':{0:{c:0.35,r:0.65,f:0.0},1:{c:0.45,r:0.55,f:0.0},2:{c:0.65,r:0.35,f:0.0},3:{c:0.83,r:0.17,f:0.0},4:{c:0.87,r:0.08,f:0.05},5:{c:0.7,r:0.0,f:0.3},6:{c:0.5,r:0.0,f:0.5},7:{c:0.35,r:0.0,f:0.65},8:{c:0.64,r:0.26,f:0.1},9:{c:0.72,r:0.08,f:0.2},10:{c:0.5,r:0.0,f:0.5},11:{c:0.61,r:0.08,f:0.31},12:{c:0.4,r:0.0,f:0.6},13:{c:0.2,r:0.0,f:0.8},14:{c:0.1,r:0.0,f:0.9},15:{c:0.03,r:0.0,f:0.97}},
+    '6_m':{0:{c:0.36,r:0.64,f:0.0},1:{c:0.46,r:0.54,f:0.0},2:{c:0.66,r:0.34,f:0.0},3:{c:0.84,r:0.16,f:0.0},4:{c:0.86,r:0.08,f:0.06},5:{c:0.67,r:0.0,f:0.33},6:{c:0.47,r:0.0,f:0.53},7:{c:0.32,r:0.0,f:0.68},8:{c:0.63,r:0.24,f:0.13},9:{c:0.7,r:0.08,f:0.22},10:{c:0.47,r:0.0,f:0.53},11:{c:0.59,r:0.08,f:0.33},12:{c:0.37,r:0.0,f:0.63},13:{c:0.18,r:0.0,f:0.82},14:{c:0.09,r:0.0,f:0.91},15:{c:0.03,r:0.0,f:0.97}},
+    '6_l':{0:{c:0.36,r:0.64,f:0.0},1:{c:0.47,r:0.53,f:0.0},2:{c:0.66,r:0.34,f:0.0},3:{c:0.84,r:0.16,f:0.0},4:{c:0.85,r:0.08,f:0.07},5:{c:0.62,r:0.0,f:0.38},6:{c:0.41,r:0.0,f:0.59},7:{c:0.27,r:0.0,f:0.73},8:{c:0.62,r:0.24,f:0.14},9:{c:0.66,r:0.07,f:0.27},10:{c:0.41,r:0.0,f:0.59},11:{c:0.54,r:0.07,f:0.39},12:{c:0.31,r:0.0,f:0.69},13:{c:0.15,r:0.0,f:0.85},14:{c:0.07,r:0.0,f:0.93},15:{c:0.02,r:0.0,f:0.98}}
   };
 
   // 面对Check-Raise表
   // 格式: {callFreq, reraiseFreq, foldFreq}
   var _FCR={
-    // V2.9.158: 补全6(第二对)/7(弱对)/10(OESD)/11(组合听)/12(卡顺)/13(超牌)/14(后门)
+    // V2.9.161: 补全6(第二对)/7(弱对)/10(OESD)/11(组合听)/12(卡顺)/13(超牌)/14(后门)
     '0':{0:{c:.2,rr:.8,f:0},1:{c:.4,rr:.6,f:0},2:{c:.7,rr:.3,f:0},3:{c:.8,rr:.2,f:0},4:{c:.85,rr:.05,f:.1},5:{c:.5,rr:0,f:.5},6:{c:.4,rr:0,f:.6},7:{c:.3,rr:0,f:.7},8:{c:.8,rr:.1,f:.1},9:{c:.6,rr:0,f:.4},10:{c:.5,rr:0,f:.5},11:{c:.6,rr:.1,f:.3},12:{c:.4,rr:0,f:.6},13:{c:.2,rr:0,f:.8},14:{c:.1,rr:0,f:.9},15:{c:0,rr:0,f:1}},
     '2':{0:{c:.1,rr:.9,f:0},1:{c:.3,rr:.7,f:0},2:{c:.5,rr:.5,f:0},3:{c:.8,rr:.1,f:.1},4:{c:.7,rr:.1,f:.2},5:{c:.4,rr:0,f:.6},6:{c:.35,rr:0,f:.65},7:{c:.25,rr:0,f:.75},8:{c:.5,rr:.3,f:.2},9:{c:.7,rr:.1,f:.2},10:{c:.5,rr:.05,f:.45},11:{c:.7,rr:.2,f:.1},12:{c:.4,rr:0,f:.6},13:{c:.15,rr:0,f:.85},14:{c:.05,rr:0,f:.95},15:{c:0,rr:0,f:1}},
     '4':{0:{c:.15,rr:.85,f:0},1:{c:.35,rr:.65,f:0},2:{c:.6,rr:.3,f:.1},3:{c:.75,rr:.1,f:.15},4:{c:.65,rr:.05,f:.3},6:{c:.4,rr:0,f:.6},7:{c:.3,rr:0,f:.7},8:{c:.5,rr:.4,f:.1},9:{c:.65,rr:.1,f:.25},10:{c:.5,rr:.05,f:.45},11:{c:.5,rr:.35,f:.15},12:{c:.35,rr:0,f:.65},13:{c:.1,rr:0,f:.9},14:{c:.05,rr:0,f:.95},15:{c:0,rr:0,f:1}},
@@ -2779,30 +3037,84 @@ var HandStateMachine=(function(){
   // turnCardType: i=improved, b=brick, w=worsened
   // 格式: {barrelFreq, sizingPct}
   var _TB_IP={
-    '0_i':{0:[1,.66],1:[1,.66],3:[.9,.5],4:[.8,.5],9:[.7,.5],13:[.3,.5],15:[.15,.5]},
-    '0_b':{0:[1,.5],1:[.95,.5],3:[.8,.5],4:[.5,.33],9:[.5,.5],15:[.1,.5]},
-    '0_w':{0:[1,.66],1:[.8,.66],3:[.5,.33],4:[.3,.33],15:[.05,.5]},
-    '2_i':{0:[1,.75],1:[1,.75],11:[.9,.66],9:[.7,.66],15:[.1,.66]},
-    '2_b':{0:[1,.66],1:[.8,.66],11:[.6,.5],9:[.4,.5],15:[.05,.66]},
-    '2_w':{0:[1,.75],1:[.7,.66],11:[.4,.5],15:[.03,.66]},
-    '5_i':{0:[1,.66],1:[1,.66],3:[.9,.5],4:[.7,.5],15:[.1,.5]},
-    '5_b':{0:[1,.5],1:[.85,.5],3:[.6,.33],4:[.4,.33],15:[.08,.5]}
+    // V2.9.161: Turn IP barrel补全 8→21
+    '0_i':{0:[1,0.66],1:[1,0.66],2:[1,0.5],3:[0.94,0.5],4:[0.88,0.5],5:[0.66,0.5],6:[0.55,0.5],7:[0.33,0.5],8:[0.77,0.5],9:[0.66,0.5],10:[0.55,0.5],11:[0.94,0.66],12:[0.33,0.5],13:[0.22,0.5],14:[0.11,0.5],15:[0.06,0.5]},
+    '0_b':{0:[1,0.66],1:[1,0.66],2:[0.95,0.5],3:[0.85,0.5],4:[0.8,0.5],5:[0.6,0.5],6:[0.5,0.5],7:[0.3,0.5],8:[0.7,0.5],9:[0.6,0.5],10:[0.5,0.5],11:[0.85,0.66],12:[0.3,0.5],13:[0.2,0.5],14:[0.1,0.5],15:[0.05,0.5]},
+    '0_w':{0:[0.7,0.66],1:[0.7,0.66],2:[0.66,0.5],3:[0.59,0.5],4:[0.56,0.5],5:[0.42,0.5],6:[0.35,0.5],7:[0.21,0.5],8:[0.49,0.5],9:[0.42,0.5],10:[0.35,0.5],11:[0.59,0.66],12:[0.21,0.5],13:[0.14,0.5],14:[0.07,0.5],15:[0.03,0.5]},
+    '1_i':{0:[0.99,0.66],1:[0.99,0.66],2:[0.94,0.5],3:[0.84,0.5],4:[0.79,0.5],5:[0.59,0.5],6:[0.5,0.5],7:[0.3,0.5],8:[0.69,0.5],9:[0.59,0.5],10:[0.5,0.5],11:[0.84,0.66],12:[0.3,0.5],13:[0.2,0.5],14:[0.1,0.5],15:[0.05,0.5]},
+    '1_b':{0:[0.9,0.66],1:[0.9,0.66],2:[0.85,0.5],3:[0.77,0.5],4:[0.72,0.5],5:[0.54,0.5],6:[0.45,0.5],7:[0.27,0.5],8:[0.63,0.5],9:[0.54,0.5],10:[0.45,0.5],11:[0.77,0.66],12:[0.27,0.5],13:[0.18,0.5],14:[0.09,0.5],15:[0.05,0.5]},
+    '1_w':{0:[0.63,0.66],1:[0.63,0.66],2:[0.6,0.5],3:[0.54,0.5],4:[0.5,0.5],5:[0.38,0.5],6:[0.32,0.5],7:[0.19,0.5],8:[0.44,0.5],9:[0.38,0.5],10:[0.32,0.5],11:[0.54,0.66],12:[0.19,0.5],13:[0.13,0.5],14:[0.06,0.5],15:[0.03,0.5]},
+    '2_i':{0:[1,0.66],1:[1,0.66],2:[1,0.5],3:[0.94,0.5],4:[0.88,0.5],5:[0.66,0.5],6:[0.55,0.5],7:[0.33,0.5],8:[0.77,0.5],9:[0.66,0.5],10:[0.55,0.5],11:[0.94,0.66],12:[0.33,0.5],13:[0.22,0.5],14:[0.11,0.5],15:[0.06,0.5]},
+    '2_b':{0:[1,0.66],1:[1,0.66],2:[0.95,0.5],3:[0.85,0.5],4:[0.8,0.5],5:[0.6,0.5],6:[0.5,0.5],7:[0.3,0.5],8:[0.7,0.5],9:[0.6,0.5],10:[0.5,0.5],11:[0.85,0.66],12:[0.3,0.5],13:[0.2,0.5],14:[0.1,0.5],15:[0.05,0.5]},
+    '2_w':{0:[0.7,0.66],1:[0.7,0.66],2:[0.66,0.5],3:[0.59,0.5],4:[0.56,0.5],5:[0.42,0.5],6:[0.35,0.5],7:[0.21,0.5],8:[0.49,0.5],9:[0.42,0.5],10:[0.35,0.5],11:[0.59,0.66],12:[0.21,0.5],13:[0.14,0.5],14:[0.07,0.5],15:[0.03,0.5]},
+    '3_i':{0:[1,0.66],1:[1,0.66],2:[1,0.5],3:[0.94,0.5],4:[0.88,0.5],5:[0.66,0.5],6:[0.55,0.5],7:[0.33,0.5],8:[0.77,0.5],9:[0.66,0.5],10:[0.55,0.5],11:[0.94,0.66],12:[0.33,0.5],13:[0.22,0.5],14:[0.11,0.5],15:[0.06,0.5]},
+    '3_b':{0:[1,0.66],1:[1,0.66],2:[0.95,0.5],3:[0.85,0.5],4:[0.8,0.5],5:[0.6,0.5],6:[0.5,0.5],7:[0.3,0.5],8:[0.7,0.5],9:[0.6,0.5],10:[0.5,0.5],11:[0.85,0.66],12:[0.3,0.5],13:[0.2,0.5],14:[0.1,0.5],15:[0.05,0.5]},
+    '3_w':{0:[0.7,0.66],1:[0.7,0.66],2:[0.66,0.5],3:[0.59,0.5],4:[0.56,0.5],5:[0.42,0.5],6:[0.35,0.5],7:[0.21,0.5],8:[0.49,0.5],9:[0.42,0.5],10:[0.35,0.5],11:[0.59,0.66],12:[0.21,0.5],13:[0.14,0.5],14:[0.07,0.5],15:[0.03,0.5]},
+    '4_i':{0:[1,0.66],1:[1,0.66],2:[1,0.5],3:[0.94,0.5],4:[0.88,0.5],5:[0.66,0.5],6:[0.55,0.5],7:[0.33,0.5],8:[0.92,0.5],9:[0.79,0.5],10:[0.66,0.5],11:[1,0.66],12:[0.4,0.5],13:[0.26,0.5],14:[0.13,0.5],15:[0.07,0.5]},
+    '4_b':{0:[1,0.66],1:[1,0.66],2:[0.95,0.5],3:[0.85,0.5],4:[0.8,0.5],5:[0.6,0.5],6:[0.5,0.5],7:[0.3,0.5],8:[0.84,0.5],9:[0.72,0.5],10:[0.6,0.5],11:[1,0.66],12:[0.36,0.5],13:[0.24,0.5],14:[0.12,0.5],15:[0.06,0.5]},
+    '4_w':{0:[0.7,0.66],1:[0.7,0.66],2:[0.66,0.5],3:[0.59,0.5],4:[0.56,0.5],5:[0.42,0.5],6:[0.35,0.5],7:[0.21,0.5],8:[0.59,0.5],9:[0.5,0.5],10:[0.42,0.5],11:[0.71,0.66],12:[0.25,0.5],13:[0.17,0.5],14:[0.08,0.5],15:[0.04,0.5]},
+    '5_i':{0:[0.94,0.66],1:[0.94,0.66],2:[0.89,0.5],3:[0.79,0.5],4:[0.75,0.5],5:[0.56,0.5],6:[0.47,0.5],7:[0.28,0.5],8:[0.92,0.5],9:[0.79,0.5],10:[0.66,0.5],11:[1,0.66],12:[0.4,0.5],13:[0.26,0.5],14:[0.13,0.5],15:[0.07,0.5]},
+    '5_b':{0:[0.85,0.66],1:[0.85,0.66],2:[0.81,0.5],3:[0.72,0.5],4:[0.68,0.5],5:[0.51,0.5],6:[0.42,0.5],7:[0.26,0.5],8:[0.84,0.5],9:[0.72,0.5],10:[0.6,0.5],11:[1,0.66],12:[0.36,0.5],13:[0.24,0.5],14:[0.12,0.5],15:[0.06,0.5]},
+    '5_w':{0:[0.59,0.66],1:[0.59,0.66],2:[0.57,0.5],3:[0.51,0.5],4:[0.48,0.5],5:[0.36,0.5],6:[0.3,0.5],7:[0.18,0.5],8:[0.59,0.5],9:[0.5,0.5],10:[0.42,0.5],11:[0.71,0.66],12:[0.25,0.5],13:[0.17,0.5],14:[0.08,0.5],15:[0.04,0.5]},
+    '6_i':{0:[1,0.66],1:[1,0.66],2:[1,0.5],3:[0.94,0.5],4:[0.88,0.5],5:[0.66,0.5],6:[0.55,0.5],7:[0.33,0.5],8:[0.92,0.5],9:[0.79,0.5],10:[0.66,0.5],11:[1,0.66],12:[0.4,0.5],13:[0.26,0.5],14:[0.13,0.5],15:[0.07,0.5]},
+    '6_b':{0:[1,0.66],1:[1,0.66],2:[0.95,0.5],3:[0.85,0.5],4:[0.8,0.5],5:[0.6,0.5],6:[0.5,0.5],7:[0.3,0.5],8:[0.84,0.5],9:[0.72,0.5],10:[0.6,0.5],11:[1,0.66],12:[0.36,0.5],13:[0.24,0.5],14:[0.12,0.5],15:[0.06,0.5]},
+    '6_w':{0:[0.7,0.66],1:[0.7,0.66],2:[0.66,0.5],3:[0.59,0.5],4:[0.56,0.5],5:[0.42,0.5],6:[0.35,0.5],7:[0.21,0.5],8:[0.59,0.5],9:[0.5,0.5],10:[0.42,0.5],11:[0.71,0.66],12:[0.25,0.5],13:[0.17,0.5],14:[0.08,0.5],15:[0.04,0.5]}
   };
 
   // River决策表 (简化: 基于手牌类别+主动权)
+    // V2.9.161: Donk bet独立策略表
+  var _DONK={
+    '0_ip':{0:[0.66,0.75],1:[0.55,0.66],2:[0.44,0.66],3:[0.39,0.5],4:[0.33,0.5],5:[0.22,0.4],6:[0.17,0.33],7:[0.06,0],8:[0.28,0.8],9:[0.22,0.8],10:[0.17,0.75],11:[0.33,0.75],12:[0.09,0.8],13:[0.04,0.8],14:[0.02,0.75]},
+    '0_oop':{0:[0.53,0.68],1:[0.44,0.59],2:[0.35,0.59],3:[0.31,0.45],4:[0.26,0.45],5:[0.18,0.36],6:[0.13,0.3],7:[0.04,0],8:[0.22,0.72],9:[0.18,0.72],10:[0.13,0.68],11:[0.26,0.68],12:[0.05,0.5],13:[0.02,0.5],14:[0.01,0.5]},
+    '1_ip':{0:[0.6,0.75],1:[0.5,0.66],2:[0.4,0.66],3:[0.35,0.5],4:[0.3,0.5],5:[0.2,0.4],6:[0.15,0.33],7:[0.05,0],8:[0.25,0.8],9:[0.2,0.8],10:[0.15,0.75],11:[0.3,0.75],12:[0.08,0.8],13:[0.04,0.8],14:[0.02,0.75]},
+    '1_oop':{0:[0.48,0.68],1:[0.4,0.59],2:[0.32,0.59],3:[0.28,0.45],4:[0.24,0.45],5:[0.16,0.36],6:[0.12,0.3],7:[0.04,0],8:[0.2,0.72],9:[0.16,0.72],10:[0.12,0.68],11:[0.24,0.68],12:[0.06,0.72],13:[0.03,0.72],14:[0.02,0.68]},
+    '2_ip':{0:[0.42,0.75],1:[0.35,0.66],2:[0.28,0.66],3:[0.24,0.5],4:[0.21,0.5],5:[0.14,0.4],6:[0.1,0.33],7:[0.03,0],8:[0.17,0.8],9:[0.14,0.8],10:[0.1,0.75],11:[0.21,0.75],12:[0.06,0.8],13:[0.03,0.8]},
+    '2_oop':{0:[0.34,0.68],1:[0.28,0.59],2:[0.22,0.59],3:[0.2,0.45],4:[0.17,0.45],5:[0.11,0.36],6:[0.08,0.3],7:[0.03,0],8:[0.14,0.72],9:[0.11,0.72],10:[0.08,0.68],11:[0.17,0.68],12:[0.04,0.72],13:[0.02,0.72]},
+    '3_ip':{0:[0.42,0.75],1:[0.35,0.66],2:[0.28,0.66],3:[0.24,0.5],4:[0.21,0.5],5:[0.14,0.4],6:[0.1,0.33],7:[0.03,0],8:[0.17,0.8],9:[0.14,0.8],10:[0.1,0.75],11:[0.21,0.75],12:[0.06,0.8],13:[0.03,0.8]},
+    '3_oop':{0:[0.34,0.68],1:[0.28,0.59],2:[0.22,0.59],3:[0.2,0.45],4:[0.17,0.45],5:[0.11,0.36],6:[0.08,0.3],7:[0.03,0],8:[0.14,0.72],9:[0.11,0.72],10:[0.08,0.68],11:[0.17,0.68],12:[0.04,0.72],13:[0.02,0.72]}
+  };
+
+  
+  // V2.9.161: Squeeze策略
+  var _SQUEEZE={
+    vs_UTG1_vs_caller:{
+      BTN:{AA:{a:'sq',f:1},KK:{a:'sq',f:1},QQ:{a:'sq',f:.8},AKs:{a:'sq',f:.7},AKo:{a:'sq',f:.6},A5s:{a:'sq',f:.4},A4s:{a:'sq',f:.3},KQs:{a:'sq',f:.2},JJ:{a:'c',f:.7},TT:{a:'c',f:.6},AQs:{a:'c',f:.5},AQo:{a:'c',f:.4}},
+      SB:{AA:{a:'sq',f:1},KK:{a:'sq',f:1},QQ:{a:'sq',f:.7},AKs:{a:'sq',f:.6},AKo:{a:'sq',f:.5},A5s:{a:'sq',f:.3},JJ:{a:'c',f:.5},TT:{a:'c',f:.4},AQs:{a:'c',f:.4}}
+    },
+    vs_MP_vs_caller:{
+      BTN:{AA:{a:'sq',f:1},KK:{a:'sq',f:1},QQ:{a:'sq',f:.9},JJ:{a:'sq',f:.5},AKs:{a:'sq',f:.8},AKo:{a:'sq',f:.7},AQs:{a:'sq',f:.5},A5s:{a:'sq',f:.5},A4s:{a:'sq',f:.4},KQs:{a:'sq',f:.3},TT:{a:'c',f:.7},AQo:{a:'c',f:.5},AJs:{a:'c',f:.3}},
+      SB:{AA:{a:'sq',f:1},KK:{a:'sq',f:1},QQ:{a:'sq',f:.8},AKs:{a:'sq',f:.7},AKo:{a:'sq',f:.6},A5s:{a:'sq',f:.4},JJ:{a:'c',f:.5},AQs:{a:'c',f:.4}}
+    }
+  };
+
   var _RIV={
-    // 主动下注(有主动权/率先行动)
-    // V2.9.158: 补全缺key——暗三条/两对/坚果听/组合听/卡顺/超牌/后门
-    bet:{0:{a:'bet',s:1},1:{a:'bet',s:.75},2:{a:'bet',s:.66},3:{a:'bet',s:.5},4:{a:'bet',s:.5},5:{a:'bet',s:.4},6:{a:'bet',s:.33},7:{a:'check',s:0},8:{a:'bluff',s:.66},9:{a:'bluff',s:.66},10:{a:'bluff',s:.5},11:{a:'bluff',s:.66},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
-    // 面对下注(用MDF + 手牌类别)
-    // V2.9.158: 补全缺key——坚果听call/组合听call/卡顺fold/超牌fold/后门fold
-    face:{0:{a:'raise',s:.75},1:{a:'raise',s:.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'fold',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}}
+    // V2.9.161: River策略全面重建 - 4btKey×16hcKey×bet/face×IP/OOP
+    IP:{
+    '0_bet':{0:{a:'bet',s:1.0},1:{a:'bet',s:0.83},2:{a:'bet',s:0.73},3:{a:'bet',s:0.55},4:{a:'bet',s:0.55},5:{a:'bet',s:0.44},6:{a:'bet',s:0.36},7:{a:'bet',s:0},8:{a:'bet',s:0.73},9:{a:'bet',s:0.73},10:{a:'bet',s:0.55},11:{a:'bet',s:0.73},12:{a:'bluff',s:0.3},13:{a:'bluff',s:0.15},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '1_bet':{0:{a:'bet',s:1},1:{a:'bet',s:0.75},2:{a:'bet',s:0.66},3:{a:'bet',s:0.5},4:{a:'bet',s:0.5},5:{a:'bet',s:0.4},6:{a:'bet',s:0.33},7:{a:'bet',s:0},8:{a:'bet',s:0.66},9:{a:'bet',s:0.66},10:{a:'bet',s:0.5},11:{a:'bet',s:0.66},12:{a:'bluff',s:0.25},13:{a:'bluff',s:0.12},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '2_bet':{0:{a:'bet',s:0.85},1:{a:'bet',s:0.64},2:{a:'bet',s:0.56},3:{a:'bet',s:0.42},4:{a:'bet',s:0.42},5:{a:'bet',s:0.34},6:{a:'bet',s:0.33},7:{a:'bet',s:0.33},8:{a:'bet',s:0.56},9:{a:'bet',s:0.56},10:{a:'bet',s:0.42},11:{a:'bet',s:0.56},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '3_bet':{0:{a:'bet',s:0.85},1:{a:'bet',s:0.64},2:{a:'bet',s:0.56},3:{a:'bet',s:0.42},4:{a:'bet',s:0.42},5:{a:'bet',s:0.34},6:{a:'bet',s:0.33},7:{a:'bet',s:0.33},8:{a:'bet',s:0.56},9:{a:'bet',s:0.56},10:{a:'bet',s:0.42},11:{a:'bet',s:0.56},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '0_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'fold',s:0},8:{a:'fold',s:0},9:{a:'fold',s:0},10:{a:'fold',s:0},11:{a:'fold',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
+    '1_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'fold',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
+    '2_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'call',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
+    '3_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'call',s:0},6:{a:'call',s:0},7:{a:'call',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}}
+    },
+    OOP:{
+    '0_bet':{0:{a:'bet',s:0.9},1:{a:'bet',s:0.74},2:{a:'bet',s:0.65},3:{a:'bet',s:0.5},4:{a:'bet',s:0.5},5:{a:'bet',s:0.4},6:{a:'bet',s:0.33},7:{a:'bet',s:0},8:{a:'bet',s:0.65},9:{a:'bet',s:0.65},10:{a:'bet',s:0.5},11:{a:'bet',s:0.65},12:{a:'bluff',s:0.25},13:{a:'bluff',s:0.12},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '1_bet':{0:{a:'bet',s:0.9},1:{a:'bet',s:0.68},2:{a:'bet',s:0.59},3:{a:'bet',s:0.45},4:{a:'bet',s:0.45},5:{a:'bet',s:0.36},6:{a:'bet',s:0.3},7:{a:'bet',s:0},8:{a:'bet',s:0.59},9:{a:'bet',s:0.59},10:{a:'bet',s:0.45},11:{a:'bet',s:0.59},12:{a:'bluff',s:0.2},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '2_bet':{0:{a:'bet',s:0.77},1:{a:'bet',s:0.57},2:{a:'bet',s:0.5},3:{a:'bet',s:0.38},4:{a:'bet',s:0.38},5:{a:'bet',s:0.31},6:{a:'bet',s:0.3},7:{a:'bet',s:0.3},8:{a:'bet',s:0.5},9:{a:'bet',s:0.5},10:{a:'bet',s:0.38},11:{a:'bet',s:0.5},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '3_bet':{0:{a:'bet',s:0.77},1:{a:'bet',s:0.57},2:{a:'bet',s:0.5},3:{a:'bet',s:0.38},4:{a:'bet',s:0.38},5:{a:'bet',s:0.31},6:{a:'bet',s:0.3},7:{a:'bet',s:0.3},8:{a:'bet',s:0.5},9:{a:'bet',s:0.5},10:{a:'bet',s:0.38},11:{a:'bet',s:0.5},12:{a:'check',s:0},13:{a:'check',s:0},14:{a:'check',s:0},15:{a:'check',s:0}},
+    '0_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'fold',s:0},6:{a:'fold',s:0},7:{a:'fold',s:0},8:{a:'fold',s:0},9:{a:'fold',s:0},10:{a:'fold',s:0},11:{a:'fold',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
+    '1_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'fold',s:0},6:{a:'fold',s:0},7:{a:'fold',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
+    '2_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'fold',s:0},6:{a:'fold',s:0},7:{a:'call',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}},
+    '3_face':{0:{a:'raise',s:0.75},1:{a:'raise',s:0.66},2:{a:'call',s:0},3:{a:'call',s:0},4:{a:'call',s:0},5:{a:'fold',s:0},6:{a:'fold',s:0},7:{a:'call',s:0},8:{a:'call',s:0},9:{a:'call',s:0},10:{a:'fold',s:0},11:{a:'call',s:0},12:{a:'fold',s:0},13:{a:'fold',s:0},14:{a:'fold',s:0},15:{a:'fold',s:0}}
+    }
   };
 
   // ====== V2.9.157: 翻后防守决策逻辑 ======
   function _facingCBet(k,hcKey,btKey,ip,betSz,pot,street,isDonk){
     var szRatio=betSz/Math.max(pot,1);
-    // V2.9.158: 尺度三档 s/m/l (34-66%不再被当大注)
+    // V2.9.161: 尺度三档 s/m/l (34-66%不再被当大注)
     var szKey=szRatio<=.33?'s':szRatio<=.66?'m':'l';
     var table=ip?_FCB_IP:_FCB_OOP;
     var btFallback={6:'4',1:'0',3:'2'};
@@ -2821,14 +3133,22 @@ var HandStateMachine=(function(){
     if(!entry){entry=table[btKey+'_s'];}
     if(!entry||!entry[hcKey])return null;
     var e=entry[hcKey];
-    // V2.9.158: 频率调整——Turn更紧, River最紧, donk更call
+    // V2.9.161: 频率调整——Turn更紧, River最紧, donk更call
     var adjC=e.c,adjR=e.r,adjF=e.f;
     if(street==='turn'){adjC=Math.max(0,adjC-0.06);adjR=Math.max(0,adjR-0.02);adjF=Math.min(1,adjF+0.08);}
     if(street==='river'){adjC=Math.max(0,adjC-0.10);adjR=Math.max(0,adjR-0.03);adjF=Math.min(1,adjF+0.13);}
     if(isDonk){adjC=adjC+adjF*0.25;adjF=adjF*0.75;adjR=adjR*1.1;} // donk range偏弱→更call
+    // V2.9.161: 3bet底池面CBet——更难fold
+    if(G._is3betPot){adjF=adjF*0.7;adjC=adjC+(1-adjC-adjR)*0.3;}
+    // V2.9.161: 多人池面CBet——更紧
+    if(G._isMultiway){adjF=Math.min(1,adjF*1.2);adjR=adjR*0.6;}
     // 归一化
     var sum=adjC+adjR+adjF;
     if(sum>0.01){adjC/=sum;adjR/=sum;adjF/=sum;}else{adjC=e.c;adjR=e.r;adjF=e.f;}
+    var _fcbEA=ExploitAdjuster(1,'facing_cbet',hcKey,oppType,street||'flop','facing_cbet');
+    if(_fcbEA.label){adjR=adjR*_fcbEA.freq;adjC=adjC+(1-_fcbEA.freq)*adjC;adjF=1-adjR-adjC;if(adjF<0)adjF=0;}
+    // V2.9.161: SPR区面CBet调整
+    adjF=adjF*_sprAdj.fcb;
     // 频率随机决策
     var r=Math.random();
     var spr=calcSPR();
@@ -2862,14 +3182,15 @@ var HandStateMachine=(function(){
     return _fold(0,'面CR fold '+btKey+'/'+hcKey+'('+Math.round(e.f*100)+'%)',spr);
   }
 
-  function _turnBarrel(k,hcKey,btKey,turnType,betSz,pot,didFlopCBet){
+  function _turnBarrel(k,hcKey,btKey,turnType,betSz,pot,didFlopCBet,ip,_oppType,_sprAdj2,_is3bP2,_isMW2){
     var btFallback={6:'4',1:'0',3:'2'};
-    if(!_TB_IP[btKey+'_'+turnType]){btKey=btFallback[btKey]||btKey;}
-    var table=_TB_IP[btKey+'_'+turnType];
+    var _tbTable=ip?_TB_IP:_TB_OOP;
+    if(!_tbTable[btKey+'_'+turnType]){btKey=btFallback[btKey]||btKey;}
+    var table=_tbTable[btKey+'_'+turnType];
     if(!table||!table[hcKey])return null;
     var e=table[hcKey];
-    var barrelFreq=e[0];
-    // V2.9.158: Flop未CBet时大幅降低barrel频率
+    var barrelFreq=e[0];barrelFreq=_applyPipeline(barrelFreq,'bet',hcKey,_oppType||oppType,'turn','barrel',_sprAdj2||_sprAdj,_is3bP2!==undefined?_is3bP2:_is3betPot,_isMW2!==undefined?_isMW2:_isMultiway);
+    // V2.9.161: Flop未CBet时大幅降低barrel频率
     if(didFlopCBet===false)barrelFreq=barrelFreq*0.3;
     var spr=calcSPR();
     if(Math.random()<barrelFreq){
@@ -2881,10 +3202,236 @@ var HandStateMachine=(function(){
     return{a:'check',r:'GTO Turn giveup '+btKey+'/'+turnType+'/'+hcKey,eq:0,c:'m',scene:'Turn Check',spr:spr,_se:true};
   }
 
-  function _riverDecision(k,hcKey,hasInitiative,scene,betSz,pot){
-    var table=scene==='check'?_RIV.bet:_RIV.face;
+  // ====== V2.9.162: EV计算核心框架 (turn/river共用) ======
+  // 返回 {evs, bestA, bestEV, bestSz, _statFold, _raiseFold} 或 null
+  function _computeFullEVCore(scene, betSz, pot, eq, _prof, _sprAdj, _is3bP, _isMW, stk){
+    var evs={}, bestA=null, bestEV=-99999, bestSz=0;
+    var _statFold=0.55, _statCall=0.32, _statRaise=0.13;
+    // V2.9.162fix3: DRTA.getProfile() 实际字段是 fold_to_bet (50默认), 没有 callsBet
+    if(_prof&&typeof _prof.fold_to_bet==='number'){
+      _statFold=Math.max(0,Math.min(1,_prof.fold_to_bet/100));
+      // callsBet 字段不存在 - 用 af (aggression factor) 推算: 高af→少call多raise
+      if(typeof _prof.af==='number'&&_prof.af>0){
+        _statCall=Math.max(0.20,Math.min(0.50,0.50-_statFold*(1-1/Math.max(_prof.af,1))));
+        _statRaise=1-_statFold-_statCall;
+      }else{
+        _statRaise=Math.max(0.05,1-_statFold-0.32);
+        _statCall=0.32;
+      }
+      if(_statRaise<0.02)_statRaise=0.02;
+    }
+    if(_isMW){_statFold=Math.min(0.85,_statFold*1.25);_statCall=Math.max(0.20,_statCall);}
+    if(_is3bP){_statFold=Math.max(0.25,_statFold*0.85);}
+    var _canBluff=_sprAdj&&_sprAdj.bluff>0.3;
+    if(scene==='check'){
+      var s33=Math.round(pot*0.33);
+      var s75=Math.round(pot*0.75);
+      evs.check=eq*pot;
+      evs.betValue=-99999; evs.betValueSz=s33;
+      var _betList=[s33,s75];
+      for(var bi=0;bi<_betList.length;bi++){
+        var bs=_betList[bi];
+        var ev=eq*(pot+bs)-(1-eq)*bs*_statCall;
+        if(ev>evs.betValue){evs.betValue=ev;evs.betValueSz=bs;}
+      }
+      evs.bluff=-99999; evs.bluffSz=0;
+      if(_canBluff&&eq<0.40){
+        for(var bj=0;bj<_betList.length;bj++){
+          var bs2=_betList[bj];
+          var bluffEV=_statFold*bs2 + (1-_statFold)*(eq*(pot+bs2)-(1-eq)*bs2);
+          if(bluffEV>evs.bluff){evs.bluff=bluffEV;evs.bluffSz=bs2;}
+        }
+      }
+      if(evs.check>bestEV){bestA='check';bestEV=evs.check;bestSz=0;}
+      // V2.9.162fix2: 价值bet需要vBet显著超过chk (>=15%pot差)
+      if(evs.betValue>bestEV&&evs.betValue-evs.check>=0.15*pot){bestA='bet';bestEV=evs.betValue;bestSz=evs.betValueSz;}
+      // V2.9.162fix: bluff仅在"价值bet EV <= check EV"时启用
+      if(evs.betValue<=evs.check&&evs.bluff>bestEV){bestA='bluff';bestEV=evs.bluff;bestSz=evs.bluffSz;}
+    }else{
+      evs.fold=0;
+      evs.call=eq*(pot+betSz)-(1-eq)*betSz;
+      var raiseSz=Math.round(Math.max(betSz*2.5,pot*1.5));
+      raiseSz=Math.min(raiseSz,stk||100000);
+      // V2.9.162fix3: foldsToRaise 字段不存在 - 用 3bet 字段反推 (3bet 越高, raise 弃牌越少)
+      var _raiseFold=0.40;
+      if(_prof){
+        if(typeof _prof.foldsToRaise==='number')_raiseFold=_prof.foldsToRaise;
+        // V2.9.162fix3: 仅当 threebet 有实际数据(>=5)才反推,避免默认值0.40→0.55破坏air face场景
+        else if(typeof _prof.threebet==='number'&&_prof.threebet>=5)_raiseFold=Math.max(0.20,Math.min(0.65,0.55-_prof.threebet/100*0.5));
+      }
+      if(_isMW)_raiseFold=Math.min(0.7,_raiseFold*1.2);
+      var callAfterEq=eq*0.70;
+      evs.raise=_raiseFold*(pot+betSz) + (1-_raiseFold)*(callAfterEq*(pot+raiseSz)-(1-callAfterEq)*raiseSz);
+      if(evs.fold>bestEV){bestA='fold';bestEV=evs.fold;bestSz=0;}
+      if(evs.call>bestEV){bestA='call';bestEV=evs.call;bestSz=0;}
+      if(evs.raise>bestEV){bestA='raise';bestEV=evs.raise;bestSz=raiseSz;}
+    }
+    if(!bestA)return null;
+    return{evs:evs,bestA:bestA,bestEV:bestEV,bestSz:bestSz,_statFold:_statFold,_raiseFold:_raiseFold};
+  }
+
+  // ====== V2.9.162: 转牌完全枚举EV函数 (RTA场景: 经验频率→数学最优) ======
+  function _turnFullEnumerateEV(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip,_sprAdj,_is3bP,_isMW,preEq){
+    var h=G.hole||[];
+    var comm=G.comm||[];
+    var hole=h.filter(function(c){return c;});
+    var bc=comm.filter(function(c){return c;});
+    if(hole.length<2||bc.length<4)return null;
+    if(typeof hole[0]==='string'){
+      hole=hole.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    if(typeof bc[0]==='string'){
+      bc=bc.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    if(hole.length<2||bc.length<4)return null;
+    // V2.9.162perf: 优先复用decidePostflop已计算的eq
+    var eq;
+    if(typeof preEq==='number'&&preEq>0){
+      eq=preEq/100;
+    }else{
+      // V2.9.162turn: 转牌eq用mcVsRange (蒙特卡洛), 迭代次数2000确保<2%误差
+      var bTexture=boardTexture(bc);
+      var oppRange=getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry');
+      if(!oppRange||oppRange.length===0)return null;
+      var mcI=1000;
+      if(betSz>0&&betSz/(pot+betSz)>=.66)mcI=2000;
+      else if(betSz>0&&betSz/(pot+betSz)>=.33)mcI=1300;
+      var ms=mcVsRange(hole,bc,oppRange,Math.min(mcI,2000));
+      if(!ms||typeof ms.eq!=='number')return null;
+      eq=ms.eq/100;
+    }
+    // V2.9.162perf: DRTA.getProfile() 一次获取
+    var _prof=null;
+    try{_prof=DRTA.getProfile();}catch(e){}
+    // V2.9.162: 调用公共EV计算核心 (子任务4: turn/river共用)
+    var _coreR=_computeFullEVCore(scene,betSz,pot,eq,_prof,_sprAdj,_is3bP,_isMW,G.stk||100000);
+    if(!_coreR)return null;
+    var evs=_coreR.evs, bestA=_coreR.bestA, bestEV=_coreR.bestEV, bestSz=_coreR.bestSz;
+    var _statFold=_coreR._statFold, _raiseFold=_coreR._raiseFold;
+    var rH=Math.round(eq*100);
+    var result={
+      a:bestA, v:bestSz,
+      r:'',
+      eq:rH,
+      c:eq>=0.5?'h':(eq>=0.3?'m':'l'),
+      spr:calcSPR(),
+      _se:true,
+      _seEV:true,
+      ev:bestEV,
+      evs:evs,
+      scene:scene==='check'?'Turn Bet':'Turn Face',
+      _evExplain:[]
+    };
+    var exp=[];
+    exp.push('EV='+(bestEV/Math.max(pot,1)*100).toFixed(0)+'%pot');
+    exp.push('eq='+rH+'%');
+    if(scene==='check'){
+      exp.push('chkEV='+(evs.check/Math.max(pot,1)*100).toFixed(0));
+      exp.push('vBetEV='+(evs.betValue/Math.max(pot,1)*100).toFixed(0));
+      if(evs.bluff>-99998)exp.push('bluffEV='+(evs.bluff/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppF='+Math.round(_statFold*100)+'%');
+    }else{
+      exp.push('foldEV=0');
+      exp.push('callEV='+(evs.call/Math.max(pot,1)*100).toFixed(0));
+      exp.push('raiseEV='+(evs.raise/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppFoldRaise='+Math.round(_raiseFold*100)+'%');
+    }
+    result._evExplain=exp;
+    var aLabel={bet:'价值bet',bluff:'诈唬',raise:'raise',call:'call',fold:'fold',check:'check'}[bestA]||bestA;
+    result.r='EV162T '+aLabel+' '+hcKey+' ['+exp.join('|')+']';
+    return result;
+  }
+
+  // ====== V2.9.162: 河牌完全枚举EV函数 (RTA场景: 经验频率→数学最优) ======
+  function _riverFullEnumerateEV(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip,_sprAdj,_is3bP,_isMW,preEq){
+    var h=G.hole||[];
+    var comm=G.comm||[];
+    var hole=h.filter(function(c){return c;});
+    var bc=comm.filter(function(c){return c;});
+    if(hole.length<2||bc.length<5)return null;
+    if(typeof hole[0]==='string'){
+      hole=hole.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    if(typeof bc[0]==='string'){
+      bc=bc.map(function(s){var m=s&&s.match(/^([2-9TJQKA])([♠♥♦♣])$/);return m?{rank:m[1],suit:m[2]}:null;}).filter(function(c){return c;});
+    }
+    // V2.9.162perf: 优先复用decidePostflop已计算的eq,避免重复riverExactEquity (从~20ms降到<10ms)
+    var eq, eqR;
+    if(typeof preEq==='number'&&preEq>0){
+      eq=preEq/100;
+      eqR={eq:preEq,combos:1};
+    }else{
+      var bTexture=boardTexture(bc);
+      var oppRange=getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry');
+      if(!oppRange||oppRange.length===0)return null;
+      eqR=riverExactEquity(hole,bc,oppRange);
+      if(!eqR||eqR.combos===0)return null;
+      eq=eqR.eq/100;
+    }
+    // V2.9.162perf: DRTA.getProfile() 一次获取 (子任务4: 字段映射在 _computeFullEVCore 内部处理)
+    var _prof=null;
+    try{_prof=DRTA.getProfile();}catch(e){}
+    // V2.9.162: 调用公共EV计算核心 (子任务4: turn/river共用, _statFold/_raiseFold 全部在 core 内计算)
+    var _coreR=_computeFullEVCore(scene,betSz,pot,eq,_prof,_sprAdj,_is3bP,_isMW,G.stk||100000);
+    if(!_coreR)return null;
+    var evs=_coreR.evs, bestA=_coreR.bestA, bestEV=_coreR.bestEV, bestSz=_coreR.bestSz;
+    var _statFold=_coreR._statFold, _raiseFold=_coreR._raiseFold;
+    if(!bestA)return null;
+    var rH=Math.round(eq*100);
+    var result={
+      a:bestA, v:bestSz,
+      r:'',
+      eq:rH,
+      c:eq>=0.5?'h':(eq>=0.3?'m':'l'),
+      spr:calcSPR(),
+      _se:true,
+      _seEV:true,
+      ev:bestEV,
+      evs:evs,
+      scene:scene==='check'?'River Bet':'River Face',
+      _evExplain:[]
+    };
+    var exp=[];
+    exp.push('EV='+(bestEV/Math.max(pot,1)*100).toFixed(0)+'%pot');
+    exp.push('eq='+rH+'%');
+    if(scene==='check'){
+      exp.push('chkEV='+(evs.check/Math.max(pot,1)*100).toFixed(0));
+      exp.push('vBetEV='+(evs.betValue/Math.max(pot,1)*100).toFixed(0));
+      if(evs.bluff>-99998)exp.push('bluffEV='+(evs.bluff/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppF='+Math.round(_statFold*100)+'%');
+    }else{
+      exp.push('foldEV=0');
+      exp.push('callEV='+(evs.call/Math.max(pot,1)*100).toFixed(0));
+      exp.push('raiseEV='+(evs.raise/Math.max(pot,1)*100).toFixed(0));
+      exp.push('oppFoldRaise='+Math.round(_raiseFold*100)+'%');
+    }
+    result._evExplain=exp;
+    var aLabel={bet:'价值bet',bluff:'诈唬',raise:'raise',call:'call',fold:'fold',check:'check'}[bestA]||bestA;
+    result.r='EV162 '+aLabel+' '+hcKey+' ['+exp.join('|')+']';
+    return result;
+  }
+
+  function _riverDecision(k,hcKey,hasInitiative,scene,betSz,pot,btKey,ip,_sprAdj3,_is3bP3,_isMW3){
+    // V2.9.161: River按面纹理+位置选择策略表
+    var rivTbl=ip?_RIV.IP:_RIV.OOP;
+    var rivKey=btKey+'_'+(scene==='check'?'bet':'face');
+    var table=rivTbl[rivKey];
+    if(!table){rivKey='0_'+(scene==='check'?'bet':'face');table=rivTbl[rivKey];}
     if(!table||!table[hcKey])return null;
-    var e=table[hcKey];
+    var e=table[hcKey];// V2.9.161: River SPR/3bet/Multiway调整
+        var _rivAdj=1;
+        if(e.a==='bluff'){
+          if(_sprAdj.bluff<0.5)_rivAdj=0; // 短码不诈唬
+          else _rivAdj=_sprAdj.bluff;
+          if(_is3betPot)_rivAdj*=0.5; // 3bet底池诈唬减半
+          if(_isMultiway)_rivAdj*=0.3; // 多人池几乎不诈唬
+        }
+        if(e.a==='bet'&&hcKey>=9&&hcKey<=11){
+          // 听牌未成: SPR调整
+          _rivAdj*=_sprAdj.cbet;
+          if(_is3betPot)_rivAdj*=0.7;
+        }
+        if(_rivAdj<0.3&&e.a==='bluff'){e={a:'check',s:0};} // 调整后诈唬概率太低→check
     var spr=calcSPR();
     if(e.a==='bet'||e.a==='bluff'){
       var rSz=Math.round(pot*e.s);
@@ -2925,6 +3472,178 @@ var HandStateMachine=(function(){
   }
 
 
+
+  
+  // V2.9.161: Donk bet决策
+  function _donkDecision(k,hcKey,btKey,ip,pot,_oppType2,_sprAdj2,_is3bP2,_isMW2,_street2){
+    var dkTable=ip?_DONK[btKey+'_ip']:_DONK[btKey+'_oop'];
+    if(!dkTable){dkTable=_DONK['0_'+(ip?'ip':'oop')];}
+    if(!dkTable||!dkTable[hcKey])return null;
+    var entry=dkTable[hcKey];
+    var freq=entry[0],sz=entry[1];
+    // 剥削调整
+    if(OppProfiler&&OppProfiler.getStat){
+      var oppCB=OppProfiler.getStat('cbetFlop')||0;
+      if(oppCB>.7){freq*=1.3;} // 对手CBet多→我们donk更多
+      else if(oppCB<.4){freq*=0.5;} // 对手不CBet→等他check我们bet
+    }
+freq=_applyPipeline(freq,'bet',hcKey,_oppType2||'unknown',_street2||'flop','donk',_sprAdj2||{cbet:1,fcb:1,bluff:1},_is3bP2||false,_isMW2||false);    if(Math.random()>freq)return null;
+    var donkSz=Math.round(pot*sz);
+    donkSz=Math.min(donkSz,G.stk||100000);
+    return{a:'raise',v:donkSz,r:'SE160 Donk '+hcKey+'('+Math.round(freq*100)+'%)',eq:0,c:hcKey<=4?'h':'l',sizing:donkSz,scene:'Donk',_se:true};
+  }
+
+  
+  // ====== V2.9.161: RangeEstimator 对手范围推断 ======
+  var RangeEstimator={
+    // 从OppProfiler统计推断范围宽度
+    getWidth:function(oppType,street){
+      var widths={
+        nit:{preflop:'narrow',flop:'narrow',turn:'very_narrow',river:'very_narrow'},
+        tight:{preflop:'narrow',flop:'narrow',turn:'narrow',river:'narrow'},
+        tag:{preflop:'medium',flop:'medium',turn:'medium',river:'narrow'},
+        lag:{preflop:'wide',flop:'wide',turn:'medium',river:'medium'},
+        fish:{preflop:'wide',flop:'wide',turn:'wide',river:'wide'},
+        calling_station:{preflop:'wide',flop:'wide',turn:'wide',river:'wide'},
+        maniac:{preflop:'very_wide',flop:'very_wide',turn:'wide',river:'wide'},
+        unknown:{preflop:'medium',flop:'medium',turn:'medium',river:'medium'}
+      };
+      var w=(widths[oppType]||widths.unknown);
+      return w[street]||w.preflop;
+    },
+    // 范围宽度→组合数估计(粗略)
+    comboCount:function(width){
+      return{very_narrow:30,narrow:60,medium:120,wide:200,very_wide:350}[width]||120;
+    },
+    // 范围宽度→对手range中弱牌占比
+    weakRatio:function(width){
+      return{very_narrow:0.15,narrow:0.25,medium:0.40,wide:0.55,very_wide:0.70}[width]||0.40;
+    },
+    // 基于范围推断调整频率
+    adjustForRange:function(baseFreq,oppType,street,action){
+      var w=this.getWidth(oppType,street);
+      var adj=baseFreq;
+      if(action==='bluff'||action==='bet'){
+        // 对手range宽→bluff效果差; 对手range窄→bluff效果好
+        var wr=this.weakRatio(w);
+        if(wr>0.5)adj*=0.75; // 对手range宽，很多call
+        else if(wr<0.3)adj*=1.3; // 对手range窄，容易fold
+      }else if(action==='call'){
+        // 对手range宽→我们的中等牌更fold(对手真牌多)
+        if(w==='wide'||w==='very_wide')adj*=0.8;
+      }else if(action==='fold'){
+        // 对手range窄→更难fold(面对强range)
+        if(w==='narrow'||w==='very_narrow')adj*=1.2;
+      }
+      return Math.max(0,Math.min(1,adj));
+    }
+  };
+
+  // ====== V2.9.161: ExploitAdjuster 剥削闭环 ======
+  var _exploitHistory={bluffAttempts:0,bluffWins:0,valueAttempts:0,valueCalls:0,valueWins:0,foldToFaced:0,foldToTotal:0,lastReset:Date.now()};
+  function _resetExploitHistory(){if(Date.now()-_exploitHistory.lastReset>3600000){_exploitHistory={bluffAttempts:0,bluffWins:0,valueAttempts:0,valueCalls:0,valueWins:0,foldToFaced:0,foldToTotal:0,lastReset:Date.now()};}}
+  function ExploitAdjuster(freq,action,hcKey,oppType,street,scene){
+    _resetExploitHistory();var adj=freq;var label='';
+    if(OppProfiler&&OppProfiler.getStat){
+      var ftCB=OppProfiler.getStat('foldToCBetFlop')||0;
+      var oppCB=OppProfiler.getStat('cbetFlop')||0;
+      var oppAF=OppProfiler.getStat('af')||1;
+      if((action==='bet'||action==='raise')&&ftCB>.6){adj=Math.min(.95,adj*1.4);label='过度弃牌剥削';}
+      else if((action==='bet'||action==='raise')&&ftCB>.5){adj=Math.min(.95,adj*1.2);label='偏弃牌剥削';}
+      if(action==='raise'&&scene==='facing_cbet'&&oppCB>.7){adj=Math.min(.4,adj*1.8);label='过度CBet剥削';}
+      if(action==='fold'&&oppAF<1&&scene==='facing_raise'){adj=Math.min(.95,adj*1.3);label='被动对手剥削';}
+      if(oppType==='nit'&&(action==='bet'||action==='raise')&&hcKey>=13){adj=Math.min(.9,adj*1.5);label='nit诈唬剥削';}
+      if((oppType==='calling_station'||oppType==='fish')&&hcKey>=13){adj=adj*0.2;label='跟注站不诈唬';}
+      if((oppType==='calling_station'||oppType==='fish')&&hcKey<=4){adj=Math.min(.95,adj*1.3);label='跟注站价值加码';}
+    }
+    if(_exploitHistory.bluffAttempts>=3){var br=_exploitHistory.bluffWins/_exploitHistory.bluffAttempts;if(br<.3&&(action==='bet'||action==='raise')&&hcKey>=13){adj=adj*0.3;label='bluff被catch减频';}}
+    if(_exploitHistory.valueCalls>=5){var vr=_exploitHistory.valueWins/_exploitHistory.valueCalls;if(vr>.8&&hcKey<=4){adj=Math.min(.98,adj*1.15);label='价值尺度加码';}}
+    if(_exploitHistory.foldToTotal>=5){var fr2=_exploitHistory.foldToFaced/_exploitHistory.foldToTotal;if(fr2>.6&&action==='fold'){adj=adj*0.7;label='过度fold修正';}}
+    if(_exploitHistory.bluffAttempts>=8){var ta=_exploitHistory.bluffAttempts+_exploitHistory.valueAttempts;if(ta>0&&_exploitHistory.bluffAttempts/ta>.4&&hcKey>=13){adj=adj*0.7;label='反剥削平衡';}}
+    return{freq:Math.max(0,Math.min(1,adj)),label:label};
+  }
+  function recordExploitResult(type,won){
+    if(type==='bluff'){_exploitHistory.bluffAttempts++;if(won)_exploitHistory.bluffWins++;}
+    else if(type==='value'){_exploitHistory.valueAttempts++;if(won)_exploitHistory.valueCalls++;if(won)_exploitHistory.valueWins++;}
+    else if(type==='fold'){_exploitHistory.foldToTotal++;if(won)_exploitHistory.foldToFaced++;}
+  }
+
+  
+  // ====== V2.9.161: SessionTracker 盈亏追踪 ======
+  var SessionTracker={
+    KEY:'poker_session_v160',
+    current:null,
+    init:function(){
+      try{
+        var d=localStorage.getItem(this.KEY);
+        if(d)this.current=JSON.parse(d);
+      }catch(e){}
+      if(!this.current||!this.current.startTime){
+        this.current={startTime:Date.now(),hands:0,profit:0,buyIn:0,
+          byPos:{UTG:{h:0,p:0},MP:{h:0,p:0},CO:{h:0,p:0},BTN:{h:0,p:0},SB:{h:0,p:0},BB:{h:0,p:0}},
+          biggestWin:0,biggestLoss:0,showdowns:0,showdownWins:0,
+          evDiff:0,seCorrect:0,seTotal:0};
+      }
+    },
+    recordHand:function(result){
+      if(!this.current)this.init();
+      var c=this.current;
+      c.hands++;
+      var profit=result.profit||0;
+      c.profit+=profit;
+      var pos=result.pos||'BB';
+      if(c.byPos[pos]){c.byPos[pos].h++;c.byPos[pos].p+=profit;}
+      if(profit>c.biggestWin)c.biggestWin=profit;
+      if(profit<c.biggestLoss)c.biggestLoss=profit;
+      if(result.showdown){c.showdowns++;if(profit>0)c.showdownWins++;}
+      if(result._se){c.seTotal++;if(result._seCorrect)c.seCorrect++;}
+      this._save();
+    },
+    getSummary:function(){
+      if(!this.current)return null;
+      var c=this.current;
+      var dur=Math.round((Date.now()-c.startTime)/60000);
+      return{hands:c.hands,profit:c.profit,duration:dur,
+        winrate:c.hands>0?(c.profit/c.hands).toFixed(1):0,
+        sdRate:c.showdowns>0?Math.round(c.showdownWins/c.showdowns*100):0,
+        seAccuracy:c.seTotal>0?Math.round(c.seCorrect/c.seTotal*100):0,
+        byPos:c.byPos,bigWin:c.biggestWin,bigLoss:c.biggestLoss};
+    },
+    reset:function(){this.current=null;this.init();this._save();},
+    _save:function(){try{localStorage.setItem(this.KEY,JSON.stringify(this.current));}catch(e){}}
+  };
+  SessionTracker.init();
+
+  
+  // V2.9.161: 多桌检测
+  var MultiTableDetector={
+    _lastActionTime:0,
+    _intervals:[],
+    _isMultiTable:false,
+    recordAction:function(){
+      var now=Date.now();
+      if(this._lastActionTime>0){
+        var interval=now-this._lastActionTime;
+        this._intervals.push(interval);
+        if(this._intervals.length>20)this._intervals.shift();
+      }
+      this._lastActionTime=now;
+      // 如果最近5次平均间隔<3秒,可能在打多桌
+      if(this._intervals.length>=5){
+        var recent=this._intervals.slice(-5);
+        var avg=recent.reduce(function(a,b){return a+b;},0)/recent.length;
+        this._isMultiTable=avg<3000;
+      }
+    },
+    isMultiTable:function(){return this._isMultiTable;},
+    getAdvice:function(hcKey,action){
+      if(!this._isMultiTable)return null;
+      if(action==='call'&&(hcKey===7||hcKey===6))return'多桌建议:中等牌更fold省脑';
+      if(action==='bluff'&&hcKey>=12)return'多桌建议:减少bluff省脑';
+      return null;
+    }
+  };
+
   // ====== 公开接口 ======
   return{
     decidePreflop:decidePreflop,
@@ -2933,7 +3652,7 @@ var HandStateMachine=(function(){
 
 
     isEnabled:function(){return G._seEnabled!==false&&G.tt<=5;},
-    getVersion:function(){return'2.9.158';},
+    getVersion:function(){return'2.9.162'},
     getRFI:function(pos){return _RFI[pos]||null;},
     get3B:function(vs,from){return _3B[vs]?_3B[vs][from]:null;},
     getF3B:function(pos){return _F3B[pos]||null;},
@@ -2943,7 +3662,16 @@ var HandStateMachine=(function(){
     getFacingCBetOOP:function(bt,sz){return _FCB_OOP[bt+'_'+sz]||null;},
     getFacingCR:function(bt){return _FCR[bt]||null;},
     getTurnBarrelIP:function(bt,tt){return _TB_IP[bt+'_'+tt]||null;},
-    getRiverDecision:function(){return _RIV;}
+    getRiverDecision:function(){return _RIV;},
+    recordExploitResult:recordExploitResult,
+    getExploitHistory:function(){return _exploitHistory;},
+    getDonkTable:function(){return _DONK;},
+    getSqueezeTable:function(){return _SQUEEZE;},
+    getSessionSummary:function(){return SessionTracker?SessionTracker.getSummary():null;},
+    resetSession:function(){if(SessionTracker)SessionTracker.reset();},
+    getRangeEstimate:function(oppType,street){return RangeEstimator?RangeEstimator.getWidth(oppType,street):'medium';},
+    isMultiTable:function(){return MultiTableDetector?MultiTableDetector.isMultiTable():false;},
+    getRivTable:function(){return _RIV;}
   };
   })();
 
@@ -5383,11 +6111,22 @@ function handClassify(hole,comm){
     if(flushDraw)outs+=9;
     if((isOpenEnd||isGutshot)&&flushDraw)hasComboDraw=true;
   }
-  // V2.9.48-fix: Ace-high在公共牌对子面=卡顺3outs(A当高牌)
-  if(madeType==="AIR"&&holeRanks.indexOf(12)>=0&&commCount>=3){
+    // V2.9.161: Ace-high超牌=3outs但不标记isGutshot(根修误判)
+  var isOvercard=false;
+  if(madeType==="AIR"
+    &&holeRanks.indexOf(12)>=0&&commCount>=3){
     var _maxComm=comm.filter(function(c){return c;}).map(function(c){return RV[c.rank];});
     _maxComm=_maxComm.length>0?Math.max.apply(null,_maxComm):-1;
-    if(_maxComm<12){madeType="DRAW";outs=3;isGutshot=true;pairSubType='Ace-high';}
+    if(_maxComm<12){madeType="DRAW";outs=3;isOvercard=true;pairSubType='Ace-high超牌';}
+  }
+  // V2.9.161: 其他超牌(K/Q-high on low board)
+  if(madeType==="AIR"&&!isOvercard&&commCount>=3){
+    var _bestHole=holeRanks.length>0?Math.max.apply(null,holeRanks):-1;
+    var _maxComm2=comm.filter(function(c){return c;}).map(function(c){return RV[c.rank];});
+    _maxComm2=_maxComm2.length>0?Math.max.apply(null,_maxComm2):-1;
+    if(_bestHole>_maxComm2&&_bestHole>=10){
+      madeType="DRAW";outs=3;isOvercard=true;pairSubType=(_bestHole>=12?'A':'K')+'-high超牌';
+    }
   }
   // V2.9.48-fix: 公共牌对子面，没有手牌参与→检查是否有顺子听牌
   if(madeType==='AIR'&&hasBoardPair&&!hasHolePair&&commCount>=3){
@@ -5430,7 +6169,7 @@ function handClassify(hole,comm){
   else if(madeType==='MEDIUM')desc=hasComboDraw?'中对+听牌':(pairSubType||'中对/底对');
   else if(madeType==='DRAW')desc=outs+'outs'+(hasComboDraw?' 组合听牌':(isOpenEnd?' 开放顺听':(isGutshot?' 卡顺听':(flushDraw?' 同花听':'听牌'))));
   else desc=pairSubType||'空气/弱牌';
-  return{name:madeType,desc:desc,outs:outs};
+  return{name:madeType,desc:desc,outs:outs,isOvercard:!!isOvercard};
 }
 function boardTexture(comm){var c=comm.filter(function(card){return card;});if(c.length===0)return{wetness:0,desc:'翻前',hasMonotone:false,hasPaired:false,rangeAdv:'neutral',category:'preflop'};var ranks=c.map(function(card){return card.rank;});var suits=c.map(function(card){return card.suit;}).filter(function(s){return s;});var rankCount={};ranks.forEach(function(r){rankCount[r]=(rankCount[r]||0)+1;});var hasPaired=Object.values(rankCount).some(function(n){return n>=2;});var hasTrips=Object.values(rankCount).some(function(n){return n>=3;});var suitCount={};suits.forEach(function(s){suitCount[s]=(suitCount[s]||0)+1;});var maxSuit=suits.length>0?Math.max.apply(null,Object.values(suitCount)):0;var hasMonotone=maxSuit>=3;var vals=ranks.map(function(r){return RV[r]||0;}).sort(function(a,b){return a-b;});var uniq=[];vals.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return a-b;});var maxGap=0,connected=0;for(var i=1;i<uniq.length;i++){var gap=uniq[i]-uniq[i-1];if(gap<=2)connected++;if(gap>maxGap)maxGap=gap;}if(uniq.indexOf(12)!==-1&&uniq.indexOf(1)!==-1&&uniq.indexOf(0)!==-1)connected++;var category,wetness;if(hasTrips){category='paired';wetness=3;}else if(hasMonotone&&connected>=2){category='wet';wetness=4;}else if(hasMonotone){category='wet';wetness=4;}else if(hasPaired&&connected>=2){category='semi-wet';wetness=2;}else if(hasPaired){category='paired';wetness=3;}else if(maxSuit>=2&&connected>=2){category='semi-wet';wetness=2;}else if(connected>=2&&maxGap<=3){category='semi-wet';wetness=2;}else if(maxSuit>=2||connected>=1){category='dry';wetness=1;}else{category='static';wetness=0;}var street=c.length===3?'翻牌':c.length===4?'转牌':'河牌';var catNames={'static':'极干','dry':'干燥','semi-wet':'半湿','paired':'对子','wet':'湿面','preflop':'翻前'};var texture={wetness:wetness,desc:street+'('+catNames[category]+')',hasMonotone:hasMonotone,hasPaired:hasPaired,rangeAdv:'neutral',category:category};return texture;}
 function calcOuts(hole,comm){var hc=handClassify(hole.filter(function(c){return c;}),comm);return hc.outs||0;}
@@ -6780,9 +7519,9 @@ function _decideInner(){
     result._colorInfo={colorKey:_colorKey,color:ColorStrategy.COLORS[_colorKey],signalType:_signalType,signalClass:_signalType==='TILT'?'signal-tilt':_signalType==='COUNTER'?'signal-counter':_signalType==='UNCERTAIN'?'signal-uncertain':''};
     result._reliability=_reliability;
     // 计算EV(仅展示用,不影响决策)
-    try{
+    try{var _pfOrdDI={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};var _diH=_pfOrdDI[G.pos]||5;var _diO=_pfOrdDI[G._raiserRole||G._raiserPos||""]||5;var _diIP=_diH>_diO;
       var _raiseSz=result.v||Math.round(_pot*0.66);
-      var _evs=EVCalc.calc(_eq,_pot,_bet,_raiseSz,_oppType,cc===5?'river':cc===4?'turn':cc===3?'flop':'preflop',pA(G.pos)>=0.5,_spr);
+      var _evs=EVCalc.calc(_eq,_pot,_bet,_raiseSz,_oppType,cc===5?'river':cc===4?'turn':cc===3?'flop':'preflop',_diIP,_spr);
       result._evs=_evs;
       result._evBest=EVCalc.best(_evs);
     }catch(e){}
@@ -7020,7 +7759,7 @@ function preF(k){
   var _specPosMult={utg:0.6,utg1:0.7,mp:0.8,mp1:0.85,hj:0.95,co:1.1,btn:1.2,sb:0.9,bb:1.0}[p]||1.0;
   _specBonus=Math.round(_specBonus*_specSPRMult*_specPosMult);
   if(_specBonus>0){eq+=_specBonus;console.log('[V2.9.141投机动能] bonus='+_specBonus+' SPR×'+_specSPRMult+' pos×'+_specPosMult+'('+p+')');}
-  var pa=pA(p);
+  var pa=pA(p);var _pfOrdPF={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};var _pfIP=_pfOrdPF[p]>=5;
   var posMod={utg:-6,utg1:-4.5,mp:-3,mp1:-1.5,hj:1,co:2,btn:6,sb:0,bb:1};
   eq+=(posMod[p]!==undefined?posMod[p]:0);eq+=BvBStrategy.eqAdj();
   // V2.9.123: Ante感知——修复单位bug(chips/chips，不再BB/chips)
@@ -7214,7 +7953,7 @@ function preF(k){
       return{a:'raise',v:_sqDec.sizing,r:_sqDec.reason,eq:exploitSq.eq,c:_sqDec.type==='value'?'h':'l',sizing:_sqDec.sizing,scene:sceneLabel,spr:spr,evs:compareEVs(eq,pot,bet,_sqDec.sizing),exploit:exploitSq.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
     // V2.9.105: 多人池iso-raise尺寸加大(非squeeze的隔离加注)
-    if(oS.indexOf(k)!==-1&&pA(p)>=0.5){
+    if(oS.indexOf(k)!==-1&&_pfIP){
       var _isoMul=Multiway.isoRaiseAdj();
       var rSz3=Math.round((pot*0.6+actualBet)*_isoMul);
       var exploitResult8=applyExploit(eq,'raise',oppType,{bet:actualBet,pot:pot});
@@ -7420,7 +8159,7 @@ function postF(k){
   var bc=comm.filter(function(c){return c;});
   var spr=calcSPR();
   var sprAdvice=getSPRAdvice(spr);
-  var ip=pA(G.pos)>=0.5;
+  var _pfOrd={sb:1,bb:2,utg:3,utg1:4,mp:5,mp1:6,hj:7,co:8,btn:9};var _hOrd=_pfOrd[G.pos]||5;var _oRole=G._raiserRole||G._raiserPos||'';var _oOrd=_pfOrd[_oRole]||5;var ip=_hOrd>_oOrd;
   var scene=G.scene;
   var street=getCurrentStreet();
   var bTexture=boardTexture(bc);
@@ -8853,7 +9592,21 @@ function onVisionResult(data){
   // V2.9.153: Layer1+3
   if(data&&data.is_poker_table!==false&&data.hole_cards&&data.hole_cards.length>=2){var _pv=PostValidation.runAll(data);if(_pv.length>0)console.log('[V2.9.153PV]'+_pv.length);}
   var _ft=data?(data._frameTag||'manual'):'manual';
-  if(data&&data.is_poker_table!==false&&data.hole_cards&&data.hole_cards.length>=2&&typeof FrameDiffEngine!=='undefined')FrameDiffEngine.processFrame(data,_ft);
+  if(data&&data.is_poker_table!==false&&data.hole_cards&&data.hole_cards.length>=2&&typeof FrameDiffEngine!=='undefined'){
+    FrameDiffEngine.processFrame(data,_ft);
+    // V2.9.163: 轮到你了→加速截屏频率(1.5s)让下一轮决策更快
+    var _fdOurTurn=false;
+    var _fdAL2=FrameDiffEngine.getActionLog();
+    for(var _fdi2=_fdAL2.length-1;_fdi2>=0;_fdi2--){
+      if(_fdAL2[_fdi2].a==='our_turn'){_fdOurTurn=true;break;}
+      if(_fdAL2[_fdi2].cf==='h')break; // 只查当前手牌
+    }
+    if(_fdOurTurn&&typeof AndroidBridge!=='undefined'&&typeof AndroidBridge.setAutoSpeed==='function'){
+      AndroidBridge.setAutoSpeed(1500);
+    }else if(typeof AndroidBridge!=='undefined'&&typeof AndroidBridge.setAutoSpeed==='function'){
+      AndroidBridge.setAutoSpeed(4000);
+    }
+  }
   // V2.9.153: Layer2
   if(data&&data._frameTag==='primary'){MultiFrameConsensus.onPrimaryFrame(data);}
   else if(data&&data._frameTag==='verify'){var cs=MultiFrameConsensus.onVerifyFrame(data);if(cs&&cs._s&&cs._s.length>0)data=MultiFrameConsensus.applyConsensus(data);if(typeof AndroidBridge!=='undefined'&&AndroidBridge.autoCaptureVisionComplete)AndroidBridge.autoCaptureVisionComplete(true);return;}
