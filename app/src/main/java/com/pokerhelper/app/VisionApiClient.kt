@@ -292,7 +292,10 @@ opp_hud: 识别对手头像旁的统计数字[{"seat":2,"vpip":35,"pfr":18,"ats"
         val jsonStr = extractJson(content) ?: return null
         val data = JSONObject(jsonStr)
         val isCompact = data.has("phase") || data.has("bet_to_call") || data.has("blinds")
-        val buttons = (0 until (data.optJSONArray("buttons")?.length() ?: 0)).map { data.optJSONArray("buttons")!!.getString(it) }
+        val buttonsJson = data.optJSONArray("buttons")
+        val buttons = if (buttonsJson != null) {
+            (0 until buttonsJson.length()).map { buttonsJson.getString(it) }
+        } else emptyList()
         val players = if (isCompact) parseOppSeats(data.optJSONArray("opp_seats")) else parseLegacyPlayers(data.optJSONArray("players"))
         val callFromButtons = parseCallAmountFromButtons(buttons)
         val finalToCall = if (callFromButtons >= 0) callFromButtons else if (isCompact) parseChipValue(data, "bet_to_call") else data.optInt("to_call", 0)
