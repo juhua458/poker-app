@@ -1399,6 +1399,12 @@ var OppProfiler={
           _facedCBet:p._facedCBet||0, _foldToCBet:p._foldToCBet||0,
           _checkRaise:p._checkRaise||0, _sawFlopAsOOP:p._sawFlopAsOOP||0,
           _donkBets:p._donkBets||0, _sawFlopAsNonPFR:p._sawFlopAsNonPFR||0,
+          // V2.9.164: 翻后对手统计
+          _sawTurn:p._sawTurn||0, _sawRiver:p._sawRiver||0,
+          _facedTurnCBet:p._facedTurnCBet||0, _foldToTurnCBet:p._foldToTurnCBet||0,
+          _facedRiverCBet:p._facedRiverCBet||0, _foldToRiverCBet:p._foldToRiverCBet||0,
+          _cbetFlop:p._cbetFlop||0, _cbetTurn:p._cbetTurn||0, _cbetRiver:p._cbetRiver||0,
+          _raiseFlop:p._raiseFlop||0, _raiseTurn:p._raiseTurn||0, _raiseRiver:p._raiseRiver||0,
           // V2.9.142: bet sizing tells
           _betSizes:p._betSizes||{small:0,medium:0,large:0,huge:0},
           _betSizeShowdown:p._betSizeShowdown||{small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}},
@@ -1431,7 +1437,11 @@ var OppProfiler={
           _betSizes:{small:0,medium:0,large:0,huge:0},
           _betSizeShowdown:{small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}},
             _enteredThisHand:false,_foldedThisHand:false,_pfEnteredThisHand:false,_lastPfBet:0,
-            _heroDid3bet:false,_heroDidCBet:false
+            _heroDid3bet:false,_heroDidCBet:false,
+            // V2.9.164: 翻后对手统计
+            _sawTurn:0,_sawRiver:0,_facedTurnCBet:0,_foldToTurnCBet:0,
+            _facedRiverCBet:0,_foldToRiverCBet:0,_cbetFlop:0,_cbetTurn:0,_cbetRiver:0,
+            _raiseFlop:0,_raiseTurn:0,_raiseRiver:0
           },p);
           count++;
         }else{
@@ -1451,6 +1461,19 @@ var OppProfiler={
             if(p._foldToCBet)existing._foldToCBet=(existing._foldToCBet||0)+(p._foldToCBet||0);
             if(p._checkRaise)existing._checkRaise=(existing._checkRaise||0)+(p._checkRaise||0);
             if(p._donkBets)existing._donkBets=(existing._donkBets||0)+(p._donkBets||0);
+            // V2.9.164: 翻后统计合并
+            if(p._sawTurn)existing._sawTurn=(existing._sawTurn||0)+(p._sawTurn||0);
+            if(p._sawRiver)existing._sawRiver=(existing._sawRiver||0)+(p._sawRiver||0);
+            if(p._facedTurnCBet)existing._facedTurnCBet=(existing._facedTurnCBet||0)+(p._facedTurnCBet||0);
+            if(p._foldToTurnCBet)existing._foldToTurnCBet=(existing._foldToTurnCBet||0)+(p._foldToTurnCBet||0);
+            if(p._facedRiverCBet)existing._facedRiverCBet=(existing._facedRiverCBet||0)+(p._facedRiverCBet||0);
+            if(p._foldToRiverCBet)existing._foldToRiverCBet=(existing._foldToRiverCBet||0)+(p._foldToRiverCBet||0);
+            if(p._cbetFlop)existing._cbetFlop=(existing._cbetFlop||0)+(p._cbetFlop||0);
+            if(p._cbetTurn)existing._cbetTurn=(existing._cbetTurn||0)+(p._cbetTurn||0);
+            if(p._cbetRiver)existing._cbetRiver=(existing._cbetRiver||0)+(p._cbetRiver||0);
+            if(p._raiseFlop)existing._raiseFlop=(existing._raiseFlop||0)+(p._raiseFlop||0);
+            if(p._raiseTurn)existing._raiseTurn=(existing._raiseTurn||0)+(p._raiseTurn||0);
+            if(p._raiseRiver)existing._raiseRiver=(existing._raiseRiver||0)+(p._raiseRiver||0);
           }
           // V2.9.142: bet sizing tells合并
           if(p._betSizes){
@@ -1565,6 +1588,12 @@ var OppProfiler={
           _checkRaise:0,_sawFlopAsOOP:0, // check-raise次数/OOP看到flop次数
           _donkBets:0,_sawFlopAsNonPFR:0, // donk bet次数/非PFR看到flop次数
           _heroDid3bet:false, _heroDidCBet:false, // 英雄是否执3bet/cbet(用于检测对手响应)
+          // V2.9.164: 翻后对手统计追踪
+          _sawTurn:0, _sawRiver:0, // 看到转牌/河牌次数
+          _facedTurnCBet:0, _foldToTurnCBet:0, // 面对转牌CBet/弃牌
+          _facedRiverCBet:0, _foldToRiverCBet:0, // 面对河牌CBet/弃牌
+          _cbetFlop:0, _cbetTurn:0, _cbetRiver:0, // 对手CBet各街
+          _raiseFlop:0, _raiseTurn:0, _raiseRiver:0, // 对手加注各街
           // V2.9.142: bet sizing tells
           _betSizes:{small:0,medium:0,large:0,huge:0},
           _betSizeShowdown:{small:{n:0,w:0},medium:{n:0,w:0},large:{n:0,w:0},huge:{n:0,w:0}}
@@ -1774,6 +1803,55 @@ var OppProfiler={
     if(!p||p._sawFlopAsNonPFR<2)return null;
     return Math.round(p._donkBets/p._sawFlopAsNonPFR*100);
   },
+  // V2.9.164: 翻后对手统计 getter
+  getFoldToTurnCBetPct:function(nickname){
+    var p=this._profiles[nickname];
+    if(!p||p._facedTurnCBet<2)return null;
+    return Math.round(p._foldToTurnCBet/Math.max(p._facedTurnCBet,1)*100);
+  },
+  getFoldToRiverCBetPct:function(nickname){
+    var p=this._profiles[nickname];
+    if(!p||p._facedRiverCBet<2)return null;
+    return Math.round(p._foldToRiverCBet/Math.max(p._facedRiverCBet,1)*100);
+  },
+  getCbetFlopPct:function(nickname){
+    var p=this._profiles[nickname];
+    if(!p||p._sawFlopAsOOP<2)return null;
+    return Math.round(p._cbetFlop/Math.max(p._sawFlopAsOOP,1)*100);
+  },
+  getCbetTurnPct:function(nickname){
+    var p=this._profiles[nickname];
+    if(!p||p._sawTurn<2)return null;
+    return Math.round(p._cbetTurn/Math.max(p._sawTurn,1)*100);
+  },
+  getCbetRiverPct:function(nickname){
+    var p=this._profiles[nickname];
+    if(!p||p._sawRiver<2)return null;
+    return Math.round(p._cbetRiver/Math.max(p._sawRiver,1)*100);
+  },
+  getRaiseFlopPct:function(nickname){
+    var p=this._profiles[nickname];
+    if(!p||p._sawFlopAsOOP<2)return null;
+    return Math.round(p._raiseFlop/Math.max(p._sawFlopAsOOP,1)*100);
+  },
+  getOppPostflopSummary:function(nickname){
+    try{
+      var p=this._profiles[nickname];
+      if(!p)return '';
+      var parts=[];
+      var fFCB=this.getFoldToCBetPct(nickname);
+      var fCB=this.getCbetFlopPct(nickname);
+      var fR=this.getRaiseFlopPct(nickname);
+      if(fFCB!==null||fCB!==null||fR!==null){
+        parts.push('F:'+(fFCB!==null?'foldCB='+fFCB+'%':'')+(fCB!==null?' cb='+fCB+'%':'')+(fR!==null?' r='+fR+'%':''));
+      }
+      var tFCB=this.getFoldToTurnCBetPct(nickname);
+      if(tFCB!==null)parts.push('T:foldCB='+tFCB+'%');
+      var rFCB=this.getFoldToRiverCBetPct(nickname);
+      if(rFCB!==null)parts.push('R:foldCB='+rFCB+'%');
+      return parts.join(' ');
+    }catch(e){return '';}
+  },
   // V2.9.105: 记录英雄3bet——标记对手将面对3bet
   recordHero3bet:function(){
     var nk=G.oppNickname||this._posMap[G.pos]||this._posMap['sb']||this._posMap['bb'];
@@ -1818,6 +1896,35 @@ var OppProfiler={
     if(nk&&this._profiles[nk]){
       this._profiles[nk]._donkBets++;
     }
+  },
+
+  // V2.9.164: 翻后对手统计记录方法
+  _getOppNk:function(){
+    return G.oppNickname||this._posMap[G.pos]||this._posMap['sb']||this._posMap['bb'];
+  },
+  recordOppTurnCBet:function(nickname){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._cbetTurn++;}}catch(e){}
+  },
+  recordOppRiverCBet:function(nickname){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._cbetRiver++;}}catch(e){}
+  },
+  recordOppTurnCBetResponse:function(nickname,response){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._facedTurnCBet++;if(response==='fold')this._profiles[nk]._foldToTurnCBet++;}}catch(e){}
+  },
+  recordOppRiverCBetResponse:function(nickname,response){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._facedRiverCBet++;if(response==='fold')this._profiles[nk]._foldToRiverCBet++;}}catch(e){}
+  },
+  recordOppCBetFlop:function(nickname){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._cbetFlop++;}}catch(e){}
+  },
+  recordOppRaiseFlop:function(nickname){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._raiseFlop++;}}catch(e){}
+  },
+  recordOppRaiseTurn:function(nickname){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._raiseTurn++;}}catch(e){}
+  },
+  recordOppRaiseRiver:function(nickname){
+    try{var nk=nickname||this._getOppNk();if(nk&&this._profiles[nk]){this._profiles[nk]._raiseRiver++;}}catch(e){}
   },
 
   getType:function(pos){
@@ -2410,6 +2517,14 @@ var HandStateMachine=(function(){
     var pot=G.pot||1;
     var bet=G.bet||0;
     var spr=calcSPR();
+    // V2.9.164: 纳什push/fold——短码时替代GTO策略
+    if(spr<1.5){
+      var _nashEffBB=Math.round(1/Math.max(spr,0.02));
+      if(_nashEffBB<=15){
+        var _nashR=NashPushFold.decide(k,p,scene,spr,_nashEffBB,bet,pot);
+        if(_nashR)return _nashR;
+      }
+    }
     var eq=eQ(k);
     var profile=DRTA.getProfile();
     var oppType=G.opp||'unknown';
@@ -2731,7 +2846,9 @@ var HandStateMachine=(function(){
           var cbSz=Math.round(pot*cbPct);
           cbSz=Math.min(cbSz,stk);
           var exploitR=applyExploit(eq,ip?'bet':'bet',oppType,{bet:bet,pot:pot});
-          return{a:'raise',v:cbSz,r:'GTO CBet '+btKey+'/'+hcKey+'('+Math.round(cbFreq*100)+'%) '+(cbPct<.5?'小':'大')+'尺度',eq:exploitR.eq,c:eq>=55?'h':eq>=45?'m':'l',sizing:cbSz,scene:'CBet',spr:spr,sprAdvice:getSPRAdvice(spr),hClass:hClass,bTexture:bTexture,multiTableAdvice:MultiTableDetector.getAdvice(hcKey,'cbet'),exploit:exploitR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:cbFreq};
+          var _oppStatStr1g='';
+          try{if(OppProfiler&&OppProfiler._profiles){var _oppNk1g=OppProfiler._getOppNk?OppProfiler._getOppNk():null;if(_oppNk1g){var _fCB1g=OppProfiler.getFoldToCBetPct(_oppNk1g);var _cbf1g=OppProfiler.getCbetFlopPct(_oppNk1g);if(_fCB1g!==null||_cbf1g!==null)_oppStatStr1g=' H:'+(_fCB1g!==null?_fCB1g+'%fcb':'')+(_cbf1g!==null?'/'+_cbf1g+'%cb':'');}}}catch(e){}
+          return{a:'raise',v:cbSz,r:'GTO CBet '+btKey+'/'+hcKey+'('+Math.round(cbFreq*100)+'%) '+(cbPct<.5?'小':'大')+'尺度'+_oppStatStr1g,eq:exploitR.eq,c:eq>=55?'h':eq>=45?'m':'l',sizing:cbSz,scene:'CBet',spr:spr,sprAdvice:getSPRAdvice(spr),hClass:hClass,bTexture:bTexture,multiTableAdvice:MultiTableDetector.getAdvice(hcKey,'cbet'),exploit:exploitR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:cbFreq};
         }else{
           // 不CBet → check
           var exploitR2=applyExploit(eq,'check',oppType,{bet:0,pot:pot});
@@ -2758,7 +2875,9 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
           var crSz=Math.round(bet*crSzMult);
           crSz=Math.min(crSz,stk);
           var exploitCR=applyExploit(eq,'raise',oppType,{bet:bet,pot:pot});
-          return{a:'raise',v:crSz,r:'GTO CR '+btKey+'/'+hcKey+'('+Math.round(crFreq*100)+'%)',eq:exploitCR.eq,c:eq>=50?'h':'m',sizing:crSz,scene:'Check-Raise',spr:spr,hClass:hClass,bTexture:bTexture,exploit:exploitCR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:crFreq};
+          var _oppStatStr1h='';
+          try{if(OppProfiler&&OppProfiler._profiles){var _oppNk1h=OppProfiler._getOppNk?OppProfiler._getOppNk():null;if(_oppNk1h){var _cbf1h=OppProfiler.getCbetFlopPct(_oppNk1h);if(_cbf1h!==null)_oppStatStr1h=' H:'+_cbf1h+'%cb';}}}catch(e){}
+          return{a:'raise',v:crSz,r:'GTO CR '+btKey+'/'+hcKey+'('+Math.round(crFreq*100)+'%)'+_oppStatStr1h,eq:exploitCR.eq,c:eq>=50?'h':'m',sizing:crSz,scene:'Check-Raise',spr:spr,hClass:hClass,bTexture:bTexture,exploit:exploitCR.exploit,drta:{type:profile.type,conf:profile.confidence,weights:weights},_se:true,_seFreq:crFreq};
         }
       }
     }
@@ -3196,7 +3315,9 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
     if(Math.random()<barrelFreq){
       var bSz=Math.round(pot*e[1]);
       bSz=Math.min(bSz,G.stk||100000);
-      return{a:'raise',v:bSz,r:'GTO Turn barrel '+btKey+'/'+turnType+'/'+hcKey+'('+Math.round(e[0]*100)+'%)',eq:0,c:e[0]>.7?'h':'m',sizing:bSz,scene:'Turn Barrel',_se:true,_seFreq:e[0]};
+      var _oppStatStr1i='';
+      try{if(OppProfiler&&OppProfiler._profiles){var _oppNk1i=OppProfiler._getOppNk?OppProfiler._getOppNk():null;if(_oppNk1i){var _ftCB1i=OppProfiler.getFoldToTurnCBetPct(_oppNk1i);var _cbt1i=OppProfiler.getCbetTurnPct(_oppNk1i);if(_ftCB1i!==null||_cbt1i!==null)_oppStatStr1i=' H:'+(_ftCB1i!==null?_ftCB1i+'%ftcb':'')+(_cbt1i!==null?'/'+_cbt1i+'%cb':'');}}}catch(e){}
+      return{a:'raise',v:bSz,r:'GTO Turn barrel '+btKey+'/'+turnType+'/'+hcKey+'('+Math.round(e[0]*100)+'%)'+_oppStatStr1i,eq:0,c:e[0]>.7?'h':'m',sizing:bSz,scene:'Turn Barrel',_se:true,_seFreq:e[0]};
     }
     // 不Barrel → check
     return{a:'check',r:'GTO Turn giveup '+btKey+'/'+turnType+'/'+hcKey,eq:0,c:'m',scene:'Turn Check',spr:spr,_se:true};
@@ -3338,7 +3459,9 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
     }
     result._evExplain=exp;
     var aLabel={bet:'价值bet',bluff:'诈唬',raise:'raise',call:'call',fold:'fold',check:'check'}[bestA]||bestA;
-    result.r='EV162T '+aLabel+' '+hcKey+' ['+exp.join('|')+']';
+    var _oppStatStr1t='';
+    try{if(OppProfiler&&OppProfiler._profiles){var _oppNk1t=OppProfiler._getOppNk?OppProfiler._getOppNk():null;if(_oppNk1t){var _ftCB1t=OppProfiler.getFoldToTurnCBetPct(_oppNk1t);var _cbt1t=OppProfiler.getCbetTurnPct(_oppNk1t);if(_ftCB1t!==null||_cbt1t!==null)_oppStatStr1t=' H:'+(_ftCB1t!==null?_ftCB1t+'%ftcb':'')+(_cbt1t!==null?'/'+_cbt1t+'%cb':'');}}}catch(e){}
+    result.r='EV162T '+aLabel+' '+hcKey+' ['+exp.join('|')+']'+_oppStatStr1t;
     return result;
   }
 
@@ -3407,7 +3530,9 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
     }
     result._evExplain=exp;
     var aLabel={bet:'价值bet',bluff:'诈唬',raise:'raise',call:'call',fold:'fold',check:'check'}[bestA]||bestA;
-    result.r='EV162 '+aLabel+' '+hcKey+' ['+exp.join('|')+']';
+    var _oppStatStr1j='';
+    try{if(OppProfiler&&OppProfiler._profiles){var _oppNk1j=OppProfiler._getOppNk?OppProfiler._getOppNk():null;if(_oppNk1j){var _frCB1j=OppProfiler.getFoldToRiverCBetPct(_oppNk1j);var _cbr1j=OppProfiler.getCbetRiverPct(_oppNk1j);if(_frCB1j!==null||_cbr1j!==null)_oppStatStr1j=' H:'+(_frCB1j!==null?_frCB1j+'%frcb':'')+(_cbr1j!==null?'/'+_cbr1j+'%cb':'');}}}catch(e){}
+    result.r='EV162 '+aLabel+' '+hcKey+' ['+exp.join('|')+']'+_oppStatStr1j;
     return result;
   }
 
@@ -10825,6 +10950,70 @@ var HeroCallGate = {
 };
 
 
+
+// V2.9.164: 纳什均衡 push/fold 图表 (<15BB)
+var NashPushFold={
+  PUSH:{
+    'sb':{1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','KQo','KJo','KTo','QJs','QTs','Q9s','Q8s','QJo','QTo','JTs','J9s','JTo','T9s','T8s','98s','87s','76s','65s'],2:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','KQo','KJo','KTo','K9o','QJs','QTs','Q9s','QJo','QTo','JTs','J9s','JTo','T9s','T8s','98s','87s','76s'],3:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','KQo','KJo','KTo','K9o','K8o','QJs','QTs','Q9s','QJo','QTo','JTs','J9s','JTo','T9s','T8s','98s','87s'],4:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','KQo','KJo','KTo','K9o','K8o','K7o','QJs','QTs','Q9s','Q8s','QJo','QTo','JTs','J9s','J8s','T9s','T8s','98s','87s','76s','65s'],5:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','QJs','QTs','Q9s','Q8s','Q7s','QJo','QTo','Q9o','JTs','J9s','J8s','JTo','J9o','T9s','T8s','98s','87s','76s','65s','54s'],6:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','QJo','QTo','Q9o','Q8o','JTs','J9s','J8s','JTo','J9o','T9s','T8s','T7s','T9o','98s','97s','87s','86s','76s','75s','65s','54s'],7:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','QJo','QTo','Q9o','Q8o','Q7o','JTs','J9s','J8s','J7s','JTo','J9o','J8o','T9s','T8s','T7s','T9o','T8o','98s','97s','98o','87s','86s','87o','76s','75s','76o','65s','54s'],8:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','K3o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','QJo','QTo','Q9o','Q8o','Q7o','Q6o','JTs','J9s','J8s','J7s','J6s','JTo','J9o','J8o','J7o','T9s','T8s','T7s','T6s','T9o','T8o','T7o','98s','97s','96s','98o','97o','87s','86s','85s','87o','76s','75s','76o','65s','64s','54s'],9:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','K3o','K2o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','QJo','QTo','Q9o','Q8o','Q7o','Q6o','Q5o','JTs','J9s','J8s','J7s','J6s','J5s','JTo','J9o','J8o','J7o','T9s','T8s','T7s','T6s','T9o','T8o','T7o','T6o','98s','97s','96s','95s','98o','97o','87s','86s','85s','87o','86o','76s','75s','74s','76o','65s','64s','65o','54s','53s','43s'],10:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','K3o','K2o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','Q2s','QJo','QTo','Q9o','Q8o','Q7o','Q6o','Q5o','Q4o','JTs','J9s','J8s','J7s','J6s','J5s','J4s','JTo','J9o','J8o','J7o','J6o','T9s','T8s','T7s','T6s','T5s','T9o','T8o','T7o','T6o','98s','97s','96s','95s','98o','97o','96o','87s','86s','85s','84s','87o','86o','76s','75s','74s','76o','75o','65s','64s','63s','65o','54s','53s','54o','43s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','K3o','K2o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','Q2s','QJo','QTo','Q9o','Q8o','Q7o','Q6o','Q5o','Q4o','Q3o','JTs','J9s','J8s','J7s','J6s','J5s','J4s','JTo','J9o','J8o','J7o','J6o','J5o','T9s','T8s','T7s','T6s','T5s','T4s','T9o','T8o','T7o','T6o','T5o','98s','97s','96s','95s','94s','98o','97o','96o','95o','87s','86s','85s','84s','87o','86o','85o','76s','75s','74s','73s','76o','75o','65s','64s','63s','65o','64o','54s','53s','52s','54o','43s','42s','32s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','K3o','K2o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','Q2s','QJo','QTo','Q9o','Q8o','Q7o','Q6o','Q5o','Q4o','Q3o','Q2o','JTs','J9s','J8s','J7s','J6s','J5s','J4s','J3s','JTo','J9o','J8o','J7o','J6o','J5o','J4o','T9s','T8s','T7s','T6s','T5s','T4s','T9o','T8o','T7o','T6o','T5o','T4o','98s','97s','96s','95s','94s','98o','97o','96o','95o','94o','87s','86s','85s','84s','83s','87o','86o','85o','84o','76s','75s','74s','73s','76o','75o','74o','65s','64s','63s','62s','65o','64o','54s','53s','52s','54o','53o','43s','42s','43o','32s']},
+    'btn':{1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','QJs','QTs','Q9s','Q8s','Q7s','QJo','QTo','JTs','J9s','J8s','JTo','T9s','T8s','98s','87s','76s'],3:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','QJo','QTo','Q9o','JTs','J9s','J8s','J7s','JTo','J9o','T9s','T8s','T7s','T9o','98s','97s','87s','86s','76s','65s'],5:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','QJo','QTo','Q9o','Q8o','JTs','J9s','J8s','J7s','J6s','JTo','J9o','J8o','T9s','T8s','T7s','T6s','T9o','T8o','98s','97s','96s','87s','86s','76s','75s','65s','54s'],8:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','QJo','QTo','Q9o','Q8o','Q7o','JTs','J9s','J8s','J7s','J6s','J5s','JTo','J9o','J8o','T9s','T8s','T7s','T6s','T5s','T9o','T8o','T7o','98s','97s','96s','95s','98o','87s','86s','85s','87o','76s','75s','74s','65s','54s','43s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','QJo','QTo','Q9o','Q8o','Q7o','Q6o','JTs','J9s','J8s','J7s','J6s','J5s','J4s','JTo','J9o','J8o','J7o','T9s','T8s','T7s','T6s','T5s','T4s','T9o','T8o','T7o','98s','97s','96s','95s','94s','98o','87s','86s','85s','84s','87o','76s','75s','74s','76o','65s','54s','43s','32s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','K7o','K6o','K5o','K4o','K3o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','Q2s','QJo','QTo','Q9o','Q8o','Q7o','Q6o','Q5o','JTs','J9s','J8s','J7s','J6s','J5s','J4s','J3s','JTo','J9o','J8o','J7o','T9s','T8s','T7s','T6s','T5s','T4s','T9o','T8o','T7o','T6o','98s','97s','96s','95s','94s','98o','97o','87s','86s','85s','84s','87o','86o','76s','75s','74s','65s','54s','43s','32s']},
+    'co':{1:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','KQo','QJs','JTs'],3:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','KQs','KJs','KTs','K9s','KQo','KJo','QJs','QTs','QJo','JTs','J9s','T9s'],5:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','KQs','KJs','KTs','K9s','K8s','KQo','KJo','KTo','QJs','QTs','Q9s','QJo','QTo','JTs','J9s','JTo','T9s','T8s','98s','87s'],8:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','KQs','KJs','KTs','K9s','K8s','K7s','KQo','KJo','KTo','K9o','QJs','QTs','Q9s','Q8s','QJo','QTo','JTs','J9s','J8s','JTo','T9s','T8s','T7s','98s','87s','76s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','KQo','KJo','KTo','K9o','K8o','QJs','QTs','Q9s','Q8s','Q7s','QJo','QTo','JTs','J9s','J8s','J7s','JTo','T9s','T8s','T7s','T9o','98s','97s','87s','76s','65s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','KQo','KJo','KTo','K9o','K8o','QJs','QTs','Q9s','Q8s','Q7s','Q6s','QJo','QTo','Q9o','JTs','J9s','J8s','J7s','JTo','J9o','T9s','T8s','T7s','T9o','98s','97s','87s','76s','65s','54s']},
+    'hj':{1:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AKo','KQs'],3:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','AKo','AQo','AJo','KQs','KJs','KQo','QJs','JTs','T9s'],5:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','KQo','KJo','QJs','QTs','JTs','J9s','T9s','98s'],8:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','K9s','KQo','KJo','QJs','QTs','Q9s','QJo','JTs','J9s','JTo','T9s','T8s','98s','87s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','AKo','AQo','AJo','ATo','A9o','KQs','KJs','KTs','K9s','K8s','KQo','KJo','KTo','QJs','QTs','Q9s','QJo','QTo','JTs','J9s','J8s','JTo','T9s','T8s','98s','87s','76s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','AKo','AQo','AJo','ATo','A9o','A8o','KQs','KJs','KTs','K9s','K8s','K7s','KQo','KJo','KTo','K9o','QJs','QTs','Q9s','Q8s','QJo','QTo','JTs','J9s','J8s','JTo','J9o','T9s','T8s','T9o','98s','87s','76s','65s']},
+    'mp':{1:['AA','KK','QQ','JJ','TT','AKs','AKo'],3:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AKo','AQo','KQs','QJs'],5:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','AKo','AQo','AJo','KQs','KJs','KQo','QJs','QTs','JTs','T9s'],8:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','AKo','AQo','AJo','KQs','KJs','KTs','KQo','KJo','QJs','QTs','JTs','J9s','T9s','98s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','KQo','KJo','QJs','QTs','Q9s','QJo','JTs','J9s','JTo','T9s','T8s','98s','87s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','K9s','KQo','KJo','QJs','QTs','Q9s','QJo','JTs','J9s','J8s','JTo','T9s','T8s','98s','87s','76s']},
+    'utg':{1:['AA','KK','QQ','AKs'],3:['AA','KK','QQ','JJ','TT','AKs','AQs','AKo'],5:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','AKo','AQo','KQs','QJs'],8:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','AKo','AQo','AJo','KQs','KJs','KQo','QJs','JTs'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','KQs','KJs','KTs','KQo','QJs','QTs','JTs','J9s','T9s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','KQo','KJo','QJs','QTs','JTs','J9s','T9s','98s']}
+  },
+  CALL:{
+    'bb':{1:['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','A9o','KQs','KJs','KTs','KQo','KJo','QJs','QTs','JTs'],3:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','AKo','AQo','AJo','ATo','KQs','KJs','KQo','QJs','JTs','T9s'],5:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','KQo','QJs','QTs','JTs','J9s','T9s','98s'],8:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','A9o','KQs','KJs','KTs','KQo','QJs','QTs','JTs','J9s','T9s','98s','87s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','A9o','KQs','KJs','KTs','K9s','KQo','QJs','QTs','Q9s','JTs','J9s','JTo','T9s','T8s','98s','87s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','A9o','A8o','KQs','KJs','KTs','K9s','KQo','KJo','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','98s','87s','76s']},
+    'sb':{1:['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','AKo','AQo','KQs'],3:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','AKo','AQo','AJo','KQs','KJs','KQo','QJs','JTs'],5:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','AKo','AQo','AJo','KQs','KJs','KTs','KQo','QJs','QTs','JTs','J9s','T9s'],8:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','KQo','QJs','QTs','QJo','JTs','J9s','T9s','98s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','K9s','KQo','KJo','QJs','QTs','Q9s','JTs','J9s','JTo','T9s','T8s','98s','87s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','AKo','AQo','AJo','ATo','A9o','KQs','KJs','KTs','K9s','KQo','KJo','QJs','QTs','Q9s','QJo','JTs','J9s','J8s','JTo','T9s','T8s','T9o','98s','87s','76s']},
+    'btn':{1:['AA','KK','QQ','JJ','TT','AKs','AKo'],3:['AA','KK','QQ','JJ','TT','99','AKs','AQs','AKo','AQo','KQs','KJs'],5:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','AKo','AQo','AJo','KQs','KJs','KQo','QJs','JTs','T9s'],8:['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','AKo','AQo','AJo','KQs','KJs','KTs','KQo','QJs','QTs','JTs','J9s','T9s','98s'],12:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','AKo','AQo','AJo','ATo','KQs','KJs','KTs','KQo','KJo','QJs','QTs','QJo','JTs','J9s','JTo','T9s','T8s','98s','87s'],15:['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','AKo','AQo','AJo','ATo','KQs','KJs','KTs','K9s','KQo','KJo','QJs','QTs','Q9s','JTs','J9s','J8s','JTo','T9s','T8s','98s','87s','76s']}
+  },
+  shouldUseNash:function(scene,p,spr,effectiveBB){
+    if(spr>1.5)return false;
+    if(scene!=='check'&&scene!=='call')return false;
+    if(effectiveBB===undefined)effectiveBB=SPRZone.estimateBB?SPRZone.estimateBB():0;
+    if(effectiveBB<=0)effectiveBB=Math.round(1/Math.max(spr,0.01));
+    if(effectiveBB>15)return false;
+    return true;
+  },
+  _getBBKey:function(effectiveBB){
+    var keys=[1,3,5,8,12,15];
+    for(var i=0;i<keys.length;i++){if(effectiveBB<=keys[i])return keys[i];}
+    return 15;
+  },
+  isNashPush:function(k,p,effectiveBB){
+    var bbKey=this._getBBKey(effectiveBB);
+    var ranges=this.PUSH[p];
+    if(!ranges)return false;
+    var range=ranges[bbKey];
+    if(!range)return false;
+    return range.indexOf(k)>=0;
+  },
+  isNashCall:function(k,p,effectiveBB,oppPos){
+    var bbKey=this._getBBKey(effectiveBB);
+    var callKey=(p==='bb'||p==='sb')?p:'bb';
+    var ranges=this.CALL[callKey];
+    if(!ranges)return false;
+    var range=ranges[bbKey];
+    if(!range)return false;
+    return range.indexOf(k)>=0;
+  },
+  decide:function(k,p,scene,spr,effectiveBB,bet,pot){
+    if(!this.shouldUseNash(scene,p,spr,effectiveBB))return null;
+    var bbKey=this._getBBKey(effectiveBB);
+    if(scene==='check'||scene==='call'){
+      if(this.isNashPush(k,p,effectiveBB)){
+        return{a:'raise',v:G.stk||100000,r:'Nash push('+p+'/'+bbKey+'BB) '+k,eq:55,c:'h',scene:'纳什push',spr:spr,_se:true,_seFreq:1,_nash:true};
+      }
+      return{a:'fold',r:'Nash fold('+p+'/'+bbKey+'BB) '+k,eq:0,c:'l',scene:'纳什fold',spr:spr,_se:true,_nash:true};
+    }
+    if(scene==='raise'){
+      if(this.isNashCall(k,p,effectiveBB)){
+        return{a:'call',r:'Nash call('+p+'/'+bbKey+'BB) '+k,eq:50,c:'m',scene:'纳什call',spr:spr,_se:true,_seFreq:1,_nash:true};
+      }
+      return{a:'fold',r:'Nash fold vs push('+p+'/'+bbKey+'BB) '+k,eq:0,c:'l',scene:'纳什fold',spr:spr,_se:true,_nash:true};
+    }
+    return null;
+  }
+};
 
 // 初始化
 LogBuffer.init(); // V2.9.47: 日志缓冲
