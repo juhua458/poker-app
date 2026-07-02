@@ -28,14 +28,14 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: poker-app-release
-          path: app/build/outputs/apk/release/*.apk
+          name: poker-app-debug
+          path: app/build/outputs/apk/debug/*.apk
 
       - name: Read version
         id: version
@@ -48,7 +48,7 @@ jobs:
           tag_name: v${{ steps.version.outputs.VERSION }}
           name: "青云 v${{ steps.version.outputs.VERSION }}"
           body: "翻前对手定量剥削+自适应截屏(RTA数学最优)"
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/debug/*.apk
           generate_release_notes: false
           make_latest: true
         env:
