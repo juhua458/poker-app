@@ -32,3 +32,18 @@ jobs:
         with:
           name: poker-app-release
           path: app/build/outputs/apk/release/*.apk
+
+      - name: Read version
+        id: version
+        run: echo "VERSION=2.9.163" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: "青云 v${{ steps.version.outputs.VERSION }}"
+          body: "翻前对手定量剥削+自适应截屏(RTA数学最优)"
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: false
+          make_latest: true
