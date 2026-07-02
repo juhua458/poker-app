@@ -115,7 +115,7 @@ class MainActivity : AppCompatActivity() {
             spinnerProvider.adapter = adapter
 
             val savedProvider = prefs?.getString(KEY_PROVIDER, "dashscope") ?: "dashscope"
-            val savedKey = prefs?.getString(KEY_APIKEY, "") ?: ""
+            val savedKey = prefs?.getString(KEY_APIKEY, "sk-392a0016c35c4e788670d8b05bd741a6") ?: "sk-392a0016c35c4e788670d8b05bd741a6"
             val providerIndex = providers.indexOf(savedProvider).coerceAtLeast(0)
             spinnerProvider.setSelection(providerIndex)
             if (savedKey.isNotEmpty()) {

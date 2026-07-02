@@ -97,7 +97,7 @@ object VisionApiClient {
             // V2.9.156: 统一用新分层prompt，不再区分compact/legacy
             var result: VisionResult? = null
             try {
-                val requestJson = buildRequest(dataUri, model = "qwen-vl-plus", compact = true)
+                val requestJson = buildRequest(dataUri, compact = true)
                 val tApi0 = System.currentTimeMillis()
                 result = parseResponse(sendRequest(requestJson))
                 val tApi1 = System.currentTimeMillis()
