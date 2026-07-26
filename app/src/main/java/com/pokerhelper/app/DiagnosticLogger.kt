@@ -111,7 +111,7 @@ object DiagnosticLogger {
             vlmStreet = vlmResult?.street ?: "",
             vlmPot = vlmResult?.potSize ?: 0,
             vlmMyChips = vlmResult?.playerChips ?: 0,
-            vlmBetToCall = vlmResult?.betToCall ?: 0,
+            vlmBetToCall = vlmResult?.toCall ?: 0,
             vlmButtons = vlmResult?.buttons ?: emptyList(),
             vlmDButtonPos = vlmResult?.dButtonPosition ?: "",
             vlmTotalPlayers = vlmResult?.totalPlayers ?: 0,
