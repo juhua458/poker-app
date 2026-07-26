@@ -39,6 +39,7 @@ object VisionApiClient {
         private set
 
     var holeCardsLocked: List<CardInfo>? = null
+    var streetLocked: String? = null  // V2.9.165: 本地CV根据公共牌数量锁定的street
     var suitUncertain: Boolean = false
     var lockReason: String = ""
 
@@ -120,7 +121,7 @@ object VisionApiClient {
             val lastRankKey = holeCardsLocked?.joinToString(",") { it.rank } ?: ""
             if (lastRankKey.isNotEmpty() && currentRankKey != lastRankKey) {
                 Log.d(TAG, "手牌锁定: 新一手牌(rank: $lastRankKey→$currentRankKey)，重置")
-                holeCardsLocked = null; dButtonLocked = ""
+                holeCardsLocked = null; dButtonLocked = ""; streetLocked = null
             }
             // V2.9.114: 空手牌不应被锁定——如果之前锁定了空列表，必须重置
             // V2.9.134: 保留suit（vision已识别花色），不再抹掉
@@ -154,6 +155,12 @@ object VisionApiClient {
     }
 
     private fun applyStreetCorrection(result: VisionResult): VisionResult {
+        // V2.9.165: 优先使用本地CV锁定的street（最可靠）
+        if (streetLocked != null && result.street.lowercase() != streetLocked!!.lowercase()) {
+            Log.w(TAG, "street锁定覆盖: ${result.street}→${streetLocked!!} (本地CV)")
+            return result.copy(street = streetLocked!!)
+        }
+        // 兜底：根据VLM返回的公共牌数量纠正street
         val commCount = result.communityCards.size
         val correctStreet = when { commCount == 0 -> "preflop"; commCount == 3 -> "flop"; commCount == 4 -> "turn"; commCount == 5 -> "river"; else -> null }
         return if (correctStreet != null && result.street.lowercase() != correctStreet) { Log.w(TAG, "street纠正: ${result.street}→$correctStreet"); result.copy(street = correctStreet) } else result
@@ -227,6 +234,7 @@ object VisionApiClient {
 
     // V2.9.156: 分层Prompt+Schema+Few-Shot+JSON Mode+temperature=0
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
+        val streetHint = streetLocked?.let { "\n【已知street】当前street已确认为${it}，phase字段直接填${it}，buttons识别必须与此street的场景一致。\n" } ?: ""
         val prompt = """【系统角色】你是GG扑克5-max桌面的精确识别引擎。只输出JSON，不做解释。
 
 【输出Schema】严格按此格式，字段缺失填null：
@@ -263,7 +271,7 @@ opp_hud: 识别对手头像旁的统计数字[{"seat":2,"vpip":35,"pfr":18,"ats"
 输入：9♦8♦手牌，无公共牌，底池450，4活跃
 输出：{"is_poker_table":true,"hole_cards":[{"rank":"9","suit":"d"},{"rank":"8","suit":"d"}],"community_cards":[],"pot":450,"my_chips":18000,"bet_to_call":200,"dealer_seat":2,"my_seat":4,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":1,"chips":"20000","action":""},{"seat":2,"chips":"15000","action":"raise"},{"seat":3,"chips":"12000","action":"fold"},{"seat":5,"chips":"25000","action":"call"}],"buttons":["弃牌","跟注200","加注"],"d_button_pos":"bottom-center","total_players":5,"active_players":4,"showdown_cards":[],"opp_hud":[]}
 
-【识别当前图片】"""
+${streetHint}【识别当前图片】"""
 
         return JSONObject().apply {
             put("model", model ?: modelName)

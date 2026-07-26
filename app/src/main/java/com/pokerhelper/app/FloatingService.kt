@@ -499,7 +499,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.165"
+            text = "青云 v2.9.166"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -1368,17 +1368,26 @@ class FloatingService : Service() {
                         }
                         VisionApiClient.holeCardsLocked = lockedCards
                         VisionApiClient.lockReason = "本地CV锁定(${tLocalEnd - tLocalStart}ms)"
-                        Log.i(TAG, "★ 本地CV锁定手牌: ${lockedCards.map { "${it.rank}${it.suit}" }}")
+                        // V2.9.165: 根据本地CV公共牌数量锁定street
+                        val localStreet = when (localResult.communityCards.size) {
+                            0 -> "preflop"
+                            3 -> "flop"
+                            4 -> "turn"
+                            5 -> "river"
+                            else -> null  // 无效数量(1/2/6+)不锁定，回退VLM判断
+                        }
+                        VisionApiClient.streetLocked = localStreet
+                        Log.i(TAG, "★ 本地CV锁定手牌: ${lockedCards.map { "${it.rank}${it.suit}" }} | street=${localStreet ?: "未锁定(公共牌${localResult.communityCards.size}张)"}")
                         tvStatus?.text = "🎯 本地CV:${lockedCards.joinToString(" "){"${it.rank}${it.suit}"}} | API补充中..."
                         updateAdviceNotification("本地CV识别OK", "手牌已锁定,API补充场景...")
                     } else {
                         Log.w(TAG, "本地CV手牌识别不完整(${localResult.handCards.size}/2), 回退VisionAPI")
-                        VisionApiClient.holeCardsLocked = null
+                        VisionApiClient.holeCardsLocked = null; VisionApiClient.streetLocked = null
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "本地CV异常, 回退VisionAPI", e)
-                VisionApiClient.holeCardsLocked = null
+                VisionApiClient.holeCardsLocked = null; VisionApiClient.streetLocked = null
             }
         }
 
@@ -1591,7 +1600,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.165\"")
+                append("{\"version\":\"2.9.166\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")
