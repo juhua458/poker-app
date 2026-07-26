@@ -90,6 +90,10 @@ class FloatingService : Service() {
     // V2.9.68: WakeLock保活，防止CPU休眠导致服务被杀
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // V2.9.165: 本地CV牌面识别——纯Bitmap实现，零外部依赖
+    private var cardRecognizer: CardRecognizer? = null
+    private var localCVEnabled = true  // 本地CV开关
+
     // V2.9.153: AutoCapture
     private var autoCaptureEnabled = false
     private var autoCaptureRunnable: Runnable? = null
@@ -199,6 +203,16 @@ class FloatingService : Service() {
             registerReceiver(notificationReceiver, filter)
         }
 
+        // V2.9.165: 初始化本地CV牌面识别器
+        try {
+            cardRecognizer = CardRecognizer(this)
+            cardRecognizer?.init()
+            Log.i(TAG, "本地CV识别器初始化完成")
+        } catch (e: Exception) {
+            Log.e(TAG, "本地CV识别器初始化失败", e)
+            localCVEnabled = false
+        }
+
         initSpeechRecognizer()
         showFloatingWindow()
         showFloatingBall()
@@ -213,6 +227,9 @@ class FloatingService : Service() {
         currentPanelHeight = 0
         handler.removeCallbacksAndMessages(null)
         speechRecognizer?.destroy()
+        // V2.9.165: 释放本地CV识别器资源
+        try { cardRecognizer?.release() } catch (_: Exception) {}
+        cardRecognizer = null
         removeFloatingBall()
         try {
             unregisterReceiver(notificationReceiver)
@@ -482,7 +499,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.164"
+            text = "青云 v2.9.165"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -1333,7 +1350,39 @@ class FloatingService : Service() {
             return
         }
 
-        // 有API Key → 调用视觉模型识别牌面
+        // V2.9.165: 本地CV先行识别牌面——锁定手牌供VisionAPI使用
+        if (localCVEnabled && cardRecognizer != null && VisionApiClient.apiKey.isNotEmpty()) {
+            try {
+                val tLocalStart = System.currentTimeMillis()
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(screenshot, 0, screenshot.size)
+                if (bmp != null) {
+                    val localResult = cardRecognizer!!.recognizeAll(bmp)
+                    bmp.recycle()
+                    val tLocalEnd = System.currentTimeMillis()
+                    Log.d(TAG, "⏱ 本地CV: ${tLocalEnd - tLocalStart}ms, hand=${localResult.handCards.size}, board=${localResult.communityCards.size}")
+
+                    if (localResult.handCards.size == 2) {
+                        // 本地CV识别出手牌，锁定给VisionAPI使用
+                        val lockedCards = localResult.handCards.map {
+                            VisionApiClient.CardInfo(it.rank, it.suit)
+                        }
+                        VisionApiClient.holeCardsLocked = lockedCards
+                        VisionApiClient.lockReason = "本地CV锁定(${tLocalEnd - tLocalStart}ms)"
+                        Log.i(TAG, "★ 本地CV锁定手牌: ${lockedCards.map { "${it.rank}${it.suit}" }}")
+                        tvStatus?.text = "🎯 本地CV:${lockedCards.joinToString(" "){"${it.rank}${it.suit}"}} | API补充中..."
+                        updateAdviceNotification("本地CV识别OK", "手牌已锁定,API补充场景...")
+                    } else {
+                        Log.w(TAG, "本地CV手牌识别不完整(${localResult.handCards.size}/2), 回退VisionAPI")
+                        VisionApiClient.holeCardsLocked = null
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "本地CV异常, 回退VisionAPI", e)
+                VisionApiClient.holeCardsLocked = null
+            }
+        }
+
+        // 有API Key → 调用视觉模型识别牌面（本地CV已锁牌时只补充场景信息）
         tvStatus?.text = "🎯 API识别中..."
         tvAction?.alpha = 0.5f
         updateAdviceNotification("识别中...", "正在分析牌面")
@@ -1542,7 +1591,7 @@ class FloatingService : Service() {
     private fun exportLogFromNotification() {
         try {
             val logData = buildString {
-                append("{\"version\":\"2.9.164\"")
+                append("{\"version\":\"2.9.165\"")
                 append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
                 append(",\"webViewReady\":$webViewReady")
                 append(",\"strategyReceived\":$_strategyReceived")
