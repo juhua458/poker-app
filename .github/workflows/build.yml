@@ -39,7 +39,7 @@ jobs:
 
       - name: Read version
         id: version
-        run: echo "VERSION=2.9.166" >> "$GITHUB_OUTPUT"
+        run: echo "VERSION=2.9.167" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         if: success()
@@ -47,7 +47,7 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
           name: "青云 v${{ steps.version.outputs.VERSION }}"
-          body: "V2.9.166: 本地CV锁定street+注入VLM prompt，修复按钮/场景识别不准"
+          body: "V2.9.167: 增强诊断日志系统，记录完整识别过程+筹码变化追踪"
           files: app/build/outputs/apk/debug/*.apk
           generate_release_notes: false
           make_latest: true

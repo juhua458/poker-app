@@ -112,6 +112,12 @@ class FloatingService : Service() {
     private var _isCrashed = false
     private var _lastCrashReason = ""
     private val pendingJsCalls = mutableListOf<String>()
+    // V2.9.167: 诊断日志变量——记录每次识别的完整信息
+    private var _diagStartTime = 0L
+    private var _diagLocalCVTimeMs = 0L
+    private var _diagLocalHandCards = emptyList<VisionApiClient.CardInfo>()
+    private var _diagLocalCommunityCards = emptyList<VisionApiClient.CardInfo>()
+    private var _diagLocalStreet: String? = null
     // V2.9.114: WebViewAssetLoader——Google官方推荐的本地HTML加载方案
     private lateinit var assetLoader: WebViewAssetLoader
     // V2.9.70: 错误日志——API/截屏失败时记录，豪哥可导出反馈
@@ -499,7 +505,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.166"
+            text = "青云 v2.9.167"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -1315,6 +1321,7 @@ class FloatingService : Service() {
      * 数据来自ScreenOptService.takeScreenshot()（唯一截图路径）
      */
     private fun processScreenshotAndAnalyze(isAutoCapture:Boolean=false,isMultiFrame1:Boolean=false,isMultiFrame2:Boolean=false) {
+        _diagStartTime = System.currentTimeMillis()
         val screenshot = ScreenCaptureService.latestScreenshot
         val ssInfo = if (screenshot != null) "${screenshot.size/1024}KB" else "null"
         Log.d(TAG, "★ processScreenshotAndAnalyze: screenshot=$ssInfo, apiKey=${VisionApiClient.apiKey.takeLast(4)}, webViewReady=$webViewReady")
@@ -1360,6 +1367,14 @@ class FloatingService : Service() {
                     bmp.recycle()
                     val tLocalEnd = System.currentTimeMillis()
                     Log.d(TAG, "⏱ 本地CV: ${tLocalEnd - tLocalStart}ms, hand=${localResult.handCards.size}, board=${localResult.communityCards.size}")
+                    
+                    // V2.9.167: 保存本地CV诊断信息
+                    _diagLocalCVTimeMs = tLocalEnd - tLocalStart
+                    _diagLocalHandCards = localResult.handCards.map { VisionApiClient.CardInfo(it.rank, it.suit) }
+                    _diagLocalCommunityCards = localResult.communityCards.map { VisionApiClient.CardInfo(it.rank, it.suit) }
+                    _diagLocalStreet = when (localResult.communityCards.size) {
+                        0 -> "preflop"; 3 -> "flop"; 4 -> "turn"; 5 -> "river"; else -> null
+                    }
 
                     if (localResult.handCards.size == 2) {
                         // 本地CV识别出手牌，锁定给VisionAPI使用
@@ -1400,8 +1415,31 @@ class FloatingService : Service() {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
                 val tAnalyzeEnd = System.currentTimeMillis()
-                Log.d(TAG, "⏱ analyzeScreenshot: ${tAnalyzeEnd-tAnalyzeStart}ms")
+                Log.d(TAG, "⏱ analyzeSnapshot: ${tAnalyzeEnd-tAnalyzeStart}ms")
                 Log.d(TAG, "★ VisionAPI result=${if(result!=null)"成功" else "null"}, lastError=${VisionApiClient.lastError}")
+                
+                // V2.9.167: 记录诊断日志
+                DiagnosticLogger.logRecognition(
+                    localCVEnabled = localCVEnabled,
+                    localCVTimeMs = _diagLocalCVTimeMs,
+                    localHandCards = _diagLocalHandCards,
+                    localCommunityCards = _diagLocalCommunityCards,
+                    localStreet = _diagLocalStreet,
+                    streetLocked = VisionApiClient.streetLocked,
+                    holeCardsLocked = VisionApiClient.holeCardsLocked != null,
+                    vlmTimeMs = tAnalyzeEnd - tAnalyzeStart,
+                    vlmResult = result,
+                    totalTimeMs = System.currentTimeMillis() - _diagStartTime,
+                    hasError = result == null,
+                    errorMessage = if (result == null) VisionApiClient.lastError else null,
+                    strategySent = result != null && result.isPokerTable
+                )
+                // 重置诊断变量
+                _diagLocalCVTimeMs = 0L
+                _diagLocalHandCards = emptyList()
+                _diagLocalCommunityCards = emptyList()
+                _diagLocalStreet = null
+                
                 if (result != null) {
                     // V2.9.111: NO_TABLE检测——优先看isPokerTable，其次3信号联合判断
                     val modelSaysNoTable = !result.isPokerTable
@@ -1597,22 +1635,11 @@ class FloatingService : Service() {
     }
 
     // V2.9.113: 纯Kotlin端导出日志，不依赖WebView
+    // V2.9.167: 增强版诊断日志导出
     private fun exportLogFromNotification() {
         try {
-            val logData = buildString {
-                append("{\"version\":\"2.9.166\"")
-                append(",\"exportTime\":\"${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\"")
-                append(",\"webViewReady\":$webViewReady")
-                append(",\"strategyReceived\":$_strategyReceived")
-                append(",\"lastAdvice\":\"${_lastStrategyAdvice.replace("\"", "\\\"").take(100)}\"")
-                append(",\"crashState\":\"${if(_isCrashed) "CRASHED:" + _lastCrashReason.replace("\"", "\\\"").take(80) else "NORMAL"}\"")
-                append(",\"nativeErrors\":[" )
-                val errs = errorLogs.map { "\"${it.replace("\"", "\\\"").replace("\n", " ")}\"" }
-                append(errs.joinToString(","))
-                append("]")
-                append(",\"lastVisionResult\":\"${VisionApiClient.lastError.take(100).replace("\"", "\\\"")}\"")
-                append("}")
-            }
+            // 使用 DiagnosticLogger 导出完整的诊断日志
+            val logData = DiagnosticLogger.exportAsJson()
             val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             val fileName = "poker_log_${java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())}.json"
             val exportFile = File(downloadDir, fileName)
