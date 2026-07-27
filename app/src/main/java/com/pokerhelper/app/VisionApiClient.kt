@@ -78,7 +78,7 @@ object VisionApiClient {
     )
 
     data class CardInfo(val rank: String, val suit: String)
-    data class PlayerInfo(val position: String, val bet: Int, val chips: Int, val active: Boolean)
+    data class PlayerInfo(val position: String, val bet: Int, val chips: Int, val active: Boolean, val nickname: String = "")
     // V2.9.143: 摊牌信息——对手亮牌+输赢
     data class ShowdownInfo(val seat: Int, val cards: List<CardInfo>, val won: Boolean)
     // V2.9.153: Smart HUD
@@ -238,7 +238,7 @@ object VisionApiClient {
         val prompt = """【系统角色】你是GG扑克5-max桌面的精确识别引擎。只输出JSON，不做解释。
 
 【输出Schema】严格按此格式，字段缺失填null：
-{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"Player1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
 
 【花色识别规则 - 极其关键！】
 suit用单字母: s=黑桃♠(实心黑色尖头朝上) h=红心♥(红色心形顶部凹陷) d=方块♦(红色菱形四角对称) c=梅花♣(黑色三叶圆瓣)
@@ -263,13 +263,18 @@ buttons必须完整识别屏幕底部所有操作按钮文字，遗漏会导致�
 showdown_cards: 摊牌阶段能看到对手翻开的牌时，识别seat+2张手牌+won。否则填[]
 opp_hud: 识别对手头像旁的统计数字[{"seat":2,"vpip":35,"pfr":18,"ats":40,"three_bet":8}]，看不到填[]
 
+【玩家昵称规则 - V2.9.168 关键！】
+opp_seats中每个seat必须包含nickname字段，读取每位对手头像旁显示的用户名/昵称
+nickname是玩家唯一标识，用于跟踪玩家进出和统计。必须准确识别，看不清时填"unknown"
+格式: {"seat":2,"nickname":"玩家昵称","chips":"3000","action":"fold"}
+
 【Few-Shot示例1：翻后场景】
 输入：A♠K♥手牌，Q♦7♣2♠公共牌，底池1500，3活跃
-输出：{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"},{"rank":"7","suit":"c"},{"rank":"2","suit":"s"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"chips":"18000","action":"check"},{"seat":3,"chips":"22000","action":"check"}],"buttons":["让牌","下注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+输出：{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"},{"rank":"7","suit":"c"},{"rank":"2","suit":"s"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"PokerKing","chips":"18000","action":"check"},{"seat":3,"nickname":"Fish99","chips":"22000","action":"check"}],"buttons":["让牌","下注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
 
 【Few-Shot示例2：翻前场景】
 输入：9♦8♦手牌，无公共牌，底池450，4活跃
-输出：{"is_poker_table":true,"hole_cards":[{"rank":"9","suit":"d"},{"rank":"8","suit":"d"}],"community_cards":[],"pot":450,"my_chips":18000,"bet_to_call":200,"dealer_seat":2,"my_seat":4,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":1,"chips":"20000","action":""},{"seat":2,"chips":"15000","action":"raise"},{"seat":3,"chips":"12000","action":"fold"},{"seat":5,"chips":"25000","action":"call"}],"buttons":["弃牌","跟注200","加注"],"d_button_pos":"bottom-center","total_players":5,"active_players":4,"showdown_cards":[],"opp_hud":[]}
+输出：{"is_poker_table":true,"hole_cards":[{"rank":"9","suit":"d"},{"rank":"8","suit":"d"}],"community_cards":[],"pot":450,"my_chips":18000,"bet_to_call":200,"dealer_seat":2,"my_seat":4,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":1,"nickname":"Dragon88","chips":"20000","action":""},{"seat":2,"nickname":"Shark_Pro","chips":"15000","action":"raise"},{"seat":3,"nickname":"Lucky7","chips":"12000","action":"fold"},{"seat":5,"nickname":"AceHigh","chips":"25000","action":"call"}],"buttons":["弃牌","跟注200","加注"],"d_button_pos":"bottom-center","total_players":5,"active_players":4,"showdown_cards":[],"opp_hud":[]}
 
 ${streetHint}【识别当前图片】"""
 
@@ -324,7 +329,7 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
     private fun parseOppSeats(arr: JSONArray?): List<PlayerInfo> {
         if (arr == null) return emptyList()
         return (0 until arr.length()).mapNotNull { i ->
-            try { val o = arr.optJSONObject(i) ?: return@mapNotNull null; val s = o.optInt("seat", 0); val c = parseChipValue(o, "chips"); val a = o.optString("action", ""); if (s > 0) PlayerInfo(seatToPosition(s), if (a == "raise" || a == "call" || a == "allin") c else 0, c, a != "fold") else null } catch (_: Exception) { null }
+            try { val o = arr.optJSONObject(i) ?: return@mapNotNull null; val s = o.optInt("seat", 0); val c = parseChipValue(o, "chips"); val a = o.optString("action", ""); val nick = o.optString("nickname", ""); if (s > 0) PlayerInfo(seatToPosition(s), if (a == "raise" || a == "call" || a == "allin") c else 0, c, a != "fold", nick) else null } catch (_: Exception) { null }
         }
     }
     private fun seatToPosition(s: Int) = when(s) { 1->"bottom"; 2->"left-bottom"; 3->"left-top"; 4->"top-center"; 5->"right-top"; 6->"right-bottom"; else->"seat_$s" }
@@ -422,7 +427,16 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
             put("pot_size", result.potSize); put("my_chips", result.playerChips); put("total_players", result.totalPlayers); put("active_players", result.activePlayers)
             put("my_position", result.myPosition); put("street", result.street); put("to_call", result.toCall); put("min_raise", result.minRaise)
             put("buttons", JSONArray(result.buttons)); put("blind_sb", result.blindSB); put("blind_bb", result.blindBB); put("ante", result.ante)
-            put("players", JSONArray(result.players.map { JSONObject().apply { put("position", it.position); put("bet", it.bet); put("chips", it.chips); put("active", it.active) } }))
+            put("players", JSONArray(result.players.map { JSONObject().apply { put("position", it.position); put("bet", it.bet); put("chips", it.chips); put("active", it.active); if(it.nickname.isNotEmpty()) put("nickname", it.nickname) } }))
+            // V2.9.168: 同时输出opp_seats格式供JS OppProfiler使用
+            put("opp_seats", JSONArray(result.players.map { p -> JSONObject().apply {
+                val seatNum = when(p.position) { "bottom"->1; "left-bottom"->2; "left-top"->3; "top-center"->4; "right-top"->5; "right-bottom"->6; else->0 }
+                put("seat", seatNum)
+                put("chips", p.chips.toString())
+                put("action", if(p.bet > 0) { if(p.bet > 600) "raise" else "call" } else if(p.active) "" else "fold")
+                put("active", p.active)
+                if(p.nickname.isNotEmpty()) put("nickname", p.nickname)
+            } }))
             put("is_poker_table", result.isPokerTable); put("d_button_position", result.dButtonPosition); put("suit_uncertain", suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("lock_reason", lockReason)
             put("prompt_mode", lastPromptMode)
             // V2.9.143: 摊牌信息

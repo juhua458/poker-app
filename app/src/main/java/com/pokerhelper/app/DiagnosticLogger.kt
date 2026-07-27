@@ -176,7 +176,7 @@ object DiagnosticLogger {
     fun exportAsJson(): String {
         val json = JSONObject()
         json.put("exportTime", dateFormat.format(Date()))
-        json.put("version", "2.9.168")
+        json.put("version", "2.9.169")
         json.put("totalLogs", recognitionLogs.size)
         
         val logsArray = JSONArray()

@@ -1568,6 +1568,43 @@ var OppProfiler={
       this._initAutoSave(); // V2.9.164: 启动定时保存
     }
     
+    // V2.9.168: 标准化oppSeats格式——确保每项都有pos和nickname
+    // 新格式(Kotlin toJson): {seat:number, nickname:string, chips:string, action:string, active:boolean}
+    // 旧格式: {pos:string, nickname:string, chips:number, bet:number}
+    var _seatToPos=function(s){return{1:'bottom',2:'left-bottom',3:'left-top',4:'top-center',5:'right-top',6:'right-bottom'}[s]||'seat_'+s;};
+    var _normalizedSeats=[];
+    var _prevSeats=this._prevSeats||{};
+    var _currSeats={};
+    for(var i=0;i<oppSeats.length;i++){
+      var raw=oppSeats[i];
+      var pos=raw.pos||_seatToPos(raw.seat||0);
+      var nk=raw.nickname||pos;
+      // 标准化为统一格式
+      var chips=typeof raw.chips==='string'?parseInt(raw.chips)||0:(raw.chips||0);
+      var bet=raw.bet||0;
+      // 如果没有bet字段，从action推断
+      if(!raw.bet&&raw.action){
+        if(raw.action==='raise'||raw.action==='call'||raw.action==='allin')bet=chips; // 简化：用chips作为bet占位
+      }
+      var active=raw.active!==undefined?raw.active:(raw.action!=='fold');
+      _normalizedSeats.push({pos:pos,nickname:nk,chips:chips,bet:bet,action:raw.action||'',active:active,seat:raw.seat||0});
+      _currSeats[pos]=nk;
+      // 检测玩家进出
+      if(!_prevSeats[pos]){
+        console.log('[V2.9.168玩家进场] seat='+pos+' nickname='+nk+' chips='+chips);
+      }else if(_prevSeats[pos]!==nk&&nk!=='unknown'&&_prevSeats[pos]!=='unknown'){
+        console.log('[V2.9.168玩家更换] seat='+pos+' 旧='+_prevSeats[pos]+' 新='+nk);
+      }
+    }
+    // 检测离场
+    for(var _pp in _prevSeats){
+      if(!_currSeats[_pp]){
+        console.log('[V2.9.168玩家离场] seat='+_pp+' nickname='+_prevSeats[_pp]);
+      }
+    }
+    this._prevSeats=_currSeats;
+    oppSeats=_normalizedSeats;
+    
     // 检测新一手牌
     var handChanged=this._detectNewHand(oppSeats,street);
     if(handChanged){
@@ -1652,7 +1689,7 @@ var OppProfiler={
       }
       
       // 弃牌状态检测
-      if(s.status==='folded'){
+      if(s.action==='fold'||s.active===false){
         if(!p._foldedThisHand&&p._enteredThisHand){
           p._foldedThisHand=true;
           p.folded++;
@@ -1676,7 +1713,7 @@ var OppProfiler={
     // V2.9.142: 记录对手下注大小(bet sizing tells)——从oppSeats的bet检测
     for(var _bsi=0;_bsi<oppSeats.length;_bsi++){
       var _bss=oppSeats[_bsi];
-      if(_bss.bet>0&&_bss.status==='active'){
+      if(_bss.bet>0&&(_bss.active!==false&&_bss.action!=='fold')){
         var _bsNk=_bss.nickname||_bss.pos;
         if(_bsNk&&this._profiles[_bsNk]){
           this.recordBetSize(_bsNk,_bss.bet,G.pot||1,street);
@@ -1972,7 +2009,7 @@ var OppProfiler={
         var maxBet=0, maxNk=null;
         for(var i=0;i<G.oppSeats.length;i++){
           var s=G.oppSeats[i];
-          if(s.bet>maxBet && s.status==='active'){
+          if(s.bet>maxBet && (s.active!==false&&s.action!=='fold')){
             maxBet=s.bet;
             maxNk=s.nickname||s.pos;
           }
@@ -1985,7 +2022,7 @@ var OppProfiler={
         var maxBet2=0, maxNk2=null;
         for(var j=0;j<G.oppSeats.length;j++){
           var os=G.oppSeats[j];
-          if(os.bet>maxBet2 && os.status==='active'){
+          if(os.bet>maxBet2 && (os.active!==false&&os.action!=='fold')){
             maxBet2=os.bet;
             maxNk2=os.nickname||os.pos;
           }
@@ -10546,7 +10583,7 @@ function onVisionResult(data){
     var _maxBet=0,_raiserPos='';
     for(var i=0;i<data.opp_seats.length;i++){
       var os=data.opp_seats[i];
-      if(os.bet>0&&os.status==='active'){
+      if(os.bet>0&&(os.active!==false&&os.action!=='fold')){
         // 找最大bet的对手
         if(os.bet>_maxBet){_maxBet=os.bet;_raiserPos=os.pos;}
         // bet > BB → 有人加注了
