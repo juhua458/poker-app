@@ -9679,6 +9679,161 @@ function onActionCapture(){
 }
 
 // V2.9.43: 从按钮文字自动推导场景（全面GG适配）
+
+// ========== V2.9.168: 按钮规则验证器 (GG德州扑克) ==========
+var ButtonValidator=(function(){
+  // 各街区各场景的预期按钮规则
+  var RULES={
+    preflop:{
+      standard:{label:'翻前标准(面对加注)',minBtn:3,maxBtn:5,mustHave:['弃牌','跟注'],shouldHave:['加注']},
+      bbOption:{label:'翻前大盲位(无人加注)',minBtn:2,maxBtn:4,mustHave:['加注'],shouldHave:['过牌']},
+      allin:{label:'翻前全押',minBtn:2,maxBtn:5,mustHave:[],shouldHave:[]}
+    },
+    flop:{
+      firstToAct:{label:'翻牌-先行动(可过牌)',minBtn:2,maxBtn:4,mustHave:[],shouldHave:['过牌']},
+      facingBet:{label:'翻牌-面对下注',minBtn:3,maxBtn:5,mustHave:['弃牌','跟注'],shouldHave:['加注']},
+      allin:{label:'翻牌全押',minBtn:2,maxBtn:5,mustHave:[],shouldHave:[]}
+    },
+    turn:{
+      firstToAct:{label:'转牌-先行动(可过牌)',minBtn:2,maxBtn:4,mustHave:[],shouldHave:['过牌']},
+      facingBet:{label:'转牌-面对下注',minBtn:3,maxBtn:5,mustHave:['弃牌','跟注'],shouldHave:['加注']},
+      allin:{label:'转牌全押',minBtn:2,maxBtn:5,mustHave:[],shouldHave:[]}
+    },
+    river:{
+      firstToAct:{label:'河牌-先行动(可过牌)',minBtn:2,maxBtn:4,mustHave:[],shouldHave:['过牌']},
+      facingBet:{label:'河牌-面对下注',minBtn:3,maxBtn:5,mustHave:['弃牌','跟注'],shouldHave:['加注']},
+      allin:{label:'河牌全押',minBtn:2,maxBtn:5,mustHave:[],shouldHave:[]}
+    }
+  };
+  // 按钮关键词匹配(支持中文/英文多变体)
+  function _has(btns,kw){
+    return btns.some(function(b){
+      var t=b.toLowerCase();
+      switch(kw){
+        case'弃牌':return t.indexOf('弃牌')>=0||t.indexOf('fold')>=0;
+        case'过牌':return t.indexOf('过牌')>=0||t.indexOf('让牌')>=0||t.indexOf('check')>=0;
+        case'下注':return t.indexOf('下注')>=0||t.indexOf('bet')>=0;
+        case'跟注':return t.indexOf('跟注')>=0||t.indexOf('call')>=0;
+        case'加注':return t.indexOf('加注')>=0||t.indexOf('raise')>=0||t.indexOf('下注')>=0||t.indexOf('bet')>=0;
+        case'全押':return t.indexOf('全押')>=0||t.indexOf('全下')>=0||t.indexOf('all-in')>=0||t.indexOf('all in')>=0;
+        default:return t.indexOf(kw)>=0;
+      }
+    });
+  }
+  // 按钮分类(与detectSceneFromButtons对齐)
+  function _classify(btns,street){
+    if(!btns||btns.length===0)return'empty';
+    var hasAllin=_has(btns,'全押');
+    if(hasAllin)return'allin';
+    var hasReraise=btns.some(function(b){return b.indexOf('再加注')>=0||b.indexOf('3bet')>=0;});
+    if(hasReraise)return'reraise';
+    var hasCall=_has(btns,'跟注');
+    var hasCheck=_has(btns,'过牌');
+    var hasCheckFold=btns.some(function(b){return(_has([b],'过牌'))&&_has([b],'弃牌');});
+    if(hasCheckFold)hasCheck=true;
+    if(street==='preflop'){
+      if(hasCall)return'standard';
+      if(hasCheck&&btns.some(function(b){return _has([b],'加注');}))return'bbOption';
+      return'standard';
+    }else{
+      if(hasCall)return'facingBet';
+      if(hasCheck)return'firstToAct';
+      if(btns.some(function(b){return _has([b],'加注');}))return'firstToAct';
+      return'firstToAct';
+    }
+  }
+  // 主验证函数
+  function validate(buttons,street,scene){
+    if(!buttons||!street)return{valid:true,warnings:[],sceneType:'unknown'};
+    var st=street.toLowerCase();
+    if(st==='pre')st='preflop';
+    var rules=RULES[st];
+    if(!rules)return{valid:true,warnings:['未知街区:'+street],sceneType:'unknown'};
+    var sceneType=_classify(buttons,st);
+    var rule=rules[sceneType];
+    var warnings=[];
+    var anomalies=[];
+    // 1. 按钮数量检查
+    var btnCount=buttons.length;
+    if(rule&&(btnCount<rule.minBtn||btnCount>rule.maxBtn)){
+      warnings.push('按钮数量异常:'+btnCount+'个(预期'+rule.minBtn+'-'+rule.maxBtn+')');
+    }
+    // 2. 必须有的按钮
+    if(rule){
+      rule.mustHave.forEach(function(kw){
+        if(!_has(buttons,kw)){warnings.push('缺少必需按钮['+kw+'](场景:'+rule.label+')');}
+      });
+    }
+    // 3. 街区特定异常检测
+    if(st==='preflop'){
+      var hasCheck=_has(buttons,'过牌');
+      var hasCall=_has(buttons,'跟注');
+      var hasBet=_has(buttons,'下注');
+      // 翻前不应该有"下注"按钮(翻前只有加注)
+      if(hasBet&&!hasCall&&!hasCheck){
+        anomalies.push({type:'PREFLOP_HAS_BET',msg:'翻前出现"下注"按钮(应为"加注")-可能VLM混淆了下注/加注'});
+      }
+      // 翻前standard场景不应有"过牌"(除非BB位)
+      if(hasCheck&&sceneType==='standard'){
+        anomalies.push({type:'PREFLOP_STANDARD_HAS_CHECK',msg:'翻前standard场景出现"过牌"-可能在大盲位(BB option)'});
+      }
+    }
+    if(['flop','turn','river'].indexOf(st)>=0){
+      var hasCheck2=_has(buttons,'过牌');
+      var hasCall2=_has(buttons,'跟注');
+      // 翻后同时有过牌和跟注→异常(要么面对下注要么先行动)
+      if(hasCheck2&&hasCall2){
+        anomalies.push({type:'POSTFLOP_CHECK_AND_CALL',msg:'翻后同时有"过牌"和"跟注"-按钮识别可能重复/错误'});
+      }
+      // 翻后firstToAct场景同时有跟注→异常
+      if(sceneType==='firstToAct'&&hasCall2){
+        anomalies.push({type:'FIRST_TO_ACT_HAS_CALL',msg:'先行动场景有"跟注"-应只有过牌/下注'});
+      }
+    }
+    // 4. 场景与按钮一致性
+    if(scene&&rule){
+      var expectedScene='';
+      if(sceneType==='standard')expectedScene='raise';
+      else if(sceneType==='bbOption')expectedScene='check';
+      else if(sceneType==='firstToAct')expectedScene='check';
+      else if(sceneType==='facingBet')expectedScene='bet';
+      if(expectedScene&&scene!==expectedScene&&scene!=='allin'&&scene!=='reraise'){
+        warnings.push('场景不一致:detectScene='+scene+'但按钮模式='+sceneType+'(预期'+expectedScene+')');
+      }
+    }
+    var valid=warnings.length===0&&anomalies.length===0;
+    if(!valid){
+      var allMsg=warnings.concat(anomalies.map(function(a){return a.msg;}));
+      console.log('[V2.9.168按钮验证] ⚠️ '+st+'/'+sceneType+' | '+allMsg.join(' | '));
+      console.log('[V2.9.168按钮验证] 按钮详情: ['+buttons.join(', ')+']');
+    }else{
+      console.log('[V2.9.168按钮验证] ✅ '+st+'/'+sceneType+' | 按钮'+buttons.length+'个 | ['+buttons.join(', ')+']');
+    }
+    return{valid:valid,warnings:warnings,anomalies:anomalies,sceneType:sceneType,buttonCount:buttons.length,ruleLabel:rule?rule.label:''};
+  }
+  // 获取按钮摘要(用于诊断日志)
+  function getSummary(buttons,street){
+    if(!buttons||buttons.length===0)return{street:street,type:'empty',desc:'无按钮'};
+    var hasFold=_has(buttons,'弃牌');
+    var hasCheck=_has(buttons,'过牌');
+    var hasBet=_has(buttons,'下注');
+    var hasCall=_has(buttons,'跟注');
+    var hasRaise=_has(buttons,'加注');
+    var hasAllin=_has(buttons,'全押');
+    var parts=[];
+    if(hasFold)parts.push('Fold');
+    if(hasCheck)parts.push('Check');
+    if(hasBet&&!hasCall)parts.push('Bet');
+    if(hasCall)parts.push('Call');
+    if(hasRaise&&!hasBet)parts.push('Raise');
+    if(hasAllin)parts.push('AllIn');
+    var type=_classify(buttons,(street||'').toLowerCase()==='pre'?'preflop':(street||'').toLowerCase());
+    return{street:street,type:type,desc:parts.join('+'),count:buttons.length};
+  }
+  return{validate:validate,getSummary:getSummary,RULES:RULES};
+})();
+// ========== V2.9.168: 按钮规则验证器 END ==========
+
 function detectSceneFromButtons(buttons, street, activePlayers) {
   if (!buttons || buttons.length === 0) {
     // V2.9.144 P2: 按钮为空时，从全局状态反推——有bet说明面对下注
@@ -9866,6 +10021,14 @@ function onVisionResult(data){
     }
     var detectedScene=detectSceneFromButtons(data.buttons||[],street,activeP);
     G.scene=detectedScene;
+    // V2.9.168: 按钮规则验证——检测按钮是否符合当前街区预期
+    var _bvResult=ButtonValidator.validate(data.buttons||[],street,detectedScene);
+    var _bvSummary=ButtonValidator.getSummary(data.buttons||[],street);
+    if(!_bvResult.valid){
+      console.log('[V2.9.168按钮验证] 验证失败! warnings='+_bvResult.warnings.length+' anomalies='+(_bvResult.anomalies?_bvResult.anomalies.length:0));
+      // 记录到全局供诊断日志使用
+      G._lastButtonValidation={ts:Date.now(),street:street,scene:detectedScene,type:_bvResult.sceneType,valid:false,warnings:_bvResult.warnings,anomalies:_bvResult.anomalies,buttons:data.buttons||[]};
+    }
   }
   // V2.9.154: HSM状态机观测——只观察不决策
   if(typeof HandStateMachine!=="undefined")HandStateMachine.processVisionData(data);
