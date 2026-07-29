@@ -28,6 +28,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ArduinoJson.h>
 #include "usb_hid_touchpad.h"
 #include "camera_driver.h"
 #include "ota_updater.h"
