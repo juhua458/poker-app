@@ -5,7 +5,9 @@
  */
 
 #include "camera_driver.h"
-#include <esp_psram.h>
+#if defined(BOARD_HAS_PSRAM)
+#include <esp32-hal-psram.h>
+#endif
 
 // ============================================================================
 // 构造/析构
