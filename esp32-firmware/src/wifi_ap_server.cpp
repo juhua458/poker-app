@@ -137,7 +137,7 @@ void WiFiAPServer::_handleCapture()
     _server.sendHeader("Content-Type", "image/jpeg");
     _server.sendHeader("Content-Length", String(fb->len));
     _server.sendHeader("Access-Control-Allow-Origin", "*");
-    _server.send_P(200, "image/jpeg", fb->buf, fb->len);
+    _server.send_P(200, "image/jpeg", reinterpret_cast<const char*>(fb->buf), fb->len);
 
     // 释放帧缓冲区 (必须!)
     _camera->returnFrame(fb);
