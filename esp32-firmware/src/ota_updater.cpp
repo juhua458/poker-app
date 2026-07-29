@@ -108,7 +108,7 @@ OTAResult OTAUpdater::handleUpdate(const uint8_t* data, size_t dataLen,
 
     // 更新 MD5
     if (_expectedMd5.length() > 0) {
-        _md5.add(data, dataLen);
+        _md5.add(const_cast<uint8_t*>(data), dataLen);
     }
 
     _totalReceived += dataLen;
