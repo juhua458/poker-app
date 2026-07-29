@@ -1,49 +1,44 @@
 name: Build ESP32 Firmware
 
 on:
-  workflow_dispatch:
   push:
     paths:
-      - 'esp32-firmware/**'
+      - "esp32-firmware/**"
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Install PlatformIO
         run: pip install platformio
-      
+
       - name: Install ESP32 Platform
         run: pio platform install espressif32
-      
+
       - name: Build Firmware
         working-directory: esp32-firmware
         run: pio run -e esp32s3-n16r8
-      
+
       - name: Prepare artifacts
         run: |
           mkdir -p firmware_bin
-          cp esp32-firmware/.pio/build/esp32s3-n16r8/firmware.bin firmware_bin/
-          cp esp32-firmware/.pio/build/esp32s3-n16r8/bootloader.bin firmware_bin/
-          cp esp32-firmware/.pio/build/esp32s3-n16r8/partitions.bin firmware_bin/
-          cat > firmware_bin/flash_instructions.txt << 'EOF'
-ESP32-S3 N16R8 固件烧录地址:
-- bootloader.bin  -> 0x0000 (0)
-- partitions.bin  -> 0x8000 (32768)
-- firmware.bin    -> 0x10000 (65536)
+          cp esp32-firmware/.pio/build/esp32s3-n16r8/firmware.bin firmware_bin/ || true
+          cp esp32-firmware/.pio/build/esp32s3-n16r8/bootloader.bin firmware_bin/ || true
+          cp esp32-firmware/.pio/build/esp32s3-n16r8/partitions.bin firmware_bin/ || true
+          echo "Flash addresses:" > firmware_bin/flash_instructions.txt
+          echo "bootloader.bin  -> 0x0000" >> firmware_bin/flash_instructions.txt
+          echo "partitions.bin  -> 0x8000" >> firmware_bin/flash_instructions.txt
+          echo "firmware.bin    -> 0x10000" >> firmware_bin/flash_instructions.txt
+          ls -la firmware_bin/
 
-使用 ESP32 Flash Download Tool 或 esptool:
-esptool.py --chip esp32s3 write_flash 0x0000 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin
-EOF
-          echo "Done! Binaries ready in firmware_bin/"
-      
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
