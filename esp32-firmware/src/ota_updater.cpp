@@ -97,7 +97,7 @@ OTAResult OTAUpdater::handleUpdate(const uint8_t* data, size_t dataLen,
     }
 
     // 写入数据
-    size_t written = Update.write(data, dataLen);
+    size_t written = Update.write(const_cast<uint8_t*>(data), dataLen);
     if (written != dataLen) {
         Serial.printf("[OTA] Error: write failed (expected %u, wrote %u): %s\n",
                       dataLen, written, Update.errorString());
