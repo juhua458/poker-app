@@ -45,10 +45,19 @@ bool CameraDriver::begin(framesize_t frameSize, int jpegQuality)
     Serial.printf("[CAM] Free PSRAM before init: %u bytes (%.1f KB)\n",
                   freePsram, freePsram / 1024.0f);
 
+    // PSRAM 不足时降级：单缓冲 + 小分辨率
+    if (freePsram < 200000) {
+        Serial.println("[CAM] PSRAM low, downgrading to QVGA single buffer");
+        _config.frame_size = FRAMESIZE_QVGA;
+        _config.fb_count = 1;
+        _config.grab_mode = CAMERA_GRAB_LATEST;
+    }
+
     // 初始化摄像头
     esp_err_t err = esp_camera_init(&_config);
     if (err != ESP_OK) {
         Serial.printf("[CAM] Camera init failed: 0x%x (%s)\n", err, esp_err_to_name(err));
+        Serial.println("[CAM] Continuing without camera, WiFi still available");
         return false;
     }
 
