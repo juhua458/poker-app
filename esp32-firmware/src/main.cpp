@@ -1,29 +1,19 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - 主入口
+ * 青云扑克 ESP32-S3-CAM - 主入口 (v1.0.3 - 无PSRAM最小系统)
  * ============================================================================
  * 
- * 功能：初始化各模块并运行主循环
- * - USB HID 触摸屏
- * - WiFi AP + HTTP 服务器
- * - OV5640 摄像头
- * - OTA 无线更新
- * - 行为随机化
- * - 看门狗定时器
- * 
- * 系统架构:
- *   [手机] --USB-C--> [ESP32-S3 HID Digitizer]  (触摸输入)
- *   [手机] --WiFi---> [ESP32-S3 HTTP Server]    (控制指令)
- *   [ESP32-S3 摄像头] --WiFi---> [手机]          (画面预览)
- * 
- * ============================================================================
+ * v1.0.3 变更：
+ *   - 移除 PSRAM 相关编译宏（BOARD_HAS_PSRAM、CONFIG_SPIRAM_*）
+ *   - 暂时关闭摄像头模块（依赖 PSRAM）
+ *   - 保留 WiFi AP + USB HID + OTA + 行为随机化
+ *   - 目标：先让固件能正常启动，确认基础功能可用
  */
 
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 #include "usb_hid_touchpad.h"
 #include "wifi_ap_server.h"
-#include "camera_driver.h"
 #include "ota_updater.h"
 #include "behavior_randomizer.h"
 
@@ -31,7 +21,6 @@
 // 全局对象
 // ============================================================================
 USBHIDTouchpad      g_hidTouchpad;
-CameraDriver        g_camera;
 OTAUpdater          g_ota;
 BehaviorRandomizer  g_randomizer;
 WiFiAPServer*       g_server = nullptr;
@@ -75,20 +64,16 @@ void setup()
     g_hidTouchpad.begin();
     // 注意：USB 设备挂载需要时间，在主循环中等待
 
-    // 5. 初始化摄像头
-    Serial.println("[MAIN] Initializing OV5640 Camera...");
-    if (g_camera.begin(FRAMESIZE_SVGA, 12)) {
-        Serial.println("[MAIN] Camera OK");
-    } else {
-        Serial.println("[MAIN] Camera FAILED - continuing without camera");
-    }
+    // 5. [v1.0.3] 摄像头模块已禁用（PSRAM 不可用）
+    // TODO: 确认 PSRAM 硬件状态后重新启用摄像头
 
     // 6. 初始化 OTA
     g_ota.begin();
 
     // 7. 初始化 WiFi AP + HTTP 服务器
+    //    注意：WiFiAPServer 构造需要 camera 指针，暂传 nullptr
     Serial.println("[MAIN] Starting WiFi AP + HTTP Server...");
-    g_server = new WiFiAPServer(&g_hidTouchpad, &g_camera, &g_ota, &g_randomizer);
+    g_server = new WiFiAPServer(&g_hidTouchpad, nullptr, &g_ota, &g_randomizer);
     if (g_server && g_server->begin()) {
         Serial.println("[MAIN] WiFi AP + HTTP Server OK");
     } else {
@@ -135,8 +120,8 @@ void _initSerial()
     delay(500);  // 等待串口就绪
     Serial.println();
     Serial.println("========================================================");
-    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.0");
-    Serial.println("  USB HID Touch Screen + WiFi AP + Camera + OTA");
+    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.3");
+    Serial.println("  USB HID + WiFi AP + OTA (Camera Disabled)");
     Serial.println("========================================================");
 }
 
@@ -160,10 +145,10 @@ void _feedWatchdog()
 void _printBanner()
 {
     Serial.println();
-    Serial.println("  ╔═══════════════════════════════════════╗");
-    Serial.println("  ║    QingYun Poker - ESP32-S3-CAM      ║");
-    Serial.println("  ║    USB HID + WiFi AP + Camera + OTA   ║");
-    Serial.println("  ╚═══════════════════════════════════════╝");
+    Serial.println("  +=======================================+");
+    Serial.println("  |    QingYun Poker - ESP32-S3-CAM       |");
+    Serial.println("  |    v1.0.3 - Minimal System (no CAM)   |");
+    Serial.println("  +=======================================+");
     Serial.println();
 }
 
@@ -174,16 +159,13 @@ void _printSystemInfo()
     Serial.printf("  CPU Freq: %d MHz\n", ESP.getCpuFreqMHz());
     Serial.printf("  Free Heap: %u bytes (%.1f KB)\n",
                   ESP.getFreeHeap(), ESP.getFreeHeap() / 1024.0f);
-    Serial.printf("  Free PSRAM: %u bytes (%.1f KB)\n",
-                  g_camera.getFreePsram(), g_camera.getFreePsram() / 1024.0f);
     Serial.printf("  Min Free Heap: %u bytes\n", ESP.getMinFreeHeap());
     Serial.printf("  Flash Size: %u bytes (%.1f MB)\n",
                   ESP.getFlashChipSize(), ESP.getFlashChipSize() / (1024.0f * 1024.0f));
     Serial.printf("  SDK Version: %s\n", ESP.getSdkVersion());
     Serial.printf("  USB HID Mounted: %s\n",
                   g_hidTouchpad.isMounted() ? "Yes" : "No");
-    Serial.printf("  Camera Initialized: %s\n",
-                  g_camera.isInitialized() ? "Yes" : "No");
+    Serial.printf("  Camera: DISABLED (v1.0.3)\n");
     if (g_server) {
         Serial.printf("  WiFi AP IP: %s\n", g_server->getAPIP().c_str());
     }
@@ -193,8 +175,6 @@ void _printSystemInfo()
 void _handleUSBReconnect()
 {
     // 静默监控 USB 连接状态
-    // 如果 USB 断开后重新连接，可能需要重新初始化
-    // TinyUSB 库通常会自动处理重连
     static bool wasMounted = false;
     bool isMounted = g_hidTouchpad.isMounted();
 
