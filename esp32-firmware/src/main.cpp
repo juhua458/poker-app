@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - 主入口 (v1.0.3 - 无PSRAM最小系统)
+ * 青云扑克 ESP32-S3-CAM - 主入口 (v1.0.4 - 清洁编译版)
  * ============================================================================
  * 
- * v1.0.3 变更：
+ * v1.0.4 变更：
  *   - 移除 PSRAM 相关编译宏（BOARD_HAS_PSRAM、CONFIG_SPIRAM_*）
  *   - 暂时关闭摄像头模块（依赖 PSRAM）
  *   - 保留 WiFi AP + USB HID + OTA + 行为随机化
@@ -120,8 +120,8 @@ void _initSerial()
     delay(500);  // 等待串口就绪
     Serial.println();
     Serial.println("========================================================");
-    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.3");
-    Serial.println("  USB HID + WiFi AP + OTA (Camera Disabled)");
+    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.4");
+    Serial.println("  USB HID + WiFi AP + OTA (Clean Build)");
     Serial.println("========================================================");
 }
 
@@ -147,7 +147,7 @@ void _printBanner()
     Serial.println();
     Serial.println("  +=======================================+");
     Serial.println("  |    QingYun Poker - ESP32-S3-CAM       |");
-    Serial.println("  |    v1.0.3 - Minimal System (no CAM)   |");
+    Serial.println("  |    v1.0.4 - Clean Build (no CAM)   |");
     Serial.println("  +=======================================+");
     Serial.println();
 }
@@ -165,7 +165,7 @@ void _printSystemInfo()
     Serial.printf("  SDK Version: %s\n", ESP.getSdkVersion());
     Serial.printf("  USB HID Mounted: %s\n",
                   g_hidTouchpad.isMounted() ? "Yes" : "No");
-    Serial.printf("  Camera: DISABLED (v1.0.3)\n");
+    Serial.printf("  Camera: DISABLED (v1.0.4)\n");
     if (g_server) {
         Serial.printf("  WiFi AP IP: %s\n", g_server->getAPIP().c_str());
     }
