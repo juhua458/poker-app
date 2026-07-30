@@ -56,7 +56,7 @@ bool CameraDriver::begin(framesize_t frameSize, int jpegQuality)
     } else {
         // PSRAM 不可用：降级到内部 SRAM，单缓冲 + 低分辨率
         Serial.println("[CAM] WARNING: PSRAM not available! Using internal SRAM fallback");
-        _config.fb_location = CAMERA_FB_IN_SRAM;
+        _config.fb_location = CAMERA_FB_IN_DRAM;
         _config.fb_count = 1;
         _config.grab_mode = CAMERA_GRAB_LATEST;
         // 先用 QVGA 尝试，内部 SRAM 有限
@@ -71,7 +71,7 @@ bool CameraDriver::begin(framesize_t frameSize, int jpegQuality)
     // 如果失败且用了 PSRAM，尝试降级到 SRAM
     if (err != ESP_OK && hasPsram) {
         Serial.printf("[CAM] PSRAM init failed: %s, trying SRAM fallback...\n", esp_err_to_name(err));
-        _config.fb_location = CAMERA_FB_IN_SRAM;
+        _config.fb_location = CAMERA_FB_IN_DRAM;
         _config.fb_count = 1;
         _config.frame_size = FRAMESIZE_QVGA;
         _config.jpeg_quality = 15;
@@ -84,7 +84,7 @@ bool CameraDriver::begin(framesize_t frameSize, int jpegQuality)
         esp_camera_deinit();  // 清理上次失败的初始化
         memset(&_config, 0, sizeof(_config));
         _buildConfig(FRAMESIZE_QQVGA, 20);
-        _config.fb_location = CAMERA_FB_IN_SRAM;
+        _config.fb_location = CAMERA_FB_IN_DRAM;
         _config.fb_count = 1;
         _config.grab_mode = CAMERA_GRAB_LATEST;
         err = esp_camera_init(&_config);
