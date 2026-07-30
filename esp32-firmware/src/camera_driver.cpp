@@ -42,22 +42,57 @@ bool CameraDriver::begin(framesize_t frameSize, int jpegQuality)
 
     // 打印 PSRAM 信息
     size_t freePsram = getFreePsram();
+    bool hasPsram = (freePsram > 100000);  // >100KB 视为 PSRAM 可用
     Serial.printf("[CAM] Free PSRAM before init: %u bytes (%.1f KB)\n",
                   freePsram, freePsram / 1024.0f);
+    Serial.printf("[CAM] PSRAM available: %s\n", hasPsram ? "YES" : "NO");
 
-    // PSRAM 不足时降级：单缓冲 + 小分辨率
-    if (freePsram < 200000) {
-        Serial.println("[CAM] PSRAM low, downgrading to QVGA single buffer");
-        _config.frame_size = FRAMESIZE_QVGA;
+    if (hasPsram) {
+        // PSRAM 可用：使用双缓冲，帧缓冲放在 PSRAM
+        _config.fb_location = CAMERA_FB_IN_PSRAM;
+        _config.fb_count = 2;
+        _config.grab_mode = CAMERA_GRAB_LATEST;
+        Serial.println("[CAM] Using PSRAM for frame buffers (dual buffer)");
+    } else {
+        // PSRAM 不可用：降级到内部 SRAM，单缓冲 + 低分辨率
+        Serial.println("[CAM] WARNING: PSRAM not available! Using internal SRAM fallback");
+        _config.fb_location = CAMERA_FB_IN_SRAM;
         _config.fb_count = 1;
         _config.grab_mode = CAMERA_GRAB_LATEST;
+        // 先用 QVGA 尝试，内部 SRAM 有限
+        _config.frame_size = FRAMESIZE_QVGA;
+        _config.jpeg_quality = 15;  // 降低质量减少内存
+        Serial.println("[CAM] Fallback: QVGA, quality=15, single buffer in SRAM");
     }
 
     // 初始化摄像头
     esp_err_t err = esp_camera_init(&_config);
+
+    // 如果失败且用了 PSRAM，尝试降级到 SRAM
+    if (err != ESP_OK && hasPsram) {
+        Serial.printf("[CAM] PSRAM init failed: %s, trying SRAM fallback...\n", esp_err_to_name(err));
+        _config.fb_location = CAMERA_FB_IN_SRAM;
+        _config.fb_count = 1;
+        _config.frame_size = FRAMESIZE_QVGA;
+        _config.jpeg_quality = 15;
+        err = esp_camera_init(&_config);
+    }
+
+    // 如果 QVGA 也失败，尝试更小的 QQVGA
     if (err != ESP_OK) {
-        Serial.printf("[CAM] Camera init failed: 0x%x (%s)\n", err, esp_err_to_name(err));
-        Serial.println("[CAM] Continuing without camera, WiFi still available");
+        Serial.printf("[CAM] QVGA failed: %s, trying QQVGA...\n", esp_err_to_name(err));
+        esp_camera_deinit();  // 清理上次失败的初始化
+        memset(&_config, 0, sizeof(_config));
+        _buildConfig(FRAMESIZE_QQVGA, 20);
+        _config.fb_location = CAMERA_FB_IN_SRAM;
+        _config.fb_count = 1;
+        _config.grab_mode = CAMERA_GRAB_LATEST;
+        err = esp_camera_init(&_config);
+    }
+
+    if (err != ESP_OK) {
+        Serial.printf("[CAM] Camera init failed completely: 0x%x (%s)\n", err, esp_err_to_name(err));
+        Serial.println("[CAM] Continuing without camera, WiFi + HID still available");
         return false;
     }
 
