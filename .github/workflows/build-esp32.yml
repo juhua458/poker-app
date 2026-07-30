@@ -23,6 +23,10 @@ jobs:
       - name: Install ESP32 Platform
         run: pio platform install espressif32
 
+      - name: Clean Build Cache
+        working-directory: esp32-firmware
+        run: pio run -t clean -e esp32s3-n16r8
+
       - name: Build Firmware
         working-directory: esp32-firmware
         run: pio run -e esp32s3-n16r8
