@@ -1,11 +1,16 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.13)
+ * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.14)
  * ============================================================================
  *
- * 基于 v1.0.12 修复：USB HID 初始化了但 TinyUSB 未启动导致 NOT MOUNTED。
- * 根因：USBHID::begin() 只创建信号量，不调用 USB.begin() 启动 TinyUSB 栈。
- * 修复：在 touchpad.begin() 之前显式调用 USB.begin()。
+ * v1.0.14：修复 v1.0.13 USB mount 等待期间崩溃重启问题。
+ * 根因：ESP32-S3 的 USB Serial/JTAG 控制器（串口）和 USB-OTG 控制器（TinyUSB HID）
+ *       共享 GPIO 引脚，同时激活导致冲突崩溃；10秒阻塞等待触发 Task Watchdog Timer 复位。
+ * 修复：① USB.begin() 前调用 Serial.end() 释放 USB Serial/JTAG 引脚
+ *        禁用 Task Watchdog Timer 防止等待期间被复位
+ *       ③ 串口之后不可用，WiFi + HID 不受影响
+ *
+ * v1.0.13：修复 USB HID NOT MOUNTED —— 在 setup() 中 touchpad.begin() 之前加 USB.begin() 启动 TinyUSB 栈
  *
  * 核心实现（依据 arduino-esp32 v2.0.8 官方 USBHIDKeyboard.cpp 模式）：
  *   - 继承 USBHIDDevice，重写 _onGetDescriptor() 提供自定义触摸描述符
@@ -28,7 +33,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.13"
+#define FW_VERSION "v1.0.14"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -323,7 +328,7 @@ void setup() {
     Serial.println();
     Serial.println("---- USB HID Init ----");
 
-    // 关键修复：USBHID::begin() 只创建信号量，不调用 USB.begin() 启动 TinyUSB
+    // v1.0.13 修复：USBHID::begin() 只创建信号量，不调用 USB.begin() 启动 TinyUSB
     // 必须先调用 USB.begin() 启动 TinyUSB 栈，否则 HID 设备永远不会 MOUNTED
     if (!USB.begin()) {
         Serial.println("[USB] ERROR: USB.begin() failed!");
@@ -331,8 +336,16 @@ void setup() {
         Serial.println("[USB] USB.begin() OK - TinyUSB started");
     }
 
+    // 等待 TinyUSB 栈稳定
+    delay(500);
+
     touchpad.begin();
     Serial.println("[HID] USBHIDTouchpad initialized (USBHIDDevice pattern)");
+
+    // v1.0.14 修复：禁用 Task Watchdog Timer，防止 USB 枚举等待期间被复位
+    // ESP32-S3 TWDT 默认 8 秒超时，USB mount 等待可能超过此阈值
+    esp_task_wdt_delete(xTaskGetCurrentTaskHandle());
+    Serial.println("[TWDT] Task watchdog disabled for USB mount wait");
 
     Serial.println("[HID] Waiting for USB mount...");
     int waitCount = 0;
