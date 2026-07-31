@@ -1,17 +1,20 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.16)
+ * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.17)
  * ============================================================================
  *
- * v1.0.16：按Freenove官方文档修正USB-OTG模式配置。
- * 根因：v1.0.15只禁了CDC(ARDUINO_USB_CDC_ON_BOOT=0)，但未设置USB模式。
- *       esp32-s3-devkitc-1板定义默认ARDUINO_USB_MODE=1(CDC/JTAG)，
- *       TinyUSB HID要求ARDUINO_USB_MODE=0(USB-OTG模式)。
- * 修复：build_unflags移除默认MODE=1，build_flags设MODE=0。
- * 依据：Freenove官方USB教程(Chapter 36)所有HID示例(Mouse/Keyboard/ConsumerControl)
- *       均要求USB CDC On Boot: Disabled + ARDUINO_USB_MODE=0。
+ * v1.0.17：修复HID NOT MOUNTED根因——调整USB.begin()与touchpad.begin()调用顺序。
+ * 根因：v1.0.16先调用USB.begin()启动TinyUSB栈(tinyusb_is_initialized=true)，
+ *       再调用touchpad.begin()→hid.begin()→USBDevice.addDevice()→
+ *       tinyusb_enable_interface(HID)时，因tinyusb已初始化被拒绝(ESP_FAIL)。
+ *       HID描述符未被加载到配置描述符，手机无法枚举HID接口。
+ * 修复：先touchpad.begin()注册HID接口，再USB.begin()启动TinyUSB栈。
+ * 依据：arduino-esp32 v2.0.14源码esp32-hal-tinyusb.c:
+ *       tinyusb_enable_interface()检查tinyusb_is_initialized，
+ *       若已初始化则返回ESP_FAIL拒绝注册。
+ *       Freenove官方HID示例(Mouse/Keyboard)均为Mouse.begin()→USB.begin()顺序。
  *
- * v1.0.15：禁用 USB CDC (ARDUINO_USB_CDC_ON_BOOT=0)
+ * v1.0.16：按Freenove官方文档修正USB-OTG模式配置(MODE=0, CDC=0)
  * v1.0.14：禁用双核 TWDT，防止 USB 枚举等待期间被复位
  * v1.0.13：修复 USB HID NOT MOUNTED —— 在 touchpad.begin() 前加 USB.begin()
  *
@@ -37,7 +40,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.16"
+#define FW_VERSION "v1.0.17"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -294,7 +297,7 @@ void setup() {
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  USB-OTG HID (MODE=0, CDC=0) + WiFi AP");
+    Serial.println("  USB-OTG HID (MODE=0, CDC=0, correct begin order) + WiFi AP");
     Serial.println("========================================================");
     Serial.println();
 
@@ -332,19 +335,21 @@ void setup() {
     Serial.println();
     Serial.println("---- USB HID Init ----");
 
-    // v1.0.13 修复：USBHID::begin() 只创建信号量，不调用 USB.begin() 启动 TinyUSB
-    // 必须先调用 USB.begin() 启动 TinyUSB 栈，否则 HID 设备永远不会 MOUNTED
-    if (!USB.begin()) {
-        Serial.println("[USB] ERROR: USB.begin() failed!");
-    } else {
-        Serial.println("[USB] USB.begin() OK - TinyUSB started");
-    }
-
-    // 等待 TinyUSB 栈稳定
-    delay(500);
+    // v1.0.17 修复：必须先touchpad.begin()注册HID接口，再USB.begin()启动TinyUSB栈。
+    // 根因：arduino-esp32 v2.0.14 esp32-hal-tinyusb.c中：
+    //   tinyusb_enable_interface() 检查 tinyusb_is_initialized，
+    //   若USB.begin()已调用则该标志=true，后续HID注册被拒绝(ESP_FAIL)。
+    //   HID描述符不会被加载到配置描述符，主机无法枚举HID接口。
+    // 正确顺序：touchpad.begin() → USB.begin()（与Freenove官方示例一致）
 
     touchpad.begin();
     Serial.println("[HID] USBHIDTouchpad initialized (USBHIDDevice pattern)");
+
+    if (!USB.begin()) {
+        Serial.println("[USB] ERROR: USB.begin() failed!");
+    } else {
+        Serial.println("[USB] USB.begin() OK - TinyUSB started (HID pre-registered)");
+    }
 
     // v1.0.14 修复：禁用双核 Task Watchdog Timer，防止 USB 枚举等待期间被复位
     // ESP32-S3 TWDT 默认超时 ~5s，USB mount 等待可能超过此阈值
