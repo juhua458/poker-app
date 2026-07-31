@@ -2,17 +2,15 @@
  * ============================================================================
  * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.12)
  * ============================================================================
- * 
- * v1.0.12 变更（基于 v1.0.11 WiFi AP 验证成功）：
- *   - 用 Arduino-ESP32 核心原生 USBHIDDevice（不用 Adafruit TinyUSB）
- *   - 内嵌 HID 报告描述符（触摸屏 Digitizer，7字节报告）
- *   - 保持 WiFi AP + HTTP 服务器（v1.0.11 功能）
- *   - 新增 POST /tap 端点：POST {"x":540,"y":1172} 触发屏幕点击
- * 
- * 关键点：
- *   - 不用 Adafruit TinyUSB 库（编译不兼容）
- *   - 用 USB.h 中的 USBHIDDevice（Arduino-ESP32 core 自带）
- *   - 串口仍走 CH343（不开 ARDUINO_USB_CDC_ON_BOOT）
+ *
+ * 基于 v1.0.11 WiFi AP 验证成功，加回 USB HID 触控模块。
+ *
+ * 核心实现（依据 arduino-esp32 v2.0.8 官方 USBHIDKeyboard.cpp 模式）：
+ *   - 继承 USBHIDDevice，重写 _onGetDescriptor() 提供自定义触摸描述符
+ *   - 内部持有 USBHID hid，构造时 hid.addDevice(this, desc_size)
+ *   - 通过 hid.SendReport() 发送触摸报告
+ *   - 不依赖 Adafruit TinyUSB（编译不兼容）
+ *   - 不开 ARDUINO_USB_CDC_ON_BOOT（v1.0.8 崩溃根因）
  */
 
 #include <Arduino.h>
@@ -45,11 +43,13 @@
 // HID 坐标范围
 #define HID_MAX 32767
 
+// HID Report ID
+#define HID_REPORT_ID_TOUCH 1
+
 // ============================================================================
 // HID 报告描述符（触摸屏 Digitizer）
 // ============================================================================
-// 7-byte report: ContactID(1) + TipSwitch(1bit)+Pad(7bit) + X(16) + Y(16) + ContactCount(1)
-static const uint8_t hid_touchpad_descriptor[] = {
+static const uint8_t touch_report_descriptor[] = {
     0x05, 0x0D,             // Usage Page (Digitizers)
     0x09, 0x05,             // Usage (Touch Pad)
     0xA1, 0x01,             // Collection (Application)
@@ -95,7 +95,7 @@ static const uint8_t hid_touchpad_descriptor[] = {
 
     0xC0,                   //   End Collection (Logical)
 
-    // Contact Count (1 byte, in Application Collection)
+    // Contact Count (1 byte)
     0x05, 0x0D,             //   Usage Page (Digitizers)
     0x09, 0x54,             //   Usage (Contact Count)
     0x15, 0x00,             //   Logical Minimum (0)
@@ -107,79 +107,85 @@ static const uint8_t hid_touchpad_descriptor[] = {
     0xC0                    // End Collection (Application)
 };
 
-// 触摸报告结构（7 bytes，packed 确保无对齐填充）
+// 触摸报告结构（7 bytes packed）
 struct __attribute__((packed)) TouchReport {
-    uint8_t  contact_id;    // 触点ID (固定0)
-    uint8_t  tip_switch;    // Bit0: 触摸状态, Bits1-7: 填充
-    uint16_t x;             // X坐标 (0-32767, little-endian)
-    uint16_t y;             // Y坐标 (0-32767, little-endian)
-    uint8_t  contact_count; // 活跃触点数 (0或1)
+    uint8_t  contact_id;
+    uint8_t  tip_switch;    // Bit0: 触摸状态
+    uint16_t x;             // 0-32767
+    uint16_t y;             // 0-32767
+    uint8_t  contact_count;
 };
 
 // ============================================================================
-// USB HID 设备实例（Arduino-ESP32 核心原生 USBHID + HIDReport）
+// USB HID 触控设备类（遵循 USBHIDKeyboard 模式）
 // ============================================================================
-static USBHID hidDevice;
-// 用 HIDReport 包装自定义描述符，report ID = 1
-static HIDReport touchReport(hid_touchpad_descriptor, sizeof(hid_touchpad_descriptor), 1);
-static bool hidInitialized = false;
+class USBHIDTouchpad : public USBHIDDevice {
+private:
+    USBHID hid;
+    TouchReport _report;
 
-// ============================================================================
-// HID 触摸辅助函数
-// ============================================================================
+public:
+    USBHIDTouchpad() : hid() {
+        static bool initialized = false;
+        if (!initialized) {
+            initialized = true;
+            hid.addDevice(this, sizeof(touch_report_descriptor));
+        }
+    }
 
-// 屏幕坐标转HID坐标
-static uint16_t screenToHid(uint16_t screenVal, uint16_t screenMax)
-{
-    return (uint16_t)((uint32_t)screenVal * HID_MAX / screenMax);
-}
+    void begin() {
+        hid.begin();
+    }
 
-// 发送触摸按下
-static bool sendTouchDown(uint16_t screenX, uint16_t screenY)
-{
-    if (!hidInitialized || !hidDevice.ready()) return false;
+    bool ready() {
+        return hid.ready();
+    }
 
-    TouchReport report;
-    report.contact_id    = 0;
-    report.tip_switch    = 0x01;  // 触摸中
-    report.x             = screenToHid(screenX, SCREEN_WIDTH);
-    report.y             = screenToHid(screenY, SCREEN_HEIGHT);
-    report.contact_count = 1;
+    // USBHIDDevice 接口实现：返回 HID 报告描述符
+    uint16_t _onGetDescriptor(uint8_t* buffer) override {
+        memcpy(buffer, touch_report_descriptor, sizeof(touch_report_descriptor));
+        return sizeof(touch_report_descriptor);
+    }
 
-    return hidDevice.SendReport(1, &report, sizeof(report));
-}
+    // 发送触摸按下
+    bool touchDown(uint16_t screenX, uint16_t screenY) {
+        if (!hid.ready()) return false;
+        _report.contact_id    = 0;
+        _report.tip_switch    = 0x01;
+        _report.x             = (uint16_t)((uint32_t)screenX * HID_MAX / SCREEN_WIDTH);
+        _report.y             = (uint16_t)((uint32_t)screenY * HID_MAX / SCREEN_HEIGHT);
+        _report.contact_count = 1;
+        return hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report));
+    }
 
-// 发送触摸抬起
-static bool sendTouchUp()
-{
-    if (!hidInitialized || !hidDevice.ready()) return false;
+    // 发送触摸抬起
+    bool touchUp() {
+        if (!hid.ready()) return false;
+        _report.contact_id    = 0;
+        _report.tip_switch    = 0x00;
+        _report.x             = 0;
+        _report.y             = 0;
+        _report.contact_count = 0;
+        return hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report));
+    }
 
-    TouchReport report;
-    report.contact_id    = 0;
-    report.tip_switch    = 0x00;  // 抬起
-    report.x             = 0;
-    report.y             = 0;
-    report.contact_count = 0;
+    // 执行点击
+    bool tap(uint16_t screenX, uint16_t screenY, uint32_t durationMs) {
+        if (!touchDown(screenX, screenY)) return false;
+        delay(durationMs);
+        return touchUp();
+    }
+};
 
-    return hidDevice.SendReport(1, &report, sizeof(report));
-}
-
-// 执行点击：按下 → 等待 → 抬起
-static bool doTap(uint16_t screenX, uint16_t screenY, uint32_t durationMs)
-{
-    if (!sendTouchDown(screenX, screenY)) return false;
-    delay(durationMs);
-    return sendTouchUp();
-}
+// 全局实例
+static USBHIDTouchpad touchpad;
 
 // ============================================================================
 // HTTP 处理函数
 // ============================================================================
 WebServer server(HTTP_PORT);
 
-// POST /tap - 触发屏幕点击
-void handleTap()
-{
+void handleTap() {
     String body = server.arg("plain");
     if (body.length() == 0) {
         server.send(400, "application/json", "{\"error\":\"Empty body\"}");
@@ -187,7 +193,6 @@ void handleTap()
     }
 
     int x = -1, y = -1, duration = 50;
-
     int xi = body.indexOf("\"x\":");
     int yi = body.indexOf("\"y\":");
     int di = body.indexOf("\"duration\":");
@@ -204,13 +209,12 @@ void handleTap()
         server.send(400, "application/json", buf);
         return;
     }
-
     if (duration < 10 || duration > 5000) {
         server.send(400, "application/json", "{\"error\":\"Duration 10-5000ms\"}");
         return;
     }
 
-    bool ok = doTap(x, y, duration);
+    bool ok = touchpad.tap(x, y, duration);
     if (ok) {
         char buf[128];
         snprintf(buf, sizeof(buf),
@@ -222,12 +226,10 @@ void handleTap()
     }
 }
 
-// GET /status
-void handleStatus()
-{
+void handleStatus() {
     char buf[512];
     snprintf(buf, sizeof(buf),
-        "{\"device\":\"QingYun-ESP32-CAM\",\"version\":\"%s\","
+        "{\"device\":\"QingYun-ESP32-S3-CAM\",\"version\":\"%s\","
         "\"uptime_ms\":%lu,\"free_heap\":%u,\"free_psram\":%u,"
         "\"wifi\":{\"ssid\":\"%s\",\"ip\":\"%s\",\"clients\":%d},"
         "\"hid_ready\":%s}",
@@ -235,14 +237,12 @@ void handleStatus()
         ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
         AP_SSID, WiFi.softAPIP().toString().c_str(),
         WiFi.softAPgetStationNum(),
-        hidDevice.ready() ? "true" : "false");
+        touchpad.ready() ? "true" : "false");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", buf);
 }
 
-// GET / - HTML 状态页
-void handleRoot()
-{
+void handleRoot() {
     char buf[1024];
     snprintf(buf, sizeof(buf),
         "<html><head><meta charset='utf-8'><title>QingYun ESP32</title></head><body>"
@@ -261,22 +261,20 @@ void handleRoot()
         FW_VERSION, AP_SSID, WiFi.softAPIP().toString().c_str(),
         WiFi.softAPgetStationNum(), ESP.getFreeHeap(),
         (unsigned)ESP.getFreePsram(),
-        hidDevice.ready() ? "MOUNTED" : "NOT MOUNTED",
+        touchpad.ready() ? "MOUNTED" : "NOT MOUNTED",
         (unsigned long)millis());
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "text/html", buf);
 }
 
-void handleNotFound()
-{
+void handleNotFound() {
     server.send(404, "application/json", "{\"error\":\"Not found. Try: /, /status, /tap\"}");
 }
 
 // ============================================================================
 // setup()
 // ============================================================================
-void setup()
-{
+void setup() {
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
     Serial.begin(115200);
@@ -285,11 +283,11 @@ void setup()
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  USB HID(native) + WiFi AP - v6.2.0 / Core 2.0.8");
+    Serial.println("  USB HID(USBHIDDevice) + WiFi AP - Core 2.0.8");
     Serial.println("========================================================");
     Serial.println();
 
-    // ---- 系统信息 ----
+    // 系统信息
     Serial.printf("  ESP32-S3 Rev %d | %d MHz | %d cores | SDK %s\n",
                   ESP.getChipRevision(), ESP.getCpuFreqMHz(),
                   ESP.getChipCores(), ESP.getSdkVersion());
@@ -302,9 +300,7 @@ void setup()
     Serial.printf("  Heap: %.1f KB\n", ESP.getFreeHeap() / 1024.0f);
     Serial.println();
 
-    // ====================================================================
-    // WiFi AP
-    // ====================================================================
+    // ---- WiFi AP ----
     Serial.println("---- WiFi AP Init ----");
     IPAddress apIP, gatewayIP, subnetMask;
     apIP.fromString(AP_IP);
@@ -321,27 +317,19 @@ void setup()
                       AP_SSID, WiFi.softAPIP().toString().c_str());
     }
 
-    // ====================================================================
-    // USB HID（Arduino-ESP32 核心原生 API）
-    // ====================================================================
+    // ---- USB HID ----
     Serial.println();
     Serial.println("---- USB HID Init ----");
+    touchpad.begin();
+    Serial.println("[HID] USBHIDTouchpad initialized (USBHIDDevice pattern)");
 
-    // 注册 HID 报告描述符并初始化
-    hidDevice.appendReport(&touchReport);
-    hidDevice.begin();
-    hidInitialized = true;
-    Serial.println("[HID] USBHID initialized (report appended via HIDReport)");
-
-    // 等待 USB 挂载
     Serial.println("[HID] Waiting for USB mount...");
     int waitCount = 0;
-    while (!hidDevice.ready() && waitCount < 100) {
+    while (!touchpad.ready() && waitCount < 100) {
         delay(100);
         waitCount++;
     }
-
-    if (hidDevice.ready()) {
+    if (touchpad.ready()) {
         Serial.println("[HID] USB HID MOUNTED - touchpad ready!");
     } else {
         Serial.println("[HID] WARNING: USB not mounted after 10s");
@@ -350,9 +338,7 @@ void setup()
     Serial.printf("[Status] Heap after init: %u (%.1f KB)\n",
                   ESP.getFreeHeap(), ESP.getFreeHeap() / 1024.0f);
 
-    // ====================================================================
-    // HTTP 服务器
-    // ====================================================================
+    // ---- HTTP 服务器 ----
     Serial.println();
     Serial.println("---- HTTP Server Init ----");
     server.on("/",       HTTP_GET,  handleRoot);
@@ -368,7 +354,7 @@ void setup()
     Serial.println("==========================================");
     Serial.println("  Setup COMPLETE. Entering loop...");
     Serial.printf("  WiFi: '%s' | http://%s/\n", AP_SSID, AP_IP);
-    Serial.printf("  HID: %s\n", hidDevice.ready() ? "MOUNTED" : "NOT MOUNTED");
+    Serial.printf("  HID: %s\n", touchpad.ready() ? "MOUNTED" : "NOT MOUNTED");
     Serial.println("  Test: POST /tap {\"x\":540,\"y\":1172,\"duration\":50}");
     Serial.println("==========================================");
 }
@@ -376,19 +362,18 @@ void setup()
 // ============================================================================
 // loop()
 // ============================================================================
-void loop()
-{
+void loop() {
     static int counter = 0;
     counter++;
 
     server.handleClient();
 
-    Serial.printf("[v1.0.12] HB #%d | Heap: %u | PSRAM: %u | Clients: %d | HID: %s\n",
-                  counter,
+    Serial.printf("[%s] HB #%d | Heap: %u | PSRAM: %u | Clients: %d | HID: %s\n",
+                  FW_VERSION, counter,
                   ESP.getFreeHeap(),
                   (unsigned)ESP.getFreePsram(),
                   WiFi.softAPgetStationNum(),
-                  hidDevice.ready() ? "OK" : "NO");
+                  touchpad.ready() ? "OK" : "NO");
 
     delay(3000);
 }
