@@ -116,9 +116,9 @@ struct __attribute__((packed)) TouchReport {
 };
 
 // ============================================================================
-// USB HID 设备实例（Arduino-ESP32 核心自带）
+// USB HID 设备实例（Arduino-ESP32 核心自带 USBHID 基类）
 // ============================================================================
-static USBHIDDevice hidDevice;
+static USBHID hidDevice;
 static bool hidInitialized = false;
 
 // ============================================================================
