@@ -4,22 +4,21 @@
  * ============================================================================
  * 
  * v1.0.12 变更（基于 v1.0.11 WiFi AP 验证成功）：
- *   - 加回 TinyUSB HID 触摸屏（仅 HID，不开 USB CDC）
- *   - 内嵌 HID 报告描述符（不引用 usb_hid_touchpad.cpp）
+ *   - 用 Arduino-ESP32 核心原生 USBHIDDevice（不用 Adafruit TinyUSB）
+ *   - 内嵌 HID 报告描述符（触摸屏 Digitizer，7字节报告）
  *   - 保持 WiFi AP + HTTP 服务器（v1.0.11 功能）
- *   - 新增 /tap HTTP 端点：POST {"x":540,"y":1172} 触发屏幕点击
+ *   - 新增 POST /tap 端点：POST {"x":540,"y":1172} 触发屏幕点击
  * 
  * 关键点：
- *   - 不加 ARDUINO_USB_CDC_ON_BOOT（v1.0.8 崩溃根因）
- *   - 不加 ARDUINO_USB_MODE（v1.0.8 崩溃根因）
- *   - TinyUSB 仅用于 HID，不用于 Serial CDC
- *   - 串口仍走 CH343
+ *   - 不用 Adafruit TinyUSB 库（编译不兼容）
+ *   - 用 USB.h 中的 USBHIDDevice（Arduino-ESP32 core 自带）
+ *   - 串口仍走 CH343（不开 ARDUINO_USB_CDC_ON_BOOT）
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
-#include <Adafruit_TinyUSB.h>
+#include <USB.h>
 
 // 禁用 brownout detector
 #include "soc/soc.h"
@@ -48,86 +47,79 @@
 // ============================================================================
 // HID 报告描述符（触摸屏 Digitizer）
 // ============================================================================
+// 7-byte report: ContactID(1) + TipSwitch(1bit)+Pad(7bit) + X(16) + Y(16) + ContactCount(1)
 static const uint8_t hid_touchpad_descriptor[] = {
-    0x05, 0x0D,     // Usage Page (Digitizers)
-    0x09, 0x05,     // Usage (Touch Pad)
-    0xA1, 0x01,     // Collection (Application)
+    0x05, 0x0D,             // Usage Page (Digitizers)
+    0x09, 0x05,             // Usage (Touch Pad)
+    0xA1, 0x01,             // Collection (Application)
 
-    0x09, 0x22,     //   Usage (Finger)
-    0xA1, 0x00,     //   Collection (Logical)
+    0x09, 0x22,             //   Usage (Finger)
+    0xA1, 0x02,             //   Collection (Logical)
 
     // Contact ID (1 byte)
-    0x09, 0x51,     //     Usage (Contact Identifier)
-    0x15, 0x00,     //     Logical Minimum (0)
-    0x25, 0x01,     //     Logical Maximum (1)
-    0x75, 0x08,     //     Report Size (8)
-    0x95, 0x01,     //     Report Count (1)
-    0x81, 0x02,     //     Input (Data, Var, Abs)
+    0x09, 0x51,             //     Usage (Contact Identifier)
+    0x15, 0x00,             //     Logical Minimum (0)
+    0x25, 0x01,             //     Logical Maximum (1)
+    0x75, 0x08,             //     Report Size (8)
+    0x95, 0x01,             //     Report Count (1)
+    0x81, 0x02,             //     Input (Data, Var, Abs)
 
     // Tip Switch (1 bit) + Padding (7 bits)
-    0x09, 0x42,     //     Usage (Tip Switch)
-    0x15, 0x00,     //     Logical Minimum (0)
-    0x25, 0x01,     //     Logical Maximum (1)
-    0x75, 0x01,     //     Report Size (1)
-    0x95, 0x01,     //     Report Count (1)
-    0x81, 0x02,     //     Input (Data, Var, Abs)
-    0x75, 0x07,     //     Report Size (7) - padding
-    0x95, 0x01,     //     Report Count (1)
-    0x81, 0x03,     //     Input (Const, Var, Abs)
+    0x09, 0x42,             //     Usage (Tip Switch)
+    0x15, 0x00,             //     Logical Minimum (0)
+    0x25, 0x01,             //     Logical Maximum (1)
+    0x75, 0x01,             //     Report Size (1)
+    0x95, 0x01,             //     Report Count (1)
+    0x81, 0x02,             //     Input (Data, Var, Abs)
+    0x75, 0x07,             //     Report Size (7) - padding
+    0x95, 0x01,             //     Report Count (1)
+    0x81, 0x03,             //     Input (Const, Var, Abs)
 
     // X (16 bits, 0-32767)
-    0x05, 0x01,     //     Usage Page (Generic Desktop)
-    0x09, 0x30,     //     Usage (X)
-    0x15, 0x00,     //     Logical Minimum (0)
-    0x26, 0xFF, 0x7F, //   Logical Maximum (32767)
-    0x75, 0x10,     //     Report Size (16)
-    0x95, 0x01,     //     Report Count (1)
-    0x81, 0x02,     //     Input (Data, Var, Abs)
+    0x05, 0x01,             //     Usage Page (Generic Desktop)
+    0x09, 0x30,             //     Usage (X)
+    0x15, 0x00,             //     Logical Minimum (0)
+    0x26, 0xFF, 0x7F,      //     Logical Maximum (32767)
+    0x75, 0x10,             //     Report Size (16)
+    0x95, 0x01,             //     Report Count (1)
+    0x81, 0x02,             //     Input (Data, Var, Abs)
 
     // Y (16 bits, 0-32767)
-    0x09, 0x31,     //     Usage (Y)
-    0x15, 0x00,     //     Logical Minimum (0)
-    0x26, 0xFF, 0x7F, //   Logical Maximum (32767)
-    0x75, 0x10,     //     Report Size (16)
-    0x95, 0x01,     //     Report Count (1)
-    0x81, 0x02,     //     Input (Data, Var, Abs)
+    0x09, 0x31,             //     Usage (Y)
+    0x15, 0x00,             //     Logical Minimum (0)
+    0x26, 0xFF, 0x7F,      //     Logical Maximum (32767)
+    0x75, 0x10,             //     Report Size (16)
+    0x95, 0x01,             //     Report Count (1)
+    0x81, 0x02,             //     Input (Data, Var, Abs)
 
-    0xC0,           //   End Collection (Logical)
+    0xC0,                   //   End Collection (Logical)
 
     // Contact Count (1 byte, in Application Collection)
-    0x05, 0x0D,     //   Usage Page (Digitizers)
-    0x09, 0x54,     //   Usage (Contact Count)
-    0x15, 0x00,     //   Logical Minimum (0)
-    0x25, 0x01,     //   Logical Maximum (1)
-    0x75, 0x08,     //   Report Size (8)
-    0x95, 0x01,     //   Report Count (1)
-    0x81, 0x02,     //   Input (Data, Var, Abs)
+    0x05, 0x0D,             //   Usage Page (Digitizers)
+    0x09, 0x54,             //   Usage (Contact Count)
+    0x15, 0x00,             //   Logical Minimum (0)
+    0x25, 0x01,             //   Logical Maximum (1)
+    0x75, 0x08,             //   Report Size (8)
+    0x95, 0x01,             //   Report Count (1)
+    0x81, 0x02,             //   Input (Data, Var, Abs)
 
-    0xC0            // End Collection (Application)
+    0xC0                    // End Collection (Application)
 };
 
-// 触摸报告结构（7 bytes，与描述符严格对应）
+// 触摸报告结构（7 bytes，packed 确保无对齐填充）
 struct __attribute__((packed)) TouchReport {
     uint8_t  contact_id;    // 触点ID (固定0)
     uint8_t  tip_switch;    // Bit0: 触摸状态, Bits1-7: 填充
-    uint16_t x;             // X坐标 (0-32767)
-    uint16_t y;             // Y坐标 (0-32767)
+    uint16_t x;             // X坐标 (0-32767, little-endian)
+    uint16_t y;             // Y坐标 (0-32767, little-endian)
     uint8_t  contact_count; // 活跃触点数 (0或1)
 };
 
 // ============================================================================
-// 全局对象
+// USB HID 设备实例（Arduino-ESP32 核心自带）
 // ============================================================================
-WebServer server(HTTP_PORT);
-
-// TinyUSB HID 实例
-Adafruit_USBD_HID usbHid(
-    hid_touchpad_descriptor,
-    sizeof(hid_touchpad_descriptor),
-    HID_ITF_PROTOCOL_NONE,
-    sizeof(TouchReport),
-    /*interval_ms=*/10
-);
+static USBHIDDevice hidDevice;
+static bool hidInitialized = false;
 
 // ============================================================================
 // HID 触摸辅助函数
@@ -142,42 +134,45 @@ static uint16_t screenToHid(uint16_t screenVal, uint16_t screenMax)
 // 发送触摸按下
 static bool sendTouchDown(uint16_t screenX, uint16_t screenY)
 {
+    if (!hidInitialized || !hidDevice.ready()) return false;
+
     TouchReport report;
     report.contact_id    = 0;
     report.tip_switch    = 0x01;  // 触摸中
     report.x             = screenToHid(screenX, SCREEN_WIDTH);
     report.y             = screenToHid(screenY, SCREEN_HEIGHT);
     report.contact_count = 1;
-    return usbHid.sendReport(1, &report, sizeof(report));
+
+    return hidDevice.SendReport(1, &report, sizeof(report));
 }
 
 // 发送触摸抬起
 static bool sendTouchUp()
 {
+    if (!hidInitialized || !hidDevice.ready()) return false;
+
     TouchReport report;
     report.contact_id    = 0;
     report.tip_switch    = 0x00;  // 抬起
     report.x             = 0;
     report.y             = 0;
     report.contact_count = 0;
-    return usbHid.sendReport(1, &report, sizeof(report));
+
+    return hidDevice.SendReport(1, &report, sizeof(report));
 }
 
 // 执行点击：按下 → 等待 → 抬起
 static bool doTap(uint16_t screenX, uint16_t screenY, uint32_t durationMs)
 {
-    if (!usbHid.ready()) return false;
-
     if (!sendTouchDown(screenX, screenY)) return false;
     delay(durationMs);
-    if (!sendTouchUp()) return false;
-
-    return true;
+    return sendTouchUp();
 }
 
 // ============================================================================
 // HTTP 处理函数
 // ============================================================================
+WebServer server(HTTP_PORT);
 
 // POST /tap - 触发屏幕点击
 void handleTap()
@@ -188,40 +183,21 @@ void handleTap()
         return;
     }
 
-    // 简单解析 JSON: {"x":540,"y":1172,"duration":50}
-    int x = -1, y = -1;
-    int duration = 50;
+    int x = -1, y = -1, duration = 50;
 
-    // 手动解析（避免引入ArduinoJson库开销）
-    // 格式: {"x":540,"y":1172,"duration":50}
     int xi = body.indexOf("\"x\":");
     int yi = body.indexOf("\"y\":");
     int di = body.indexOf("\"duration\":");
 
-    if (xi >= 0) {
-        int start = xi + 4;
-        int end = body.indexOf(',', start);
-        if (end < 0) end = body.indexOf('}', start);
-        if (end > start) x = body.substring(start, end).toInt();
-    }
-    if (yi >= 0) {
-        int start = yi + 4;
-        int end = body.indexOf(',', start);
-        if (end < 0) end = body.indexOf('}', start);
-        if (end > start) y = body.substring(start, end).toInt();
-    }
-    if (di >= 0) {
-        int start = di + 11;
-        int end = body.indexOf(',', start);
-        if (end < 0) end = body.indexOf('}', start);
-        if (end > start) duration = body.substring(start, end).toInt();
-    }
+    if (xi >= 0) { int s = xi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)x=body.substring(s,e).toInt(); }
+    if (yi >= 0) { int s = yi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)y=body.substring(s,e).toInt(); }
+    if (di >= 0) { int s = di+11; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)duration=body.substring(s,e).toInt(); }
 
     if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
         char buf[128];
         snprintf(buf, sizeof(buf),
                  "{\"error\":\"Coords out of range. x:0-%d, y:0-%d. Got x=%d,y=%d\"}",
-                 SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, x, y);
+                 SCREEN_WIDTH-1, SCREEN_HEIGHT-1, x, y);
         server.send(400, "application/json", buf);
         return;
     }
@@ -243,40 +219,20 @@ void handleTap()
     }
 }
 
-// GET /status - 设备状态
+// GET /status
 void handleStatus()
 {
     char buf[512];
     snprintf(buf, sizeof(buf),
-        "{"
-        "\"device\":\"QingYun-ESP32-CAM\","
-        "\"version\":\"%s\","
-        "\"uptime_ms\":%lu,"
-        "\"free_heap\":%u,"
-        "\"min_free_heap\":%u,"
-        "\"free_psram\":%u,"
-        "\"psram_size\":%u,"
-        "\"chip_rev\":%d,"
-        "\"flash_size_mb\":%u,"
-        "\"flash_mode\":%d,"
+        "{\"device\":\"QingYun-ESP32-CAM\",\"version\":\"%s\","
+        "\"uptime_ms\":%lu,\"free_heap\":%u,\"free_psram\":%u,"
         "\"wifi\":{\"ssid\":\"%s\",\"ip\":\"%s\",\"clients\":%d},"
-        "\"hid_mounted\":%s"
-        "}",
-        FW_VERSION,
-        (unsigned long)millis(),
-        ESP.getFreeHeap(),
-        ESP.getMinFreeHeap(),
-        (unsigned)ESP.getFreePsram(),
-        (unsigned)ESP.getPsramSize(),
-        ESP.getChipRevision(),
-        (unsigned)(ESP.getFlashChipSize() / (1024 * 1024)),
-        (int)ESP.getFlashChipMode(),
-        AP_SSID,
-        WiFi.softAPIP().toString().c_str(),
+        "\"hid_ready\":%s}",
+        FW_VERSION, (unsigned long)millis(),
+        ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
+        AP_SSID, WiFi.softAPIP().toString().c_str(),
         WiFi.softAPgetStationNum(),
-        usbHid.ready() ? "true" : "false"
-    );
-
+        hidDevice.ready() ? "true" : "false");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", buf);
 }
@@ -292,30 +248,22 @@ void handleRoot()
         "<p>Clients: %d | Heap: %u | PSRAM: %u</p>"
         "<p>HID: %s</p>"
         "<p>Uptime: %lums</p>"
-        "<hr>"
-        "<h3>Test Tap</h3>"
+        "<hr><h3>Test Tap</h3>"
         "<form method='POST' action='/tap'>"
-        "X: <input name='x' value='540' style='width:60px'> "
-        "Y: <input name='y' value='1172' style='width:60px'> "
-        "Dur(ms): <input name='duration' value='50' style='width:60px'> "
-        "<input type='submit' value='Tap'>"
-        "</form>"
-        "<p><a href='/status'>JSON API</a></p>"
-        "</body></html>",
-        FW_VERSION,
-        AP_SSID,
-        WiFi.softAPIP().toString().c_str(),
-        WiFi.softAPgetStationNum(),
-        ESP.getFreeHeap(),
+        "X:<input name='x' value='540' style='width:60px'> "
+        "Y:<input name='y' value='1172' style='width:60px'> "
+        "Dur:<input name='duration' value='50' style='width:60px'> "
+        "<input type='submit' value='Tap'></form>"
+        "<p><a href='/status'>JSON API</a></p></body></html>",
+        FW_VERSION, AP_SSID, WiFi.softAPIP().toString().c_str(),
+        WiFi.softAPgetStationNum(), ESP.getFreeHeap(),
         (unsigned)ESP.getFreePsram(),
-        usbHid.ready() ? "MOUNTED" : "NOT MOUNTED",
-        (unsigned long)millis()
-    );
+        hidDevice.ready() ? "MOUNTED" : "NOT MOUNTED",
+        (unsigned long)millis());
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "text/html", buf);
 }
 
-// 404
 void handleNotFound()
 {
     server.send(404, "application/json", "{\"error\":\"Not found. Try: /, /status, /tap\"}");
@@ -334,17 +282,14 @@ void setup()
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  USB HID + WiFi AP Test - Platform v6.2.0 / Core 2.0.8");
+    Serial.println("  USB HID(native) + WiFi AP - v6.2.0 / Core 2.0.8");
     Serial.println("========================================================");
     Serial.println();
 
     // ---- 系统信息 ----
-    Serial.println("---- Chip Info ----");
     Serial.printf("  ESP32-S3 Rev %d | %d MHz | %d cores | SDK %s\n",
                   ESP.getChipRevision(), ESP.getCpuFreqMHz(),
                   ESP.getChipCores(), ESP.getSdkVersion());
-
-    Serial.println("---- Flash/PSRAM ----");
     Serial.printf("  Flash: %.1f MB mode=%d speed=%uMHz\n",
                   ESP.getFlashChipSize() / (1024.0f * 1024.0f),
                   ESP.getFlashChipMode(), ESP.getFlashChipSpeed());
@@ -374,38 +319,37 @@ void setup()
     }
 
     // ====================================================================
-    // USB HID (TinyUSB - 仅HID，不开CDC)
+    // USB HID（Arduino-ESP32 核心原生 API）
     // ====================================================================
     Serial.println();
     Serial.println("---- USB HID Init ----");
 
     // 设置 HID 报告描述符
-    usbHid.setPollInterval(10);
-    usbHid.setReportDescriptor(hid_touchpad_descriptor, sizeof(hid_touchpad_descriptor));
+    hidDevice.setReportDescriptor(hid_touchpad_descriptor, sizeof(hid_touchpad_descriptor));
 
-    // 初始化 TinyUSB HID
-    if (!usbHid.begin()) {
-        Serial.println("[HID] ERROR: TinyUSB HID init failed!");
+    // 初始化 HID
+    if (!hidDevice.begin()) {
+        Serial.println("[HID] ERROR: USBHIDDevice init failed!");
     } else {
-        Serial.println("[HID] TinyUSB HID initialized");
+        hidInitialized = true;
+        Serial.println("[HID] USBHIDDevice initialized");
     }
 
-    // 等待 USB 挂载（给一点时间让 host 识别）
+    // 等待 USB 挂载
     Serial.println("[HID] Waiting for USB mount...");
     int waitCount = 0;
-    while (!usbHid.ready() && waitCount < 100) {
+    while (!hidDevice.ready() && waitCount < 100) {
         delay(100);
         waitCount++;
     }
 
-    if (usbHid.ready()) {
-        Serial.println("[HID] USB HID MOUNTED - touchpad device ready!");
+    if (hidDevice.ready()) {
+        Serial.println("[HID] USB HID MOUNTED - touchpad ready!");
     } else {
-        Serial.println("[HID] WARNING: USB not mounted after 10s (may need host connection)");
+        Serial.println("[HID] WARNING: USB not mounted after 10s");
     }
 
-    // ---- Heap after WiFi + HID ----
-    Serial.printf("\n[Status] Heap after init: %u (%.1f KB)\n",
+    Serial.printf("[Status] Heap after init: %u (%.1f KB)\n",
                   ESP.getFreeHeap(), ESP.getFreeHeap() / 1024.0f);
 
     // ====================================================================
@@ -426,9 +370,8 @@ void setup()
     Serial.println("==========================================");
     Serial.println("  Setup COMPLETE. Entering loop...");
     Serial.printf("  WiFi: '%s' | http://%s/\n", AP_SSID, AP_IP);
-    Serial.printf("  HID: %s\n", usbHid.ready() ? "MOUNTED" : "NOT MOUNTED");
-    Serial.println("  Test: POST /tap with {\"x\":540,\"y\":1172,\"duration\":50}");
-    Serial.println("  Heartbeat every 3s");
+    Serial.printf("  HID: %s\n", hidDevice.ready() ? "MOUNTED" : "NOT MOUNTED");
+    Serial.println("  Test: POST /tap {\"x\":540,\"y\":1172,\"duration\":50}");
     Serial.println("==========================================");
 }
 
@@ -447,7 +390,7 @@ void loop()
                   ESP.getFreeHeap(),
                   (unsigned)ESP.getFreePsram(),
                   WiFi.softAPgetStationNum(),
-                  usbHid.ready() ? "OK" : "NO");
+                  hidDevice.ready() ? "OK" : "NO");
 
     delay(3000);
 }
