@@ -1,12 +1,12 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - 主入口 (v1.0.5 - DIO模式+无Watchdog)
+ * 青云扑克 ESP32-S3-CAM - 主入口 (v1.0.6 - ESP-IDF降级到6.5.0)
  * ============================================================================
  * 
- * v1.0.5 变更：
- *   - flash_mode 改为 DIO（匹配硬件实际工作模式，日志显示 mode:DIO）
- *   - 移除 memory_type 配置（让框架自动检测 PSRAM/Flash 接口）
- *   - 移除 esp_task_wdt 看门狗（StoreProhibited 崩溃源）
+ * v1.0.6 变更：
+ *   - ESP-IDF 平台降级到 espressif32@6.5.0（修复框架级 StoreProhibited 崩溃）
+ *   - flash_mode = DIO（匹配硬件实际工作模式）
+ *   - 无看门狗、无摄像头
  *   - 保留 WiFi AP + USB HID + OTA + 行为随机化
  */
 
@@ -53,7 +53,7 @@ void setup()
     g_hidTouchpad.begin();
     // 注意：USB 设备挂载需要时间，在主循环中等待
 
-    // 4. [v1.0.5] 摄像头模块已禁用（PSRAM 不可用）
+    // 4. [v1.0.6] 摄像头模块已禁用（PSRAM 不可用）
     // TODO: 确认 PSRAM 硬件状态后重新启用摄像头
 
     // 5. 初始化 OTA
@@ -106,8 +106,8 @@ void _initSerial()
     delay(500);  // 等待串口就绪
     Serial.println();
     Serial.println("========================================================");
-    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.5");
-    Serial.println("  USB HID + WiFi AP + OTA (DIO, No Watchdog, No CAM)");
+    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.6");
+    Serial.println("  USB HID + WiFi AP + OTA (DIO, ESP-IDF 6.5.0, No CAM)");
     Serial.println("========================================================");
 }
 
@@ -116,7 +116,7 @@ void _printBanner()
     Serial.println();
     Serial.println("  +=======================================+");
     Serial.println("  |    QingYun Poker - ESP32-S3-CAM       |");
-    Serial.println("  |    v1.0.5 - DIO, No Watchdog, No CAM   |");
+    Serial.println("  |    v1.0.6 - DIO, ESP-IDF 6.5.0, No CAM  |");
     Serial.println("  +=======================================+");
     Serial.println();
 }
@@ -134,7 +134,7 @@ void _printSystemInfo()
     Serial.printf("  SDK Version: %s\n", ESP.getSdkVersion());
     Serial.printf("  USB HID Mounted: %s\n",
                   g_hidTouchpad.isMounted() ? "Yes" : "No");
-    Serial.printf("  Camera: DISABLED (v1.0.5)\n");
+    Serial.printf("  Camera: DISABLED (v1.0.6)\n");
     if (g_server) {
         Serial.printf("  WiFi AP IP: %s\n", g_server->getAPIP().c_str());
     }
