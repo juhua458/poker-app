@@ -1,17 +1,16 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - 主入口 (v1.0.4 - 清洁编译版)
+ * 青云扑克 ESP32-S3-CAM - 主入口 (v1.0.5 - DIO模式+无Watchdog)
  * ============================================================================
  * 
- * v1.0.4 变更：
- *   - 移除 PSRAM 相关编译宏（BOARD_HAS_PSRAM、CONFIG_SPIRAM_*）
- *   - 暂时关闭摄像头模块（依赖 PSRAM）
+ * v1.0.5 变更：
+ *   - flash_mode 改为 DIO（匹配硬件实际工作模式，日志显示 mode:DIO）
+ *   - 移除 memory_type 配置（让框架自动检测 PSRAM/Flash 接口）
+ *   - 移除 esp_task_wdt 看门狗（StoreProhibited 崩溃源）
  *   - 保留 WiFi AP + USB HID + OTA + 行为随机化
- *   - 目标：先让固件能正常启动，确认基础功能可用
  */
 
 #include <Arduino.h>
-#include <esp_task_wdt.h>
 #include "usb_hid_touchpad.h"
 #include "wifi_ap_server.h"
 #include "ota_updater.h"
@@ -26,18 +25,11 @@ BehaviorRandomizer  g_randomizer;
 WiFiAPServer*       g_server = nullptr;
 
 // ============================================================================
-// 看门狗配置
-// ============================================================================
-constexpr int WDT_TIMEOUT_S = 30;  // 看门狗超时 30 秒
-
-// ============================================================================
 // 函数声明
 // ============================================================================
 void setup();
 void loop();
 void _initSerial();
-void _initWatchdog();
-void _feedWatchdog();
 void _printBanner();
 void _printSystemInfo();
 void _handleUSBReconnect();
@@ -53,24 +45,21 @@ void setup()
     // 打印启动横幅
     _printBanner();
 
-    // 2. 初始化看门狗
-    _initWatchdog();
-
-    // 3. 初始化行为随机化
+    // 2. 初始化行为随机化
     g_randomizer.begin();
 
-    // 4. 初始化 USB HID 触摸屏
+    // 3. 初始化 USB HID 触摸屏
     Serial.println("[MAIN] Initializing USB HID Touchpad...");
     g_hidTouchpad.begin();
     // 注意：USB 设备挂载需要时间，在主循环中等待
 
-    // 5. [v1.0.3] 摄像头模块已禁用（PSRAM 不可用）
+    // 4. [v1.0.5] 摄像头模块已禁用（PSRAM 不可用）
     // TODO: 确认 PSRAM 硬件状态后重新启用摄像头
 
-    // 6. 初始化 OTA
+    // 5. 初始化 OTA
     g_ota.begin();
 
-    // 7. 初始化 WiFi AP + HTTP 服务器
+    // 6. 初始化 WiFi AP + HTTP 服务器
     //    注意：WiFiAPServer 构造需要 camera 指针，暂传 nullptr
     Serial.println("[MAIN] Starting WiFi AP + HTTP Server...");
     g_server = new WiFiAPServer(&g_hidTouchpad, nullptr, &g_ota, &g_randomizer);
@@ -80,7 +69,7 @@ void setup()
         Serial.println("[MAIN] WiFi AP + HTTP Server FAILED!");
     }
 
-    // 8. 打印系统信息
+    // 7. 打印系统信息
     _printSystemInfo();
 
     Serial.println("[MAIN] ========== System Ready ==========");
@@ -95,18 +84,15 @@ void setup()
 // ============================================================================
 void loop()
 {
-    // 1. 喂狗
-    _feedWatchdog();
-
-    // 2. 处理 HTTP 请求
+    // 1. 处理 HTTP 请求
     if (g_server) {
         g_server->handleClient();
     }
 
-    // 3. 检查 USB 连接状态
+    // 2. 检查 USB 连接状态
     _handleUSBReconnect();
 
-    // 4. 短暂延迟 (避免 CPU 100%)
+    // 3. 短暂延迟 (避免 CPU 100%)
     delay(2);
 }
 
@@ -120,26 +106,9 @@ void _initSerial()
     delay(500);  // 等待串口就绪
     Serial.println();
     Serial.println("========================================================");
-    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.4");
-    Serial.println("  USB HID + WiFi AP + OTA (Clean Build)");
+    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.5");
+    Serial.println("  USB HID + WiFi AP + OTA (DIO, No Watchdog, No CAM)");
     Serial.println("========================================================");
-}
-
-void _initWatchdog()
-{
-    Serial.printf("[MAIN] Initializing watchdog (timeout=%ds)...\n", WDT_TIMEOUT_S);
-    esp_err_t err = esp_task_wdt_init(WDT_TIMEOUT_S, true);  // true = 触发重启
-    if (err == ESP_OK) {
-        esp_task_wdt_add(NULL);  // 添加当前任务到看门狗
-        Serial.println("[MAIN] Watchdog initialized");
-    } else {
-        Serial.printf("[MAIN] Watchdog init failed: 0x%x\n", err);
-    }
-}
-
-void _feedWatchdog()
-{
-    esp_task_wdt_reset();
 }
 
 void _printBanner()
@@ -147,7 +116,7 @@ void _printBanner()
     Serial.println();
     Serial.println("  +=======================================+");
     Serial.println("  |    QingYun Poker - ESP32-S3-CAM       |");
-    Serial.println("  |    v1.0.4 - Clean Build (no CAM)   |");
+    Serial.println("  |    v1.0.5 - DIO, No Watchdog, No CAM   |");
     Serial.println("  +=======================================+");
     Serial.println();
 }
@@ -165,7 +134,7 @@ void _printSystemInfo()
     Serial.printf("  SDK Version: %s\n", ESP.getSdkVersion());
     Serial.printf("  USB HID Mounted: %s\n",
                   g_hidTouchpad.isMounted() ? "Yes" : "No");
-    Serial.printf("  Camera: DISABLED (v1.0.4)\n");
+    Serial.printf("  Camera: DISABLED (v1.0.5)\n");
     if (g_server) {
         Serial.printf("  WiFi AP IP: %s\n", g_server->getAPIP().c_str());
     }
