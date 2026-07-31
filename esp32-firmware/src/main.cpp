@@ -1,9 +1,11 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.12)
+ * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.13)
  * ============================================================================
  *
- * 基于 v1.0.11 WiFi AP 验证成功，加回 USB HID 触控模块。
+ * 基于 v1.0.12 修复：USB HID 初始化了但 TinyUSB 未启动导致 NOT MOUNTED。
+ * 根因：USBHID::begin() 只创建信号量，不调用 USB.begin() 启动 TinyUSB 栈。
+ * 修复：在 touchpad.begin() 之前显式调用 USB.begin()。
  *
  * 核心实现（依据 arduino-esp32 v2.0.8 官方 USBHIDKeyboard.cpp 模式）：
  *   - 继承 USBHIDDevice，重写 _onGetDescriptor() 提供自定义触摸描述符
@@ -26,7 +28,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.12"
+#define FW_VERSION "v1.0.13"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -283,7 +285,7 @@ void setup() {
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  USB HID(USBHIDDevice) + WiFi AP - Core 2.0.8");
+    Serial.println("  USB HID(USBHIDDevice) + WiFi AP - Core 2.0.8 - USB.begin() fix");
     Serial.println("========================================================");
     Serial.println();
 
@@ -320,6 +322,15 @@ void setup() {
     // ---- USB HID ----
     Serial.println();
     Serial.println("---- USB HID Init ----");
+
+    // 关键修复：USBHID::begin() 只创建信号量，不调用 USB.begin() 启动 TinyUSB
+    // 必须先调用 USB.begin() 启动 TinyUSB 栈，否则 HID 设备永远不会 MOUNTED
+    if (!USB.begin()) {
+        Serial.println("[USB] ERROR: USB.begin() failed!");
+    } else {
+        Serial.println("[USB] USB.begin() OK - TinyUSB started");
+    }
+
     touchpad.begin();
     Serial.println("[HID] USBHIDTouchpad initialized (USBHIDDevice pattern)");
 
