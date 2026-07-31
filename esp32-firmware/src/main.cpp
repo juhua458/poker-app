@@ -1,35 +1,45 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - 极简平台验证固件 (v1.0.7)
+ * 青云扑克 ESP32-S3-CAM - 极简平台验证固件 (v1.0.9)
  * ============================================================================
  * 
- * v1.0.8 变更：
- *   - 平台改为 espressif32@6.2.0（Arduino core 2.0.8，TinyUSB 最低要求版本）
- *   - USB 模式改为 ARDUINO_USB_MODE=1 + CDC_ON_BOOT=1（匹配 Arduino IDE 默认）
- *   - 移除 PSRAM 配置（-DBOARD_HAS_PSRAM 和 memory_type），避免框架 PSRAM 初始化崩溃
- *   - 保持极简固件：仅 Serial + 系统信息 + 心跳
+ * v1.0.9 变更：
+ *   - 移除 ARDUINO_USB_CDC_ON_BOOT（避免框架初始化阶段USB CDC abort）
+ *   - 移除 ARDUINO_USB_MODE=1（走CH343串口，不碰Native USB）
+ *   - 移除 TinyUSB 依赖（避免静态初始化冲突）
+ *   - 使用 default_16MB.csv 分区表
+ *   - 只编译 main.cpp（build_src_filter 排除其他源文件）
+ *   - 禁用 brownout detector
+ *   - 禁用 CORE_DEBUG_LEVEL（减少初始化开销）
  * 
  * 预期行为：
- *   - 串口输出芯片信息、PSRAM 大小、心跳计数
- *   - 如果能正常运行，说明平台层 OK，后续逐步恢复功能模块
- *   - 如果崩溃，说明平台配置仍有问题
+ *   - 串口（CH343, 115200）输出 banner + 芯片信息 + 心跳
+ *   - 如果成功，说明平台层OK，后续逐步恢复功能
+ *   - 如果仍崩溃，基本可以确认板子硬件与当前框架不兼容
  */
 
 #include <Arduino.h>
+
+// 禁用 brownout detector（防止上电瞬间电压波动导致复位）
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 // ============================================================================
 // setup() - 仅做串口初始化和系统信息打印
 // ============================================================================
 void setup()
 {
+    // 禁用 brownout detector
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
     Serial.begin(115200);
-    delay(1000);  // 等待串口就绪
+    delay(2000);  // 等待串口就绪（CH343需要更长时间）
 
     Serial.println();
     Serial.println("========================================================");
-    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.8");
-    Serial.println("  MINIMAL TEST - Platform v6.2.0 Validation");
-    Serial.println("  DIO + HW USB + No PSRAM");
+    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.9");
+    Serial.println("  MINIMAL TEST - Platform v6.2.0 / Core 2.0.8");
+    Serial.println("  DIO + CH343 UART + No USB CDC + No TinyUSB");
     Serial.println("========================================================");
     Serial.println();
 
@@ -51,7 +61,7 @@ void setup()
                   ESP.getFlashChipMode());
     Serial.println();
 
-    // 打印 PSRAM 信息（关键！验证 dio_opi 配置是否生效）
+    // 打印 PSRAM 信息
     Serial.println("---- PSRAM Info ----");
     size_t psramSize = ESP.getPsramSize();
     size_t freePsram = ESP.getFreePsram();
@@ -60,9 +70,9 @@ void setup()
     Serial.printf("  Free PSRAM: %u bytes (%.1f MB)\n",
                   freePsram, freePsram / (1024.0f * 1024.0f));
     if (psramSize > 0) {
-        Serial.println("  PSRAM: DETECTED OK");
+        Serial.println("  [OK] PSRAM DETECTED");
     } else {
-        Serial.println("  PSRAM: NOT DETECTED (config error?)");
+        Serial.println("  [WARN] PSRAM NOT DETECTED (expected with BOARD_HAS_PSRAM)");
     }
     Serial.println();
 
@@ -74,8 +84,8 @@ void setup()
     Serial.println();
 
     Serial.println("==========================================");
-    Serial.println("  Setup complete. Entering loop...");
-    Serial.println("  If you see heartbeat messages, platform is OK");
+    Serial.println("  Setup COMPLETE. Entering loop...");
+    Serial.println("  Heartbeat every 2s = platform is OK");
     Serial.println("==========================================");
 }
 
@@ -87,7 +97,7 @@ void loop()
     static int counter = 0;
     counter++;
 
-    Serial.printf("[v1.0.8] Heartbeat #%d | Heap: %u | PSRAM: %u\n",
+    Serial.printf("[v1.0.9] Heartbeat #%d | Heap: %u | PSRAM: %u\n",
                   counter,
                   ESP.getFreeHeap(),
                   ESP.getFreePsram());
