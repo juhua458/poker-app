@@ -1,15 +1,15 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.14)
+ * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.15)
  * ============================================================================
  *
- * v1.0.14：修复 v1.0.13 USB mount 等待期间崩溃重启问题。
- * 根因：ESP32-S3 的 USB Serial/JTAG 控制器（串口）和 USB-OTG 控制器（TinyUSB HID）
- *       共享 GPIO 引脚，同时激活导致冲突崩溃；10秒阻塞等待触发 Task Watchdog Timer 复位。
- * 修复：① USB.begin() 前调用 Serial.end() 释放 USB Serial/JTAG 引脚
- *        禁用 Task Watchdog Timer 防止等待期间被复位
- *       ③ 串口之后不可用，WiFi + HID 不受影响
+ * v1.0.15：禁用 USB CDC，解决 USB HID NOT MOUNTED 问题。
+ * 根因：USB Serial/JTAG（CDC）与 USB-OTG（TinyUSB HID）共享USB PHY，
+ *       同时激活使设备呈现为 CDC+HID 复合设备，手机USB栈无法正确枚举HID接口。
+ * 修复：显式禁用 ARDUINO_USB_CDC_ON_BOOT=0，使设备成为纯 HID 设备。
+ * 注意：Serial 改用 UART0（GPIO44/43），USB串口不可用，调试改用WiFi HTTP端点。
  *
+ * v1.0.14：禁用双核 TWDT，防止 USB 枚举等待期间被复位（非根因，但保留）
  * v1.0.13：修复 USB HID NOT MOUNTED —— 在 setup() 中 touchpad.begin() 之前加 USB.begin() 启动 TinyUSB 栈
  *
  * 核心实现（依据 arduino-esp32 v2.0.8 官方 USBHIDKeyboard.cpp 模式）：
@@ -17,7 +17,8 @@
  *   - 内部持有 USBHID hid，构造时 hid.addDevice(this, desc_size)
  *   - 通过 hid.SendReport() 发送触摸报告
  *   - 不依赖 Adafruit TinyUSB（编译不兼容）
- *   - 不开 ARDUINO_USB_CDC_ON_BOOT（v1.0.8 崩溃根因）
+ *   - 禁用 ARDUINO_USB_CDC_ON_BOOT（v1.0.15 复合设备冲突根因）
+ *   - 不加 ARDUINO_USB_MODE（保持默认USB-OTG模式）
  */
 
 #include <Arduino.h>
@@ -34,7 +35,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.14"
+#define FW_VERSION "v1.0.15"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -291,7 +292,7 @@ void setup() {
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  USB HID(USBHIDDevice) + WiFi AP - Core 2.0.8 - USB.begin() fix");
+    Serial.println("  Pure USB HID (USBHIDDevice) + WiFi AP - No USB CDC");
     Serial.println("========================================================");
     Serial.println();
 
