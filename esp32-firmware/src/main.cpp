@@ -25,6 +25,7 @@
 #include <WebServer.h>
 #include <USB.h>
 #include <USBHID.h>
+#include <esp_task_wdt.h>
 
 // 禁用 brownout detector
 #include "soc/soc.h"
@@ -342,10 +343,12 @@ void setup() {
     touchpad.begin();
     Serial.println("[HID] USBHIDTouchpad initialized (USBHIDDevice pattern)");
 
-    // v1.0.14 修复：禁用 Task Watchdog Timer，防止 USB 枚举等待期间被复位
-    // ESP32-S3 TWDT 默认 8 秒超时，USB mount 等待可能超过此阈值
-    esp_task_wdt_delete(xTaskGetCurrentTaskHandle());
-    Serial.println("[TWDT] Task watchdog disabled for USB mount wait");
+    // v1.0.14 修复：禁用双核 Task Watchdog Timer，防止 USB 枚举等待期间被复位
+    // ESP32-S3 TWDT 默认超时 ~5s，USB mount 等待可能超过此阈值
+    // 使用 Arduino-ESP32 原生 API 禁用 TWDT
+    disableCore0WDT();
+    disableCore1WDT();
+    Serial.println("[TWDT] Dual-core Task WDT disabled for USB mount wait");
 
     Serial.println("[HID] Waiting for USB mount...");
     int waitCount = 0;
