@@ -1,16 +1,14 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - 极简平台验证固件 (v1.0.9)
+ * 青云扑克 ESP32-S3-CAM - 极简平台验证固件 (v1.0.10)
  * ============================================================================
  * 
- * v1.0.9 变更：
- *   - 移除 ARDUINO_USB_CDC_ON_BOOT（避免框架初始化阶段USB CDC abort）
- *   - 移除 ARDUINO_USB_MODE=1（走CH343串口，不碰Native USB）
- *   - 移除 TinyUSB 依赖（避免静态初始化冲突）
- *   - 使用 default_16MB.csv 分区表
- *   - 只编译 main.cpp（build_src_filter 排除其他源文件）
- *   - 禁用 brownout detector
- *   - 禁用 CORE_DEBUG_LEVEL（减少初始化开销）
+ * v1.0.10 变更：
+ *   - 在 v1.0.9 基础上加回 PSRAM OPI 配置
+ *   - board_build.arduino.memory_type = qio_opi（Flash QIO + PSRAM OPI 模式）
+ *   - board_build.flash_mode = qio（Flash 4线高速）
+ *   - board_build.psram_type = opi（PSRAM 8线 OPI 模式）
+ *   - 预期：PSRAM 8MB 被正确识别，心跳中显示 PSRAM 大小
  * 
  * 预期行为：
  *   - 串口（CH343, 115200）输出 banner + 芯片信息 + 心跳
@@ -37,9 +35,8 @@ void setup()
 
     Serial.println();
     Serial.println("========================================================");
-    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.9");
-    Serial.println("  MINIMAL TEST - Platform v6.2.0 / Core 2.0.8");
-    Serial.println("  DIO + CH343 UART + No USB CDC + No TinyUSB");
+    Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.10");
+    Serial.println("  MINIMAL TEST - Platform v6.2.0 / Core 2.0.8 + QIO OPI PSRAM + CH343 UART");
     Serial.println("========================================================");
     Serial.println();
 
@@ -97,7 +94,7 @@ void loop()
     static int counter = 0;
     counter++;
 
-    Serial.printf("[v1.0.9] Heartbeat #%d | Heap: %u | PSRAM: %u\n",
+    Serial.printf("[v1.0.10] Heartbeat #%d | Heap: %u | PSRAM: %u\n",
                   counter,
                   ESP.getFreeHeap(),
                   ESP.getFreePsram());
