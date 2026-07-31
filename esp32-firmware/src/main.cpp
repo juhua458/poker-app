@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * v1.0.8 变更：
- *   - 平台降级到 espressif32@6.0.0（Arduino core 2.0.6，接近官方 2.0.5）
+ *   - 平台改为 espressif32@6.2.0（Arduino core 2.0.8，TinyUSB 最低要求版本）
  *   - USB 模式改为 ARDUINO_USB_MODE=1 + CDC_ON_BOOT=1（匹配 Arduino IDE 默认）
  *   - 移除 PSRAM 配置（-DBOARD_HAS_PSRAM 和 memory_type），避免框架 PSRAM 初始化崩溃
  *   - 保持极简固件：仅 Serial + 系统信息 + 心跳
@@ -28,7 +28,7 @@ void setup()
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware v1.0.8");
-    Serial.println("  MINIMAL TEST - Platform v6.0.0 Validation");
+    Serial.println("  MINIMAL TEST - Platform v6.2.0 Validation");
     Serial.println("  DIO + HW USB + No PSRAM");
     Serial.println("========================================================");
     Serial.println();
