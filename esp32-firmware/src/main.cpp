@@ -1,24 +1,26 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.15)
+ * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.16)
  * ============================================================================
  *
- * v1.0.15：禁用 USB CDC，解决 USB HID NOT MOUNTED 问题。
- * 根因：USB Serial/JTAG（CDC）与 USB-OTG（TinyUSB HID）共享USB PHY，
- *       同时激活使设备呈现为 CDC+HID 复合设备，手机USB栈无法正确枚举HID接口。
- * 修复：显式禁用 ARDUINO_USB_CDC_ON_BOOT=0，使设备成为纯 HID 设备。
- * 注意：Serial 改用 UART0（GPIO44/43），USB串口不可用，调试改用WiFi HTTP端点。
+ * v1.0.16：按Freenove官方文档修正USB-OTG模式配置。
+ * 根因：v1.0.15只禁了CDC(ARDUINO_USB_CDC_ON_BOOT=0)，但未设置USB模式。
+ *       esp32-s3-devkitc-1板定义默认ARDUINO_USB_MODE=1(CDC/JTAG)，
+ *       TinyUSB HID要求ARDUINO_USB_MODE=0(USB-OTG模式)。
+ * 修复：build_unflags移除默认MODE=1，build_flags设MODE=0。
+ * 依据：Freenove官方USB教程(Chapter 36)所有HID示例(Mouse/Keyboard/ConsumerControl)
+ *       均要求USB CDC On Boot: Disabled + ARDUINO_USB_MODE=0。
  *
- * v1.0.14：禁用双核 TWDT，防止 USB 枚举等待期间被复位（非根因，但保留）
- * v1.0.13：修复 USB HID NOT MOUNTED —— 在 setup() 中 touchpad.begin() 之前加 USB.begin() 启动 TinyUSB 栈
+ * v1.0.15：禁用 USB CDC (ARDUINO_USB_CDC_ON_BOOT=0)
+ * v1.0.14：禁用双核 TWDT，防止 USB 枚举等待期间被复位
+ * v1.0.13：修复 USB HID NOT MOUNTED —— 在 touchpad.begin() 前加 USB.begin()
  *
  * 核心实现（依据 arduino-esp32 v2.0.8 官方 USBHIDKeyboard.cpp 模式）：
  *   - 继承 USBHIDDevice，重写 _onGetDescriptor() 提供自定义触摸描述符
  *   - 内部持有 USBHID hid，构造时 hid.addDevice(this, desc_size)
  *   - 通过 hid.SendReport() 发送触摸报告
  *   - 不依赖 Adafruit TinyUSB（编译不兼容）
- *   - 禁用 ARDUINO_USB_CDC_ON_BOOT（v1.0.15 复合设备冲突根因）
- *   - 不加 ARDUINO_USB_MODE（保持默认USB-OTG模式）
+ *   - platformio.ini: ARDUINO_USB_MODE=0 + ARDUINO_USB_CDC_ON_BOOT=0
  */
 
 #include <Arduino.h>
@@ -35,7 +37,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.15"
+#define FW_VERSION "v1.0.16"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -292,7 +294,7 @@ void setup() {
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  Pure USB HID (USBHIDDevice) + WiFi AP - No USB CDC");
+    Serial.println("  USB-OTG HID (MODE=0, CDC=0) + WiFi AP");
     Serial.println("========================================================");
     Serial.println();
 
