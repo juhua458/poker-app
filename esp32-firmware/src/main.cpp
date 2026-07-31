@@ -19,6 +19,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <USB.h>
+#include <USBHID.h>
 
 // 禁用 brownout detector
 #include "soc/soc.h"
