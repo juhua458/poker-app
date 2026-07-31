@@ -117,9 +117,16 @@ struct __attribute__((packed)) TouchReport {
 };
 
 // ============================================================================
-// USB HID 设备实例（Arduino-ESP32 核心自带 USBHID 基类）
+// USB HID 设备实例（子类化 USBHID 以设置自定义报告描述符）
 // ============================================================================
-static USBHID hidDevice;
+class CustomHID : public USBHID {
+public:
+    CustomHID(const uint8_t* reportDescriptor, size_t descriptorLen)
+        : USBHID(reportDescriptor, descriptorLen) {}
+};
+
+static const uint8_t* hid_desc_ptr = hid_touchpad_descriptor;
+static CustomHID hidDevice(hid_desc_ptr, sizeof(hid_touchpad_descriptor));
 static bool hidInitialized = false;
 
 // ============================================================================
@@ -325,16 +332,10 @@ void setup()
     Serial.println();
     Serial.println("---- USB HID Init ----");
 
-    // 设置 HID 报告描述符
-    hidDevice.setReportDescriptor(hid_touchpad_descriptor, sizeof(hid_touchpad_descriptor));
-
-    // 初始化 HID
-    if (!hidDevice.begin()) {
-        Serial.println("[HID] ERROR: USBHIDDevice init failed!");
-    } else {
-        hidInitialized = true;
-        Serial.println("[HID] USBHIDDevice initialized");
-    }
+    // 初始化 HID（描述符已在构造函数中设置）
+    hidDevice.begin();
+    hidInitialized = true;
+    Serial.println("[HID] USBHID initialized (descriptor set via constructor)");
 
     // 等待 USB 挂载
     Serial.println("[HID] Waiting for USB mount...");
