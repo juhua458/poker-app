@@ -191,23 +191,36 @@ public:
     }
 
     bool touchDown(uint16_t screenX, uint16_t screenY) {
+        yield();  // let TinyUSB task run
         if (!hid.ready()) return false;
         _report.contact_id    = 0;
         _report.tip_switch    = 0x01;
         _report.x             = (uint16_t)((uint32_t)screenX * HID_MAX / SCREEN_WIDTH);
         _report.y             = (uint16_t)((uint32_t)screenY * HID_MAX / SCREEN_HEIGHT);
         _report.contact_count = 1;
-        return hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report));
+        // TinyUSB HID buffer may be full; retry with short delay
+        for (int retry = 0; retry < 5; retry++) {
+            if (hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report))) return true;
+            delay(10);
+            yield();
+        }
+        return false;
     }
 
     bool touchUp() {
+        yield();  // let TinyUSB task run
         if (!hid.ready()) return false;
         _report.contact_id    = 0;
         _report.tip_switch    = 0x00;
         _report.x             = 0;
         _report.y             = 0;
         _report.contact_count = 0;
-        return hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report));
+        for (int retry = 0; retry < 5; retry++) {
+            if (hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report))) return true;
+            delay(10);
+            yield();
+        }
+        return false;
     }
 
     bool tap(uint16_t screenX, uint16_t screenY, uint32_t durationMs) {
