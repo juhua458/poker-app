@@ -281,7 +281,7 @@ static bool initCamera() {
 
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
-        qlogf("[Camera] init failed: 0x%x (%s)", err, esp_err_to_name(err));
+        qlogf("[Camera] init failed: 0x%x", err);
         return false;
     }
 
