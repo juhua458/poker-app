@@ -1,36 +1,46 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3 - 精简HID固件 (v1.0.23)
+ * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.26)
  * ============================================================================
  *
- * v1.0.24：修复 /tap 端点 - 同时支持 JSON body 和 HTML 表单参数
- * v1.0.23：精简版 - 砍掉Camera模块，纯WiFi AP + USB HID执行器
- *   - 移除 OV5640 摄像头驱动（/capture, /stream 端点删除）
- *   - 移除 Camera 引脚定义和初始化代码
- *   - 保留：WiFi AP + HTTP Server (/ | /logs | /status | /tap)
- *   - 保留：USB HID 触摸屏模拟 (Digitizer)
- *   - 保留：完整WiFi日志 + USB诊断
- *   - 好处：不发烫、功耗减半、固件更小更稳定
+ * v1.0.26：BLE通信替代WiFi AP
+ *   - 移除：WiFi AP + HTTP Server（手机连WiFi后无法上网的问题）
+ *   - 新增：BLE GATT Server（Nordic UART Service）
+ *   - 保留：USB HID 触摸屏模拟（Digitizer + yield/retry）
+ *   - 架构：手机移动数据上网 + BLE发指令 + USB HID注入点击
  *
- * 架构定位：ESP32 = 纯HID执行器（USB触摸注入）
- *   截图+分析 全部由手机端青云App完成（AccessibilityService + VLM）
+ * BLE协议（Nordic UART Service）：
+ *   Service UUID: 6E400001-B5A3-F393-E0A9-E50E24DAB9E9
+ *   RX Char (手机写): 6E400002-B5A3-F393-E0A9-E50E24DAB9E9
+ *   TX Char (ESP通知): 6E400003-B5A3-F393-E0A9-E50E24DAB9E9
  *
- * v1.0.22：摄像头画质优化（AWB+AEC2），stream限帧修复
- * v1.0.21：加回Camera模块，完整功能固件
- * v1.0.20：WiFi日志功能
- * v1.0.19~v1.0.16：USB HID诊断+修复
+ * 指令格式：
+ *   tap:x,y,duration  → 执行触摸点击 → 回复 ok:tap(x,y,ms) 或 err:xxx
+ *   status            → 查询设备状态   → 回复 ok:ver=...,heap=...,...
+ *   log               → 获取完整日志   → 回复日志内容
+ *
+ * 兼容App：Serial Bluetooth Terminal (Kai Morich), Adafruit Bluefruit Connect
+ *
+ * v1.0.25：修复HID send failure（yield+retry机制）
+ * v1.0.24：修复 /tap 端点 JSON+表单双格式
+ * v1.0.23：精简版砍Camera
+ * v1.0.21~v1.0.16：WiFi AP + USB HID + Camera 迭代
  *
  * 核心实现：
  *   - USBHID 触摸屏模拟（Digitizer HID Report）
- *   - WiFi AP + HTTP Server（/ | /logs | /status | /tap）
+ *   - BLE GATT Server（Nordic UART Service）
  *   - platformio.ini: ARDUINO_USB_MODE=0 + ARDUINO_USB_CDC_ON_BOOT=0
  */
 
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WebServer.h>
 #include <USB.h>
 #include <USBHID.h>
+
+// BLE 库
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
 // 禁用 brownout detector
 #include "soc/soc.h"
@@ -39,15 +49,15 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.24"
+#define FW_VERSION "v1.0.26"
 
-// WiFi AP
-#define AP_SSID     "QingYun-ESP32"
-#define AP_PASSWORD "poker12345"
-#define AP_IP       "192.168.4.1"
-#define AP_GATEWAY  "192.168.4.1"
-#define AP_SUBNET   "255.255.255.0"
-#define HTTP_PORT   80
+// BLE设备名
+#define BLE_DEVICE_NAME "QingYun-ESP32"
+
+// Nordic UART Service UUIDs
+#define NUS_SERVICE_UUID  "6E400001-B5A3-F393-E0A9-E50E24DAB9E9"
+#define RX_CHAR_UUID      "6E400002-B5A3-F393-E0A9-E50E24DAB9E9"  // Write
+#define TX_CHAR_UUID      "6E400003-B5A3-F393-E0A9-E50E24DAB9E9"  // Notify
 
 // 屏幕分辨率（一加13T）
 #define SCREEN_WIDTH  1080
@@ -60,7 +70,7 @@
 #define HID_REPORT_ID_TOUCH 1
 
 // ============================================================================
-// WiFi 日志缓冲区
+// 日志缓冲区（Serial + BLE log指令可用）
 // ============================================================================
 static String log_buf = "";
 static const size_t LOG_BUF_MAX = 6144;  // 6KB上限
@@ -74,7 +84,7 @@ static void qlog(const char* msg) {
         log_buf += '\n';
     } else if (!log_skip_warned) {
         log_skip_warned = true;
-        log_buf += "[LOG BUFFER FULL - further lines skipped]\n";
+        log_buf += "[LOG BUFFER FULL]\n";
     }
     log_skip_count++;
 }
@@ -91,7 +101,7 @@ static void qlogf(const char* fmt, ...) {
         log_buf += '\n';
     } else if (!log_skip_warned) {
         log_skip_warned = true;
-        log_buf += "[LOG BUFFER FULL - further lines skipped]\n";
+        log_buf += "[LOG BUFFER FULL]\n";
     }
     log_skip_count++;
 }
@@ -198,7 +208,7 @@ public:
         _report.x             = (uint16_t)((uint32_t)screenX * HID_MAX / SCREEN_WIDTH);
         _report.y             = (uint16_t)((uint32_t)screenY * HID_MAX / SCREEN_HEIGHT);
         _report.contact_count = 1;
-        // TinyUSB HID buffer may be full; retry with short delay
+        // retry with short delay
         for (int retry = 0; retry < 5; retry++) {
             if (hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report))) return true;
             delay(10);
@@ -208,7 +218,7 @@ public:
     }
 
     bool touchUp() {
-        yield();  // let TinyUSB task run
+        yield();
         if (!hid.ready()) return false;
         _report.contact_id    = 0;
         _report.tip_switch    = 0x00;
@@ -233,189 +243,176 @@ public:
 static USBHIDTouchpad touchpad;
 
 // ============================================================================
-// HTTP 处理函数
+// BLE GATT Server（Nordic UART Service）
 // ============================================================================
-WebServer server(HTTP_PORT);
+static BLECharacteristic* g_pTxChar = nullptr;
+static bool g_bleConnected = false;
 
-void handleLogs() {
-    String html = F("<!DOCTYPE html><html><head>"
-        "<meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>QingYun Logs</title>"
-        "<style>"
-        "body{background:#1a1a2e;color:#eee;font-family:monospace;margin:8px;font-size:13px}"
-        "h3{color:#e94560;margin:4px 0}"
-        ".tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;margin:2px}"
-        ".ok{background:#0a3d0a;color:#4caf50}"
-        ".fail{background:#3d0a0a;color:#f44336}"
-        ".warn{background:#3d3d0a;color:#ffeb3b}"
-        "pre{background:#0f0f23;padding:10px;border-radius:6px;overflow-x:auto;"
-        "white-space:pre-wrap;word-break:break-all;font-size:11px;line-height:1.5;"
-        "border:1px solid #333;max-height:60vh;overflow-y:auto}"
-        "button{background:#e94560;color:#fff;border:none;padding:8px 16px;"
-        "border-radius:4px;cursor:pointer;margin:6px 4px;font-size:13px}"
-        "button:active{background:#c73e54}"
-        ".status{margin:8px 0;padding:8px;background:#16213e;border-radius:4px}"
-        "</style></head><body>"
-        "<h3>QingYun ESP32-S3 HID " FW_VERSION "</h3>"
-        "<div class='status'>");
+// BLE命令队列（回调中接收，loop中处理，避免在回调中做耗时操作）
+static volatile bool g_hasNewCmd = false;
+static String g_pendingCmd = "";
 
-    bool usbOk = (bool)USB;
-    bool hidOk = touchpad.ready();
-    html += F("<span class='tag ");
-    html += usbOk ? "ok'>USB: MOUNTED" : "fail'>USB: NOT MOUNTED";
-    html += F("</span>");
-    html += F("<span class='tag ");
-    html += hidOk ? "ok'>HID: READY" : "fail'>HID: NOT READY";
-    html += F("</span>");
-    html += F("<br>Heap: ");
-    html += String(ESP.getFreeHeap());
-    html += F(" | PSRAM: ");
-    html += String((unsigned)ESP.getFreePsram());
-    html += F(" | Uptime: ");
-    html += String((unsigned long)(millis() / 1000));
-    html += F("s | Clients: ");
-    html += String(WiFi.softAPgetStationNum());
-    html += F("</div>");
-
-    html += F("<button onclick=\"location.reload()\">&#x1f504; 刷新日志</button>"
-        "<button onclick=\"location.href='/status'\">JSON API</button>"
-        "<button onclick=\"location.href='/'\">首页</button>");
-
-    if (log_skip_count > 0) {
-        html += F("<div class='tag warn'>Note: ");
-        html += String(log_skip_count);
-        html += F(" lines logged, buffer limited to 6KB. Early boot may be truncated.</div>");
+// --- BLE Server Callbacks ---
+class MyServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) override {
+        g_bleConnected = true;
+        qlog("[BLE] Client connected!");
     }
 
-    html += F("<pre>");
-    html += log_buf;
-    html += F("</pre>");
-
-    if (!usbOk) {
-        html += F("<div class='status' style='border-left:3px solid #f44336'>"
-            "<b style='color:#f44336'>USB NOT MOUNTED - 诊断建议:</b><br>"
-            "1. 确认OTG线插在板子的<b>USB-OTG口</b>（直连GPIO19/20），不是UART口<br>"
-            "2. 确认手机OTG功能已开启（一加: 设置→其他设置→OTG连接）<br>"
-            "3. 换一根OTG线试试<br>"
-            "4. 确认OTG线支持数据传输（不是纯充电线）"
-            "</div>");
-    } else {
-        html += F("<div class='status' style='border-left:3px solid #4caf50'>"
-            "<b style='color:#4caf50'>USB MOUNTED! HID正常!</b><br>"
-            "可以用 /tap 接口测试触控了"
-            "</div>");
+    void onDisconnect(BLEServer* pServer) override {
+        g_bleConnected = false;
+        qlog("[BLE] Client disconnected - restarting advertising");
+        // 重新开始广播
+        pServer->startAdvertising();
     }
+};
 
-    html += F("</body></html>");
-    server.send(200, "text/html", html);
-}
-
-void handleTap() {
-    String body = server.arg("plain");
-    int x = -1, y = -1, duration = 50;
-
-    if (body.length() == 0) {
-        // Fallback: HTML form sends URL-encoded params
-        if (server.hasArg("x"))     x = server.arg("x").toInt();
-        if (server.hasArg("y"))     y = server.arg("y").toInt();
-        if (server.hasArg("duration")) duration = server.arg("duration").toInt();
-        if (x < 0 || y < 0) {
-            server.send(400, "application/json", "{\"error\":\"Empty body and no form params\"}");
-            return;
+// --- BLE RX Callback（手机→ESP32写入指令） ---
+class MyRxCallbacks : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic* pChar) override {
+        std::string val = pChar->getValue();
+        if (val.length() > 0) {
+            String cmd = String(val.c_str());
+            cmd.trim();
+            qlogf("[BLE] RX: %s", cmd.c_str());
+            g_pendingCmd = cmd;
+            g_hasNewCmd = true;
         }
+    }
+};
+
+// --- BLE回复（ESP32→手机通知） ---
+static void bleReply(const char* msg) {
+    if (g_pTxChar && g_bleConnected) {
+        g_pTxChar->setValue(msg);
+        g_pTxChar->notify();
+        qlogf("[BLE] TX: %s", msg);
     } else {
-        // JSON body parse
-        int xi = body.indexOf("\"x\":");
-        int yi = body.indexOf("\"y\":");
-        int di = body.indexOf("\"duration\":");
-
-        if (xi >= 0) { int s = xi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)x=body.substring(s,e).toInt(); }
-        if (yi >= 0) { int s = yi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)y=body.substring(s,e).toInt(); }
-        if (di >= 0) { int s = di+11; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)duration=body.substring(s,e).toInt(); }
+        qlogf("[BLE] TX skipped (not connected): %s", msg);
     }
+}
 
-    if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
-        char buf[128];
+// --- 处理BLE指令 ---
+static void processCommand(const String& cmd) {
+    if (cmd.startsWith("tap:")) {
+        // 格式: tap:x,y,duration
+        String params = cmd.substring(4);
+        int c1 = params.indexOf(',');
+        int c2 = params.indexOf(',', c1 + 1);
+
+        if (c1 > 0 && c2 > c1) {
+            int x = params.substring(0, c1).toInt();
+            int y = params.substring(c1 + 1, c2).toInt();
+            int dur = params.substring(c2 + 1).toInt();
+            if (dur < 10) dur = 50;
+
+            if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+                char buf[128];
+                snprintf(buf, sizeof(buf),
+                         "err:coords_out_of_range(x:0-%d,y:0-%d,got=%d,%d)",
+                         SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, x, y);
+                bleReply(buf);
+                return;
+            }
+
+            bool ok = touchpad.tap(x, y, dur);
+            if (ok) {
+                char buf[128];
+                snprintf(buf, sizeof(buf), "ok:tap(%d,%d,%dms)", x, y, dur);
+                bleReply(buf);
+            } else {
+                bleReply("err:hid_send_failed");
+            }
+        } else {
+            bleReply("err:bad_format,use:tap:x,y,ms");
+        }
+
+    } else if (cmd == "status") {
+        char buf[320];
         snprintf(buf, sizeof(buf),
-                 "{\"error\":\"Coords out of range. x:0-%d, y:0-%d. Got x=%d,y=%d\"}",
-                 SCREEN_WIDTH-1, SCREEN_HEIGHT-1, x, y);
-        server.send(400, "application/json", buf);
-        return;
-    }
-    if (duration < 10 || duration > 5000) {
-        server.send(400, "application/json", "{\"error\":\"Duration 10-5000ms\"}");
-        return;
-    }
+            "ok:ver=%s,heap=%u,psram=%u,usb=%s,hid=%s,ble=connected,uptime=%lus",
+            FW_VERSION,
+            ESP.getFreeHeap(),
+            (unsigned)ESP.getFreePsram(),
+            ((bool)USB) ? "ok" : "no",
+            touchpad.ready() ? "ok" : "no",
+            (unsigned long)(millis() / 1000));
+        bleReply(buf);
 
-    bool ok = touchpad.tap(x, y, duration);
-    if (ok) {
-        char buf[128];
-        snprintf(buf, sizeof(buf),
-                 "{\"success\":true,\"message\":\"Tap (%d,%d) dur=%dms sent\"}",
-                 x, y, duration);
-        server.send(200, "application/json", buf);
+    } else if (cmd == "log") {
+        // 分段发送日志（BLE MTU限制，每段最多128字节）
+        if (log_buf.length() == 0) {
+            bleReply("ok:log_empty");
+        } else {
+            // 先发总长度
+            char hdr[64];
+            snprintf(hdr, sizeof(hdr), "ok:log_len=%d", (int)log_buf.length());
+            bleReply(hdr);
+            delay(100);
+
+            // 分段发送
+            const int CHUNK = 120;
+            int totalLen = log_buf.length();
+            int sent = 0;
+            while (sent < totalLen && g_bleConnected) {
+                int end = sent + CHUNK;
+                if (end > totalLen) end = totalLen;
+                String chunk = log_buf.substring(sent, end);
+                bleReply(chunk.c_str());
+                sent = end;
+                delay(50);  // 给手机端处理时间
+            }
+            bleReply("[END]");
+        }
+
+    } else if (cmd == "ping") {
+        bleReply("pong");
+
     } else {
-        server.send(500, "application/json", "{\"error\":\"HID send failed\"}");
+        bleReply("err:unknown_cmd. cmds: tap:x,y,ms | status | log | ping");
     }
 }
 
-void handleStatus() {
-    char buf[512];
-    snprintf(buf, sizeof(buf),
-        "{\"device\":\"QingYun-ESP32-S3-HID\",\"version\":\"%s\","
-        "\"uptime_ms\":%lu,\"free_heap\":%u,\"free_psram\":%u,"
-        "\"wifi\":{\"ssid\":\"%s\",\"ip\":\"%s\",\"clients\":%d},"
-        "\"hid_ready\":%s,\"usb_mounted\":%s}",
-        FW_VERSION, (unsigned long)millis(),
-        ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
-        AP_SSID, WiFi.softAPIP().toString().c_str(),
-        WiFi.softAPgetStationNum(),
-        touchpad.ready() ? "true" : "false",
-        ((bool)USB) ? "true" : "false");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", buf);
-}
+// --- BLE初始化 ---
+static void initBLE() {
+    qlog("---- BLE Init ----");
 
-void handleRoot() {
-    char buf[2048];
-    snprintf(buf, sizeof(buf),
-        "<html><head><meta charset='utf-8'><title>QingYun ESP32</title>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<style>body{font-family:monospace;background:#1a1a2e;color:#eee;padding:12px}"
-        "a{color:#e94560;text-decoration:none;font-size:16px;display:block;margin:8px 0;"
-        "padding:12px;background:#16213e;border-radius:6px;text-align:center}"
-        ".ok{color:#4caf50}.fail{color:#f44336}</style></head><body>"
-        "<h2>QingYun ESP32-S3 HID %s</h2>"
-        "<p>WiFi: %s | IP: %s</p>"
-        "<p>Clients: %d | Heap: %u | PSRAM: %u</p>"
-        "<p>USB: <span class='%s'>%s</span> | HID: <span class='%s'>%s</span></p>"
-        "<p>Uptime: %lums</p>"
-        "<hr>"
-        "<a href='/logs'>📋 查看完整日志 (/logs)</a>"
-        "<a href='/status'>📊 状态 JSON (/status)</a>"
-        "<h3>Test Tap</h3>"
-        "<form method='POST' action='/tap'>"
-        "X:<input name='x' value='540' style='width:60px'> "
-        "Y:<input name='y' value='1172' style='width:60px'> "
-        "Dur:<input name='duration' value='50' style='width:60px'> "
-        "<input type='submit' value='Tap'></form>"
-        "</body></html>",
-        FW_VERSION, AP_SSID, WiFi.softAPIP().toString().c_str(),
-        WiFi.softAPgetStationNum(), ESP.getFreeHeap(),
-        (unsigned)ESP.getFreePsram(),
-        ((bool)USB) ? "ok" : "fail",
-        ((bool)USB) ? "MOUNTED" : "NOT MOUNTED",
-        touchpad.ready() ? "ok" : "fail",
-        touchpad.ready() ? "READY" : "NOT READY",
-        (unsigned long)millis());
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "text/html", buf);
-}
+    BLEDevice::init(BLE_DEVICE_NAME);
+    BLEDevice::setMTU(128);  // 协商较大MTU
 
-void handleNotFound() {
-    server.send(404, "application/json",
-        "{\"error\":\"Not found. Try: / | /logs | /status | /tap\"}");
+    BLEServer* pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    // Nordic UART Service
+    BLEService* pService = pServer->createService(NUS_SERVICE_UUID);
+
+    // RX Characteristic（手机写入→ESP32接收）
+    BLECharacteristic* pRxChar = pService->createCharacteristic(
+        RX_CHAR_UUID,
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+    );
+    pRxChar->setCallbacks(new MyRxCallbacks());
+
+    // TX Characteristic（ESP32通知→手机接收）
+    g_pTxChar = pService->createCharacteristic(
+        TX_CHAR_UUID,
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+    g_pTxChar->addDescriptor(new BLE2902());
+
+    pService->start();
+    qlog("[BLE] NUS Service started");
+
+    // Advertising
+    BLEAdvertising* pAdv = BLEDevice::getAdvertising();
+    pAdv->addServiceUUID(NUS_SERVICE_UUID);
+    pAdv->setScanResponse(true);
+    pAdv->setMinPreferred(0x06);
+    pAdv->setMaxPreferred(0x12);
+    BLEDevice::startAdvertising();
+
+    qlogf("[BLE] Advertising started as '%s'", BLE_DEVICE_NAME);
+    qlog("[BLE] Waiting for phone to connect via BLE...");
 }
 
 // ============================================================================
@@ -429,8 +426,8 @@ void setup() {
 
     qlog("");
     qlog("========================================================");
-    qlog("  QingYun ESP32-S3 HID Firmware " FW_VERSION);
-    qlog("  WiFi AP + USB HID Touch (No Camera)");
+    qlog("  QingYun ESP32-S3 BLE+HID Firmware " FW_VERSION);
+    qlog("  BLE (Nordic UART) + USB HID Touch (No WiFi, No Camera)");
     qlog("========================================================");
     qlog("");
 
@@ -446,27 +443,10 @@ void setup() {
     qlogf("  Heap: %.1f KB", ESP.getFreeHeap() / 1024.0f);
     qlog("");
 
-    // ---- WiFi AP ----
-    qlog("---- WiFi AP Init ----");
-    IPAddress apIP, gatewayIP, subnetMask;
-    apIP.fromString(AP_IP);
-    gatewayIP.fromString(AP_GATEWAY);
-    subnetMask.fromString(AP_SUBNET);
-
-    WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(apIP, gatewayIP, subnetMask);
-
-    if (!WiFi.softAP(AP_SSID, AP_PASSWORD)) {
-        qlog("[WiFi] ERROR: AP start failed!");
-    } else {
-        qlogf("[WiFi] AP: SSID=%s IP=%s", AP_SSID, WiFi.softAPIP().toString().c_str());
-    }
-
     // ---- USB HID ----
-    qlog("");
     qlog("---- USB HID Init ----");
 
-    qlogf("[USB] USB operator bool (mounted) = %s (before begin)",
+    qlogf("[USB] USB operator bool = %s (before begin)",
           ((bool)USB ? "true(MOUNTED)" : "false"));
 
     qlog("[USB] Calling touchpad.begin()...");
@@ -476,7 +456,7 @@ void setup() {
     qlog("[USB] Calling USB.begin()...");
     bool usbResult = USB.begin();
     qlogf("[USB] USB.begin() returned: %s", usbResult ? "true" : "false");
-    qlogf("[USB] USB operator bool (mounted) = %s",
+    qlogf("[USB] USB operator bool = %s",
           ((bool)USB ? "true(MOUNTED)" : "false(not mounted)"));
 
     disableCore0WDT();
@@ -514,27 +494,17 @@ void setup() {
         qlog("[USB] Checklist: 1.OTG口? 2.USB_MODE=0? 3.OTG开关? 4.数据线?");
     }
 
-    qlogf("[Status] Heap after init: %u (%.1f KB)",
+    qlogf("[Status] Heap after USB init: %u (%.1f KB)",
           ESP.getFreeHeap(), ESP.getFreeHeap() / 1024.0f);
 
-    // ---- HTTP Server ----
-    qlog("");
-    qlog("---- HTTP Server Init ----");
-    server.on("/",        HTTP_GET,  handleRoot);
-    server.on("/logs",    HTTP_GET,  handleLogs);
-    server.on("/status",  HTTP_GET,  handleStatus);
-    server.on("/tap",     HTTP_POST, handleTap);
-    server.onNotFound(handleNotFound);
-    server.begin();
+    // ---- BLE Init ----
+    initBLE();
 
-    qlogf("[HTTP] Server on port %d", HTTP_PORT);
-    qlog("[HTTP] Endpoints: / | /logs | /status | /tap");
     qlog("");
-
     qlog("==========================================");
     qlog("  Setup COMPLETE. Entering loop...");
-    qlogf("  WiFi: '%s' | http://%s/", AP_SSID, AP_IP);
-    qlog("  >>> Open /logs in browser for full log <<<");
+    qlogf("  BLE: '%s' | NUS Service active", BLE_DEVICE_NAME);
+    qlog("  >>> Commands: tap:x,y,ms | status | log | ping <<<");
     qlogf("  USB: %s | HID: %s",
           ((bool)USB) ? "MOUNTED" : "NOT MOUNTED",
           touchpad.ready() ? "READY" : "NOT READY");
@@ -545,10 +515,17 @@ void setup() {
 // loop()
 // ============================================================================
 void loop() {
-    static int counter = 0;
-    counter++;
+    // 处理BLE收到的命令
+    if (g_hasNewCmd) {
+        g_hasNewCmd = false;
+        String cmd = g_pendingCmd;
+        g_pendingCmd = "";
+        processCommand(cmd);
+    }
 
-    server.handleClient();
+    // USB状态变化监控
+    static int hbCounter = 0;
+    hbCounter++;
 
     static bool lastUsbState = false;
     bool curUsbState = (bool)USB;
@@ -556,17 +533,19 @@ void loop() {
         qlogf("[USB] State change: %s -> %s (HB #%d)",
               lastUsbState ? "MOUNTED" : "not-mounted",
               curUsbState ? "MOUNTED" : "not-mounted",
-              counter);
+              hbCounter);
         lastUsbState = curUsbState;
     }
 
-    qlogf("[%s] HB #%d | Heap: %u | PSRAM: %u | Clients: %d | USB: %s | HID: %s",
-          FW_VERSION, counter,
-          ESP.getFreeHeap(),
-          (unsigned)ESP.getFreePsram(),
-          WiFi.softAPgetStationNum(),
-          curUsbState ? "OK" : "NO",
-          touchpad.ready() ? "OK" : "NO");
+    // 心跳日志（每10秒一次，3s × ~3 = ~9s）
+    if (hbCounter % 3 == 0) {
+        qlogf("[%s] HB #%d | Heap: %u | USB: %s | HID: %s | BLE: %s",
+              FW_VERSION, hbCounter,
+              ESP.getFreeHeap(),
+              curUsbState ? "OK" : "NO",
+              touchpad.ready() ? "OK" : "NO",
+              g_bleConnected ? "CONN" : "DISC");
+    }
 
     delay(3000);
 }
