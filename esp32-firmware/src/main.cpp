@@ -1,19 +1,18 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.18)
+ * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.19)
  * ============================================================================
  *
- * v1.0.18：全链路 USB debug 诊断固件
- *   - 添加 USB PHY 寄存器状态读取（USB_WRAP_DATE, RTC_CNTL_USB_CONF 等）
- *   - 添加 USB operator bool() 检测（检查 _started && tinyusb_device_mounted）
- *   - 添加 USB 事件回调（ARDUINO_USB_STARTED/STOPPED/SUSPEND/RESUME）
- *   - USB mount 等待延长至 30 秒，每 5 秒输出状态
- *   - 排查 WiFi+USB 并发干扰
+ * v1.0.19：修复 v1.0.18 编译错误
+ *   - 移除 USB.onEvent() lambda（签名与 arduino-esp32 v2.0.8 不兼容）
+ *   - 移除 USB_WRAP_DATE_REG 寄存器读取（头文件不可用）
+ *   - 保留：operator bool 检测、30s mount 等待、CORE_DEBUG_LEVEL=3
  *
+ * v1.0.18：全链路诊断（编译失败：USB.onEvent lambda签名错误）
  * v1.0.17：调整USB.begin()与touchpad.begin()调用顺序（未解决NOT MOUNTED）
  * v1.0.16：按Freenove官方文档修正USB-OTG模式配置(MODE=0, CDC=0)
  *
- * 核心实现（依据 arduino-esp32 v2.0.14 官方 USBHID.cpp 模式）：
+ * 核心实现（依据 arduino-esp32 官方 USBHID.cpp 模式）：
  *   - USBHID 构造函数 → tinyusb_enable_interface(HID) 注册 HID 接口回调
  *   - addDevice() → tinyusb_enable_hid_device() 注册设备描述符
  *   - USBHID::begin() 只创建 semaphore（不调用 USBDevice.begin()）
@@ -28,16 +27,14 @@
 #include <USB.h>
 #include <USBHID.h>
 
-// 禁用 brownout detector + USB PHY 寄存器
+// 禁用 brownout detector
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
-#include "soc/usb_wrap_reg.h"
-#include "soc/usb_wrap_struct.h"
 
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.18"
+#define FW_VERSION "v1.0.19"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -286,7 +283,7 @@ void setup() {
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  USB-OTG HID DIAGNOSTIC (MODE=0, CDC=0, debug=3)");
+    Serial.println("  USB-OTG HID DIAGNOSTIC v1.0.19 (MODE=0, CDC=0, debug=3)");
     Serial.println("========================================================");
     Serial.println();
 
@@ -321,61 +318,30 @@ void setup() {
 
     // ---- USB HID DIAGNOSTIC ----
     Serial.println();
-    Serial.println("---- USB HID Init (v1.0.18 diagnostic) ----");
+    Serial.println("---- USB HID Init (v1.0.19 diagnostic) ----");
 
-    // 1. Pre-USB PHY register snapshot
-    Serial.println("[USB] Pre-init PHY registers:");
-    Serial.printf("[USB]   USB_WRAP_DATE_REG = 0x%08x (expect 0x0200 for S3)\n",
-                  REG_READ(USB_WRAP_DATE_REG));
-
-    // 2. Check USB object state before begin
+    // 1. Check USB object state before begin
     Serial.printf("[USB] USB operator bool (mounted) = %s (before begin)\n",
                   ((bool)USB ? "true(MOUNTED)" : "false"));
 
-    // 3. touchpad.begin() - creates semaphore (USBHID::begin does NOT call USBDevice.begin)
+    // 2. touchpad.begin() - creates semaphore (USBHID::begin does NOT call USBDevice.begin)
     Serial.println("[USB] Calling touchpad.begin()...");
     touchpad.begin();
     Serial.println("[USB] touchpad.begin() done");
 
-    // 4. USB.begin() - triggers tinyusb_init() → tinyusb_driver_install() → tusb_init()
+    // 3. USB.begin() - triggers tinyusb_init() → tinyusb_driver_install() → tusb_init()
     Serial.println("[USB] Calling USB.begin()...");
     bool usbResult = USB.begin();
     Serial.printf("[USB] USB.begin() returned: %s\n", usbResult ? "true" : "false");
     Serial.printf("[USB] USB operator bool (mounted) = %s\n",
                   ((bool)USB ? "true(MOUNTED)" : "false(not mounted)"));
 
-    // 5. Post-USB PHY register snapshot
-    Serial.println("[USB] Post-init PHY registers:");
-    Serial.printf("[USB]   USB_WRAP_DATE_REG = 0x%08x\n", REG_READ(USB_WRAP_DATE_REG));
-
-    // 6. Register USB event callbacks
-    USB.onEvent([](arduino_usb_event_t event, arduino_usb_event_data_t *data) {
-        switch (event) {
-            case ARDUINO_USB_STARTED_EVENT:
-                Serial.println("[USB-EVENT] >>> DEVICE MOUNTED (configured by host) <<<");
-                break;
-            case ARDUINO_USB_STOPPED_EVENT:
-                Serial.println("[USB-EVENT] >>> DEVICE UNMOUNTED <<<");
-                break;
-            case ARDUINO_USB_SUSPEND_EVENT:
-                Serial.println("[USB-EVENT] >>> BUS SUSPENDED <<<");
-                break;
-            case ARDUINO_USB_RESUME_EVENT:
-                Serial.println("[USB-EVENT] >>> BUS RESUMED <<<");
-                break;
-            default:
-                Serial.printf("[USB-EVENT] unknown event=%d\n", (int)event);
-                break;
-        }
-    });
-    Serial.println("[USB] Event callbacks registered");
-
-    // 7. Disable TWDT
+    // 4. Disable TWDT
     disableCore0WDT();
     disableCore1WDT();
     Serial.println("[TWDT] Dual-core Task WDT disabled");
 
-    // 8. Extended USB mount wait (30 seconds) with periodic status
+    // 5. Extended USB mount wait (30 seconds) with periodic status
     Serial.println("[USB] Waiting for USB mount (30s max)...");
     int waitCount = 0;
     bool wasMounted = false;
@@ -405,10 +371,10 @@ void setup() {
         Serial.println("[USB] *** FAILED: NOT mounted after 30s ***");
         Serial.println("[USB] Diagnostic checklist:");
         Serial.println("[USB]   1. OTG cable/port OK? (try different cable)");
-        Serial.println("[USB]   2. ARDUINO_USB_MODE=0 effective? (check build log)");
-        Serial.println("[USB]   3. USB PHY init OK? (compare pre/post registers)");
-        Serial.println("[USB]   4. Phone USB host mode active?");
-        Serial.println("[USB]   5. Power issue? (rst:0x1 in boot 1)");
+        Serial.println("[USB]   2. ARDUINO_USB_MODE=0 effective? (check build flags)");
+        Serial.println("[USB]   3. Phone USB host mode active?");
+        Serial.println("[USB]   4. Power issue? (try powered USB hub)");
+        Serial.println("[USB]   5. Check CORE_DEBUG_LEVEL=3 TinyUSB logs above");
     }
 
     Serial.printf("[Status] Heap after init: %u (%.1f KB)\n",
