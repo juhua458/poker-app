@@ -1,0 +1,4 @@
+Flash addresses:
+bootloader.bin  -> 0x0000
+partitions.bin  -> 0x8000
+firmware.bin    -> 0x10000
