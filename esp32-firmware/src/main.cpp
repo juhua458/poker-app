@@ -299,19 +299,27 @@ void handleLogs() {
 
 void handleTap() {
     String body = server.arg("plain");
-    if (body.length() == 0) {
-        server.send(400, "application/json", "{\"error\":\"Empty body\"}");
-        return;
-    }
-
     int x = -1, y = -1, duration = 50;
-    int xi = body.indexOf("\"x\":");
-    int yi = body.indexOf("\"y\":");
-    int di = body.indexOf("\"duration\":");
 
-    if (xi >= 0) { int s = xi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)x=body.substring(s,e).toInt(); }
-    if (yi >= 0) { int s = yi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)y=body.substring(s,e).toInt(); }
-    if (di >= 0) { int s = di+11; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)duration=body.substring(s,e).toInt(); }
+    if (body.length() == 0) {
+        // Fallback: HTML form sends URL-encoded params
+        if (server.hasArg("x"))     x = server.arg("x").toInt();
+        if (server.hasArg("y"))     y = server.arg("y").toInt();
+        if (server.hasArg("duration")) duration = server.arg("duration").toInt();
+        if (x < 0 || y < 0) {
+            server.send(400, "application/json", "{\"error\":\"Empty body and no form params\"}");
+            return;
+        }
+    } else {
+        // JSON body parse
+        int xi = body.indexOf("\"x\":");
+        int yi = body.indexOf("\"y\":");
+        int di = body.indexOf("\"duration\":");
+
+        if (xi >= 0) { int s = xi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)x=body.substring(s,e).toInt(); }
+        if (yi >= 0) { int s = yi+4; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)y=body.substring(s,e).toInt(); }
+        if (di >= 0) { int s = di+11; int e = body.indexOf(',',s); if(e<0)e=body.indexOf('}',s); if(e>s)duration=body.substring(s,e).toInt(); }
+    }
 
     if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
         char buf[128];
