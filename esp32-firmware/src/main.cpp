@@ -1,33 +1,28 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - 完整功能固件 (v1.0.21)
+ * 青云扑克 ESP32-S3 - 精简HID固件 (v1.0.23)
  * ============================================================================
  *
- * v1.0.21：加回Camera模块，完整功能固件
- *   - 新增 OV5640 摄像头驱动（Freenove ESP32-S3-WROOM pinmap）
- *   - 新增 /capture HTTP端点，返回JPEG快照
- *   - 新增 /stream HTTP端点，MJPEG流
- *   - 首页显示摄像头状态
- *   - 保留v1.0.20全部WiFi日志功能
- *   - 保留v1.0.19~v1.0.20全部USB HID诊断功能
+ * v1.0.23：精简版 - 砍掉Camera模块，纯WiFi AP + USB HID执行器
+ *   - 移除 OV5640 摄像头驱动（/capture, /stream 端点删除）
+ *   - 移除 Camera 引脚定义和初始化代码
+ *   - 保留：WiFi AP + HTTP Server (/ | /logs | /status | /tap)
+ *   - 保留：USB HID 触摸屏模拟 (Digitizer)
+ *   - 保留：完整WiFi日志 + USB诊断
+ *   - 好处：不发烫、功耗减半、固件更小更稳定
  *
- * v1.0.20：WiFi 日志功能（单线OTG方案）
- * v1.0.19：修复编译错误（移除不兼容的USB.onEvent和PHY寄存器）
- * v1.0.18：全链路 USB debug 诊断（编译失败）
- * v1.0.17：调整USB.begin()与touchpad.begin()调用顺序
- * v1.0.16：按Freenove官方文档修正USB-OTG模式配置(MODE=0, CDC=0)
+ * 架构定位：ESP32 = 纯HID执行器（USB触摸注入）
+ *   截图+分析 全部由手机端青云App完成（AccessibilityService + VLM）
+ *
+ * v1.0.22：摄像头画质优化（AWB+AEC2），stream限帧修复
+ * v1.0.21：加回Camera模块，完整功能固件
+ * v1.0.20：WiFi日志功能
+ * v1.0.19~v1.0.16：USB HID诊断+修复
  *
  * 核心实现：
  *   - USBHID 触摸屏模拟（Digitizer HID Report）
- *   - OV5640 摄像头（8-bit DVP接口，I2C控制）
- *   - WiFi AP + HTTP Server（/capture, /stream, /logs, /status, /tap）
+ *   - WiFi AP + HTTP Server（/ | /logs | /status | /tap）
  *   - platformio.ini: ARDUINO_USB_MODE=0 + ARDUINO_USB_CDC_ON_BOOT=0
- *
- * Camera Pinmap（Freenove ESP32-S3-WROOM OV5640）:
- *   XCLK=GPIO15, SDA=GPIO4, SCL=GPIO5
- *   Y2=11, Y3=9, Y4=8, Y5=10, Y6=12, Y7=18, Y8=17, Y9=16
- *   VSYNC=GPIO6, HREF=GPIO7, PCLK=GPIO13
- *   PWDN=-1, RESET=-1（板子无上电/复位GPIO控制）
  */
 
 #include <Arduino.h>
@@ -35,7 +30,6 @@
 #include <WebServer.h>
 #include <USB.h>
 #include <USBHID.h>
-#include "esp_camera.h"
 
 // 禁用 brownout detector
 #include "soc/soc.h"
@@ -44,7 +38,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.22"
+#define FW_VERSION "v1.0.23"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -54,7 +48,7 @@
 #define AP_SUBNET   "255.255.255.0"
 #define HTTP_PORT   80
 
-// 屏幕分辨率
+// 屏幕分辨率（一加13T）
 #define SCREEN_WIDTH  1080
 #define SCREEN_HEIGHT 2344
 
@@ -63,28 +57,6 @@
 
 // HID Report ID
 #define HID_REPORT_ID_TOUCH 1
-
-// ============================================================================
-// Camera 引脚定义（Freenove ESP32-S3-WROOM OV5640）
-// 来源：https://github.com/Freenove/Freenove_ESP32_S3_WROOM_Board
-//       + Home Assistant 社区验证配置
-// ============================================================================
-#define CAM_PWDN_GPIO_NUM     -1
-#define CAM_RESET_GPIO_NUM    -1
-#define CAM_XCLK_GPIO_NUM     15
-#define CAM_SIOD_GPIO_NUM     4
-#define CAM_SIOC_GPIO_NUM     5
-#define CAM_Y9_GPIO_NUM       16
-#define CAM_Y8_GPIO_NUM       17
-#define CAM_Y7_GPIO_NUM       18
-#define CAM_Y6_GPIO_NUM       12
-#define CAM_Y5_GPIO_NUM       10
-#define CAM_Y4_GPIO_NUM       8
-#define CAM_Y3_GPIO_NUM       9
-#define CAM_Y2_GPIO_NUM       11
-#define CAM_VSYNC_GPIO_NUM    6
-#define CAM_HREF_GPIO_NUM     7
-#define CAM_PCLK_GPIO_NUM     13
 
 // ============================================================================
 // WiFi 日志缓冲区
@@ -247,127 +219,9 @@ public:
 static USBHIDTouchpad touchpad;
 
 // ============================================================================
-// Camera 状态
-// ============================================================================
-static bool camera_ok = false;
-
-static bool initCamera() {
-    camera_config_t config;
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer   = LEDC_TIMER_0;
-    config.pin_d0       = CAM_Y2_GPIO_NUM;
-    config.pin_d1       = CAM_Y3_GPIO_NUM;
-    config.pin_d2       = CAM_Y4_GPIO_NUM;
-    config.pin_d3       = CAM_Y5_GPIO_NUM;
-    config.pin_d4       = CAM_Y6_GPIO_NUM;
-    config.pin_d5       = CAM_Y7_GPIO_NUM;
-    config.pin_d6       = CAM_Y8_GPIO_NUM;
-    config.pin_d7       = CAM_Y9_GPIO_NUM;
-    config.pin_xclk     = CAM_XCLK_GPIO_NUM;
-    config.pin_pclk     = CAM_PCLK_GPIO_NUM;
-    config.pin_vsync    = CAM_VSYNC_GPIO_NUM;
-    config.pin_href     = CAM_HREF_GPIO_NUM;
-    config.pin_sscb_sda = CAM_SIOD_GPIO_NUM;
-    config.pin_sscb_scl = CAM_SIOC_GPIO_NUM;
-    config.pin_pwdn     = CAM_PWDN_GPIO_NUM;
-    config.pin_reset    = CAM_RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
-    config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size   = FRAMESIZE_SVGA;       // 800x600
-    config.jpeg_quality = 20;                    // 0-63, 越小越好
-    config.fb_count     = 2;
-    config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
-    config.fb_location  = CAMERA_FB_IN_PSRAM;
-
-    esp_err_t err = esp_camera_init(&config);
-    if (err != ESP_OK) {
-        qlogf("[Camera] init failed: 0x%x", err);
-        return false;
-    }
-
-    sensor_t *s = esp_camera_sensor_get();
-    if (s) {
-        // OV5640 优化配置
-        s->set_vflip(s, 0);           // 不翻转
-        s->set_hmirror(s, 1);         // 水平镜像
-        s->set_whitebal(s, 1);        // AWB auto（修复紫偏色）
-        s->set_awb_gain(s, 1);        // AWB gain auto
-        s->set_exposure_ctrl(s, 1);   // AEC auto
-        s->set_aec2(s, 1);            // 高级AEC
-        s->set_gain_ctrl(s, 1);       // AGC auto
-        s->set_brightness(s, 0);      // 0 中性
-        s->set_contrast(s, 0);        // 0 中性
-        s->set_saturation(s, 0);      // 0 中性
-    }
-
-    camera_ok = true;
-    qlog("[Camera] OV5640 init OK | SVGA 800x600 | JPEG quality=20 | AWB+AEC2 auto");
-    return true;
-}
-
-// ============================================================================
 // HTTP 处理函数
 // ============================================================================
 WebServer server(HTTP_PORT);
-
-void handleCapture() {
-    if (!camera_ok) {
-        server.send(503, "application/json", "{\"error\":\"Camera not initialized\"}");
-        return;
-    }
-
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-        server.send(500, "application/json", "{\"error\":\"Capture failed\"}");
-        return;
-    }
-
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.sendHeader("Pragma", "no-cache");
-    server.sendHeader("Expires", "-1");
-    server.sendHeader("Content-Type", "image/jpeg");
-
-    String header = "Content-Disposition: inline; filename=\"capture.jpg\"\r\n";
-    server.sendHeader("Content-Disposition", header);
-    server.sendContent((const char *)fb->buf, fb->len);
-
-    esp_camera_fb_return(fb);
-}
-
-void handleStream() {
-    if (!camera_ok) {
-        server.send(503, "text/plain", "Camera not initialized");
-        return;
-    }
-
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-    server.send(200, "multipart/x-mixed-replace; boundary=frame");
-
-    int frame_count = 0;
-    const int max_frames = 120;  // 限帧数，约4秒后自动关闭，避免浏览器挂死
-
-    while (frame_count < max_frames) {
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (!fb) {
-            delay(50);
-            continue;
-        }
-
-        String boundary = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ";
-        boundary += String(fb->len);
-        boundary += "\r\n\r\n";
-        server.sendContent(boundary);
-        server.sendContent((const char *)fb->buf, fb->len);
-        server.sendContent("\r\n");
-
-        esp_camera_fb_return(fb);
-        frame_count++;
-        delay(33);
-    }
-}
 
 void handleLogs() {
     String html = F("<!DOCTYPE html><html><head>"
@@ -389,7 +243,7 @@ void handleLogs() {
         "button:active{background:#c73e54}"
         ".status{margin:8px 0;padding:8px;background:#16213e;border-radius:4px}"
         "</style></head><body>"
-        "<h3>QingYun ESP32-S3-CAM " FW_VERSION "</h3>"
+        "<h3>QingYun ESP32-S3 HID " FW_VERSION "</h3>"
         "<div class='status'>");
 
     bool usbOk = (bool)USB;
@@ -399,9 +253,6 @@ void handleLogs() {
     html += F("</span>");
     html += F("<span class='tag ");
     html += hidOk ? "ok'>HID: READY" : "fail'>HID: NOT READY";
-    html += F("</span>");
-    html += F("<span class='tag ");
-    html += camera_ok ? "ok'>CAM: OK" : "fail'>CAM: FAIL";
     html += F("</span>");
     html += F("<br>Heap: ");
     html += String(ESP.getFreeHeap());
@@ -414,8 +265,6 @@ void handleLogs() {
     html += F("</div>");
 
     html += F("<button onclick=\"location.reload()\">&#x1f504; 刷新日志</button>"
-        "<button onclick=\"location.href='/capture'\"> 拍照</button>"
-        "<button onclick=\"location.href='/stream'\">🎥 直播</button>"
         "<button onclick=\"location.href='/status'\">JSON API</button>"
         "<button onclick=\"location.href='/'\">首页</button>");
 
@@ -492,17 +341,16 @@ void handleTap() {
 void handleStatus() {
     char buf[512];
     snprintf(buf, sizeof(buf),
-        "{\"device\":\"QingYun-ESP32-S3-CAM\",\"version\":\"%s\","
+        "{\"device\":\"QingYun-ESP32-S3-HID\",\"version\":\"%s\","
         "\"uptime_ms\":%lu,\"free_heap\":%u,\"free_psram\":%u,"
         "\"wifi\":{\"ssid\":\"%s\",\"ip\":\"%s\",\"clients\":%d},"
-        "\"hid_ready\":%s,\"usb_mounted\":%s,\"camera_ok\":%s}",
+        "\"hid_ready\":%s,\"usb_mounted\":%s}",
         FW_VERSION, (unsigned long)millis(),
         ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
         AP_SSID, WiFi.softAPIP().toString().c_str(),
         WiFi.softAPgetStationNum(),
         touchpad.ready() ? "true" : "false",
-        ((bool)USB) ? "true" : "false",
-        camera_ok ? "true" : "false");
+        ((bool)USB) ? "true" : "false");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", buf);
 }
@@ -516,15 +364,13 @@ void handleRoot() {
         "a{color:#e94560;text-decoration:none;font-size:16px;display:block;margin:8px 0;"
         "padding:12px;background:#16213e;border-radius:6px;text-align:center}"
         ".ok{color:#4caf50}.fail{color:#f44336}</style></head><body>"
-        "<h2>QingYun ESP32-S3-CAM %s</h2>"
+        "<h2>QingYun ESP32-S3 HID %s</h2>"
         "<p>WiFi: %s | IP: %s</p>"
         "<p>Clients: %d | Heap: %u | PSRAM: %u</p>"
-        "<p>USB: <span class='%s'>%s</span> | HID: <span class='%s'>%s</span> | CAM: <span class='%s'>%s</span></p>"
+        "<p>USB: <span class='%s'>%s</span> | HID: <span class='%s'>%s</span></p>"
         "<p>Uptime: %lums</p>"
         "<hr>"
         "<a href='/logs'>📋 查看完整日志 (/logs)</a>"
-        "<a href='/capture'>📷 拍照 (/capture)</a>"
-        "<a href='/stream'>🎥 MJPEG直播 (/stream)</a>"
         "<a href='/status'>📊 状态 JSON (/status)</a>"
         "<h3>Test Tap</h3>"
         "<form method='POST' action='/tap'>"
@@ -540,8 +386,6 @@ void handleRoot() {
         ((bool)USB) ? "MOUNTED" : "NOT MOUNTED",
         touchpad.ready() ? "ok" : "fail",
         touchpad.ready() ? "READY" : "NOT READY",
-        camera_ok ? "ok" : "fail",
-        camera_ok ? "OK" : "FAIL",
         (unsigned long)millis());
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "text/html", buf);
@@ -549,7 +393,7 @@ void handleRoot() {
 
 void handleNotFound() {
     server.send(404, "application/json",
-        "{\"error\":\"Not found. Try: / | /capture | /stream | /logs | /status | /tap\"}");
+        "{\"error\":\"Not found. Try: / | /logs | /status | /tap\"}");
 }
 
 // ============================================================================
@@ -563,8 +407,8 @@ void setup() {
 
     qlog("");
     qlog("========================================================");
-    qlog("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    qlog("  Full Function: USB HID + Camera + WiFi AP");
+    qlog("  QingYun ESP32-S3 HID Firmware " FW_VERSION);
+    qlog("  WiFi AP + USB HID Touch (No Camera)");
     qlog("========================================================");
     qlog("");
 
@@ -595,11 +439,6 @@ void setup() {
     } else {
         qlogf("[WiFi] AP: SSID=%s IP=%s", AP_SSID, WiFi.softAPIP().toString().c_str());
     }
-
-    // ---- Camera Init ----
-    qlog("");
-    qlog("---- Camera Init (OV5640) ----");
-    initCamera();
 
     // ---- USB HID ----
     qlog("");
@@ -660,8 +499,6 @@ void setup() {
     qlog("");
     qlog("---- HTTP Server Init ----");
     server.on("/",        HTTP_GET,  handleRoot);
-    server.on("/capture", HTTP_GET,  handleCapture);
-    server.on("/stream",  HTTP_GET,  handleStream);
     server.on("/logs",    HTTP_GET,  handleLogs);
     server.on("/status",  HTTP_GET,  handleStatus);
     server.on("/tap",     HTTP_POST, handleTap);
@@ -669,17 +506,16 @@ void setup() {
     server.begin();
 
     qlogf("[HTTP] Server on port %d", HTTP_PORT);
-    qlog("[HTTP] Endpoints: / | /capture | /stream | /logs | /status | /tap");
+    qlog("[HTTP] Endpoints: / | /logs | /status | /tap");
     qlog("");
 
     qlog("==========================================");
     qlog("  Setup COMPLETE. Entering loop...");
     qlogf("  WiFi: '%s' | http://%s/", AP_SSID, AP_IP);
     qlog("  >>> Open /logs in browser for full log <<<");
-    qlogf("  USB: %s | HID: %s | CAM: %s",
+    qlogf("  USB: %s | HID: %s",
           ((bool)USB) ? "MOUNTED" : "NOT MOUNTED",
-          touchpad.ready() ? "READY" : "NOT READY",
-          camera_ok ? "OK" : "FAIL");
+          touchpad.ready() ? "READY" : "NOT READY");
     qlog("==========================================");
 }
 
@@ -702,14 +538,13 @@ void loop() {
         lastUsbState = curUsbState;
     }
 
-    qlogf("[%s] HB #%d | Heap: %u | PSRAM: %u | Clients: %d | USB: %s | HID: %s | CAM: %s",
+    qlogf("[%s] HB #%d | Heap: %u | PSRAM: %u | Clients: %d | USB: %s | HID: %s",
           FW_VERSION, counter,
           ESP.getFreeHeap(),
           (unsigned)ESP.getFreePsram(),
           WiFi.softAPgetStationNum(),
           curUsbState ? "OK" : "NO",
-          touchpad.ready() ? "OK" : "NO",
-          camera_ok ? "OK" : "NO");
+          touchpad.ready() ? "OK" : "NO");
 
     delay(3000);
 }
