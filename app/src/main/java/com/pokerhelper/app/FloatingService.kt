@@ -124,6 +124,10 @@ class FloatingService : Service() {
     private val errorLogs = mutableListOf<String>()
     private var isBlinkingError = false
 
+    // V2.9.112: BLE ESP32连接
+    private var bleManager: Esp32BleManager? = null
+    private var tvBle: TextView? = null
+
     // V2.9.38: 隐身模式通知广播接收器
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -222,6 +226,21 @@ class FloatingService : Service() {
         initSpeechRecognizer()
         showFloatingWindow()
         showFloatingBall()
+
+        // V2.9.112: 初始化BLE管理器
+        bleManager = Esp32BleManager(this)
+        bleManager?.onStatusChanged = { connected, message ->
+            handler.post {
+                tvBle?.text = if (connected) "🔗" else "📡"
+                tvBle?.setTextColor(if (connected) 0xFF4ade80.toInt() else 0xFFBDBDBD.toInt())
+                tvStatus?.text = "BLE: $message"
+            }
+        }
+        bleManager?.onCommandResult = { result ->
+            handler.post {
+                tvStatus?.text = "ESP32: $result"
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -236,6 +255,10 @@ class FloatingService : Service() {
         // V2.9.165: 释放本地CV识别器资源
         try { cardRecognizer?.release() } catch (_: Exception) {}
         cardRecognizer = null
+
+        // V2.9.112: 断开BLE连接
+        bleManager?.disconnect()
+        bleManager = null
         removeFloatingBall()
         try {
             unregisterReceiver(notificationReceiver)
@@ -577,10 +600,37 @@ class FloatingService : Service() {
             setOnClickListener { toggleExpand() }
         }
 
+        // V2.9.112: BLE连接按钮
+        tvBle = TextView(this).apply {
+            text = "📡"
+            setTextColor(0xFFBDBDBD.toInt())
+            textSize = 14f
+            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0x00000000)
+            setOnClickListener {
+                if (bleManager?.isConnected == true) {
+                    // 已连接，点击发送tap测试
+                    bleManager?.sendTap(540, 1172, 50)
+                    tvStatus?.text = "发送tap测试..."
+                } else {
+                    // 未连接，开始扫描连接
+                    bleManager?.startScan()
+                    tvStatus?.text = "扫描ESP32..."
+                }
+            }
+            setOnLongClickListener {
+                // 长按断开连接
+                bleManager?.disconnect()
+                tvStatus?.text = "BLE已断开"
+                true
+            }
+        }
+
         topBar.addView(tvStatus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         topBar.addView(tvAction!!)
         topBar.addView(tvVoice)
         topBar.addView(tvReset)
+        topBar.addView(tvBle!!)
         topBar.addView(tvCollapse)
         container.addView(topBar)
         container.addView(tvRecResult!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
