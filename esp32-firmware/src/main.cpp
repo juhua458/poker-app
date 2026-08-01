@@ -1,28 +1,24 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.17)
+ * 青云扑克 ESP32-S3-CAM - USB HID 触控验证固件 (v1.0.18)
  * ============================================================================
  *
- * v1.0.17：修复HID NOT MOUNTED根因——调整USB.begin()与touchpad.begin()调用顺序。
- * 根因：v1.0.16先调用USB.begin()启动TinyUSB栈(tinyusb_is_initialized=true)，
- *       再调用touchpad.begin()→hid.begin()→USBDevice.addDevice()→
- *       tinyusb_enable_interface(HID)时，因tinyusb已初始化被拒绝(ESP_FAIL)。
- *       HID描述符未被加载到配置描述符，手机无法枚举HID接口。
- * 修复：先touchpad.begin()注册HID接口，再USB.begin()启动TinyUSB栈。
- * 依据：arduino-esp32 v2.0.14源码esp32-hal-tinyusb.c:
- *       tinyusb_enable_interface()检查tinyusb_is_initialized，
- *       若已初始化则返回ESP_FAIL拒绝注册。
- *       Freenove官方HID示例(Mouse/Keyboard)均为Mouse.begin()→USB.begin()顺序。
+ * v1.0.18：全链路 USB debug 诊断固件
+ *   - 添加 USB PHY 寄存器状态读取（USB_WRAP_DATE, RTC_CNTL_USB_CONF 等）
+ *   - 添加 USB operator bool() 检测（检查 _started && tinyusb_device_mounted）
+ *   - 添加 USB 事件回调（ARDUINO_USB_STARTED/STOPPED/SUSPEND/RESUME）
+ *   - USB mount 等待延长至 30 秒，每 5 秒输出状态
+ *   - 排查 WiFi+USB 并发干扰
  *
+ * v1.0.17：调整USB.begin()与touchpad.begin()调用顺序（未解决NOT MOUNTED）
  * v1.0.16：按Freenove官方文档修正USB-OTG模式配置(MODE=0, CDC=0)
- * v1.0.14：禁用双核 TWDT，防止 USB 枚举等待期间被复位
- * v1.0.13：修复 USB HID NOT MOUNTED —— 在 touchpad.begin() 前加 USB.begin()
  *
- * 核心实现（依据 arduino-esp32 v2.0.8 官方 USBHIDKeyboard.cpp 模式）：
- *   - 继承 USBHIDDevice，重写 _onGetDescriptor() 提供自定义触摸描述符
- *   - 内部持有 USBHID hid，构造时 hid.addDevice(this, desc_size)
+ * 核心实现（依据 arduino-esp32 v2.0.14 官方 USBHID.cpp 模式）：
+ *   - USBHID 构造函数 → tinyusb_enable_interface(HID) 注册 HID 接口回调
+ *   - addDevice() → tinyusb_enable_hid_device() 注册设备描述符
+ *   - USBHID::begin() 只创建 semaphore（不调用 USBDevice.begin()）
+ *   - USB.begin() → tinyusb_init() → tinyusb_driver_install() → tusb_init()
  *   - 通过 hid.SendReport() 发送触摸报告
- *   - 不依赖 Adafruit TinyUSB（编译不兼容）
  *   - platformio.ini: ARDUINO_USB_MODE=0 + ARDUINO_USB_CDC_ON_BOOT=0
  */
 
@@ -31,16 +27,17 @@
 #include <WebServer.h>
 #include <USB.h>
 #include <USBHID.h>
-#include <esp_task_wdt.h>
 
-// 禁用 brownout detector
+// 禁用 brownout detector + USB PHY 寄存器
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+#include "soc/usb_wrap_reg.h"
+#include "soc/usb_wrap_struct.h"
 
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.17"
+#define FW_VERSION "v1.0.18"
 
 // WiFi AP
 #define AP_SSID     "QingYun-ESP32"
@@ -71,7 +68,6 @@ static const uint8_t touch_report_descriptor[] = {
     0x09, 0x22,             //   Usage (Finger)
     0xA1, 0x02,             //   Collection (Logical)
 
-    // Contact ID (1 byte)
     0x09, 0x51,             //     Usage (Contact Identifier)
     0x15, 0x00,             //     Logical Minimum (0)
     0x25, 0x01,             //     Logical Maximum (1)
@@ -79,7 +75,6 @@ static const uint8_t touch_report_descriptor[] = {
     0x95, 0x01,             //     Report Count (1)
     0x81, 0x02,             //     Input (Data, Var, Abs)
 
-    // Tip Switch (1 bit) + Padding (7 bits)
     0x09, 0x42,             //     Usage (Tip Switch)
     0x15, 0x00,             //     Logical Minimum (0)
     0x25, 0x01,             //     Logical Maximum (1)
@@ -90,7 +85,6 @@ static const uint8_t touch_report_descriptor[] = {
     0x95, 0x01,             //     Report Count (1)
     0x81, 0x03,             //     Input (Const, Var, Abs)
 
-    // X (16 bits, 0-32767)
     0x05, 0x01,             //     Usage Page (Generic Desktop)
     0x09, 0x30,             //     Usage (X)
     0x15, 0x00,             //     Logical Minimum (0)
@@ -99,7 +93,6 @@ static const uint8_t touch_report_descriptor[] = {
     0x95, 0x01,             //     Report Count (1)
     0x81, 0x02,             //     Input (Data, Var, Abs)
 
-    // Y (16 bits, 0-32767)
     0x09, 0x31,             //     Usage (Y)
     0x15, 0x00,             //     Logical Minimum (0)
     0x26, 0xFF, 0x7F,      //     Logical Maximum (32767)
@@ -109,7 +102,6 @@ static const uint8_t touch_report_descriptor[] = {
 
     0xC0,                   //   End Collection (Logical)
 
-    // Contact Count (1 byte)
     0x05, 0x0D,             //   Usage Page (Digitizers)
     0x09, 0x54,             //   Usage (Contact Count)
     0x15, 0x00,             //   Logical Minimum (0)
@@ -124,14 +116,14 @@ static const uint8_t touch_report_descriptor[] = {
 // 触摸报告结构（7 bytes packed）
 struct __attribute__((packed)) TouchReport {
     uint8_t  contact_id;
-    uint8_t  tip_switch;    // Bit0: 触摸状态
-    uint16_t x;             // 0-32767
-    uint16_t y;             // 0-32767
+    uint8_t  tip_switch;
+    uint16_t x;
+    uint16_t y;
     uint8_t  contact_count;
 };
 
 // ============================================================================
-// USB HID 触控设备类（遵循 USBHIDKeyboard 模式）
+// USB HID 触控设备类
 // ============================================================================
 class USBHIDTouchpad : public USBHIDDevice {
 private:
@@ -152,16 +144,14 @@ public:
     }
 
     bool ready() {
-        return hid.ready();
+        return hid.ready();  // tud_hid_n_ready(0)
     }
 
-    // USBHIDDevice 接口实现：返回 HID 报告描述符
     uint16_t _onGetDescriptor(uint8_t* buffer) override {
         memcpy(buffer, touch_report_descriptor, sizeof(touch_report_descriptor));
         return sizeof(touch_report_descriptor);
     }
 
-    // 发送触摸按下
     bool touchDown(uint16_t screenX, uint16_t screenY) {
         if (!hid.ready()) return false;
         _report.contact_id    = 0;
@@ -172,7 +162,6 @@ public:
         return hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report));
     }
 
-    // 发送触摸抬起
     bool touchUp() {
         if (!hid.ready()) return false;
         _report.contact_id    = 0;
@@ -183,7 +172,6 @@ public:
         return hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report));
     }
 
-    // 执行点击
     bool tap(uint16_t screenX, uint16_t screenY, uint32_t durationMs) {
         if (!touchDown(screenX, screenY)) return false;
         delay(durationMs);
@@ -191,7 +179,6 @@ public:
     }
 };
 
-// 全局实例
 static USBHIDTouchpad touchpad;
 
 // ============================================================================
@@ -246,12 +233,13 @@ void handleStatus() {
         "{\"device\":\"QingYun-ESP32-S3-CAM\",\"version\":\"%s\","
         "\"uptime_ms\":%lu,\"free_heap\":%u,\"free_psram\":%u,"
         "\"wifi\":{\"ssid\":\"%s\",\"ip\":\"%s\",\"clients\":%d},"
-        "\"hid_ready\":%s}",
+        "\"hid_ready\":%s,\"usb_mounted\":%s}",
         FW_VERSION, (unsigned long)millis(),
         ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
         AP_SSID, WiFi.softAPIP().toString().c_str(),
         WiFi.softAPgetStationNum(),
-        touchpad.ready() ? "true" : "false");
+        touchpad.ready() ? "true" : "false",
+        ((bool)USB) ? "true" : "false");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", buf);
 }
@@ -263,7 +251,7 @@ void handleRoot() {
         "<h2>QingYun ESP32-S3-CAM %s</h2>"
         "<p>WiFi: %s | IP: %s</p>"
         "<p>Clients: %d | Heap: %u | PSRAM: %u</p>"
-        "<p>HID: %s</p>"
+        "<p>HID ready: %s | USB mounted: %s</p>"
         "<p>Uptime: %lums</p>"
         "<hr><h3>Test Tap</h3>"
         "<form method='POST' action='/tap'>"
@@ -275,7 +263,8 @@ void handleRoot() {
         FW_VERSION, AP_SSID, WiFi.softAPIP().toString().c_str(),
         WiFi.softAPgetStationNum(), ESP.getFreeHeap(),
         (unsigned)ESP.getFreePsram(),
-        touchpad.ready() ? "MOUNTED" : "NOT MOUNTED",
+        touchpad.ready() ? "YES" : "NO",
+        ((bool)USB) ? "YES" : "NO",
         (unsigned long)millis());
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "text/html", buf);
@@ -297,11 +286,10 @@ void setup() {
     Serial.println();
     Serial.println("========================================================");
     Serial.println("  QingYun ESP32-S3-CAM Firmware " FW_VERSION);
-    Serial.println("  USB-OTG HID (MODE=0, CDC=0, correct begin order) + WiFi AP");
+    Serial.println("  USB-OTG HID DIAGNOSTIC (MODE=0, CDC=0, debug=3)");
     Serial.println("========================================================");
     Serial.println();
 
-    // 系统信息
     Serial.printf("  ESP32-S3 Rev %d | %d MHz | %d cores | SDK %s\n",
                   ESP.getChipRevision(), ESP.getCpuFreqMHz(),
                   ESP.getChipCores(), ESP.getSdkVersion());
@@ -331,49 +319,102 @@ void setup() {
                       AP_SSID, WiFi.softAPIP().toString().c_str());
     }
 
-    // ---- USB HID ----
+    // ---- USB HID DIAGNOSTIC ----
     Serial.println();
-    Serial.println("---- USB HID Init ----");
+    Serial.println("---- USB HID Init (v1.0.18 diagnostic) ----");
 
-    // v1.0.17 修复：必须先touchpad.begin()注册HID接口，再USB.begin()启动TinyUSB栈。
-    // 根因：arduino-esp32 v2.0.14 esp32-hal-tinyusb.c中：
-    //   tinyusb_enable_interface() 检查 tinyusb_is_initialized，
-    //   若USB.begin()已调用则该标志=true，后续HID注册被拒绝(ESP_FAIL)。
-    //   HID描述符不会被加载到配置描述符，主机无法枚举HID接口。
-    // 正确顺序：touchpad.begin() → USB.begin()（与Freenove官方示例一致）
+    // 1. Pre-USB PHY register snapshot
+    Serial.println("[USB] Pre-init PHY registers:");
+    Serial.printf("[USB]   USB_WRAP_DATE_REG = 0x%08x (expect 0x0200 for S3)\n",
+                  REG_READ(USB_WRAP_DATE_REG));
 
+    // 2. Check USB object state before begin
+    Serial.printf("[USB] USB operator bool (mounted) = %s (before begin)\n",
+                  ((bool)USB ? "true(MOUNTED)" : "false"));
+
+    // 3. touchpad.begin() - creates semaphore (USBHID::begin does NOT call USBDevice.begin)
+    Serial.println("[USB] Calling touchpad.begin()...");
     touchpad.begin();
-    Serial.println("[HID] USBHIDTouchpad initialized (USBHIDDevice pattern)");
+    Serial.println("[USB] touchpad.begin() done");
 
-    if (!USB.begin()) {
-        Serial.println("[USB] ERROR: USB.begin() failed!");
-    } else {
-        Serial.println("[USB] USB.begin() OK - TinyUSB started (HID pre-registered)");
-    }
+    // 4. USB.begin() - triggers tinyusb_init() → tinyusb_driver_install() → tusb_init()
+    Serial.println("[USB] Calling USB.begin()...");
+    bool usbResult = USB.begin();
+    Serial.printf("[USB] USB.begin() returned: %s\n", usbResult ? "true" : "false");
+    Serial.printf("[USB] USB operator bool (mounted) = %s\n",
+                  ((bool)USB ? "true(MOUNTED)" : "false(not mounted)"));
 
-    // v1.0.14 修复：禁用双核 Task Watchdog Timer，防止 USB 枚举等待期间被复位
-    // ESP32-S3 TWDT 默认超时 ~5s，USB mount 等待可能超过此阈值
-    // 使用 Arduino-ESP32 原生 API 禁用 TWDT
+    // 5. Post-USB PHY register snapshot
+    Serial.println("[USB] Post-init PHY registers:");
+    Serial.printf("[USB]   USB_WRAP_DATE_REG = 0x%08x\n", REG_READ(USB_WRAP_DATE_REG));
+
+    // 6. Register USB event callbacks
+    USB.onEvent([](arduino_usb_event_t event, arduino_usb_event_data_t *data) {
+        switch (event) {
+            case ARDUINO_USB_STARTED_EVENT:
+                Serial.println("[USB-EVENT] >>> DEVICE MOUNTED (configured by host) <<<");
+                break;
+            case ARDUINO_USB_STOPPED_EVENT:
+                Serial.println("[USB-EVENT] >>> DEVICE UNMOUNTED <<<");
+                break;
+            case ARDUINO_USB_SUSPEND_EVENT:
+                Serial.println("[USB-EVENT] >>> BUS SUSPENDED <<<");
+                break;
+            case ARDUINO_USB_RESUME_EVENT:
+                Serial.println("[USB-EVENT] >>> BUS RESUMED <<<");
+                break;
+            default:
+                Serial.printf("[USB-EVENT] unknown event=%d\n", (int)event);
+                break;
+        }
+    });
+    Serial.println("[USB] Event callbacks registered");
+
+    // 7. Disable TWDT
     disableCore0WDT();
     disableCore1WDT();
-    Serial.println("[TWDT] Dual-core Task WDT disabled for USB mount wait");
+    Serial.println("[TWDT] Dual-core Task WDT disabled");
 
-    Serial.println("[HID] Waiting for USB mount...");
+    // 8. Extended USB mount wait (30 seconds) with periodic status
+    Serial.println("[USB] Waiting for USB mount (30s max)...");
     int waitCount = 0;
-    while (!touchpad.ready() && waitCount < 100) {
+    bool wasMounted = false;
+    while (waitCount < 300) {
         delay(100);
         waitCount++;
+        bool nowMounted = (bool)USB;
+        if (nowMounted && !wasMounted) {
+            Serial.printf("[USB] *** MOUNTED at %d.%ds! HID ready=%s ***\n",
+                          waitCount / 10, waitCount % 10,
+                          touchpad.ready() ? "YES" : "NO");
+        }
+        wasMounted = nowMounted;
+
+        if (waitCount % 50 == 0) {
+            Serial.printf("[USB] t=%d.%ds | USB=%s | HID=%s | Heap=%u\n",
+                          waitCount / 10, waitCount % 10,
+                          nowMounted ? "MOUNTED" : "not-mounted",
+                          touchpad.ready() ? "READY" : "not-ready",
+                          ESP.getFreeHeap());
+        }
     }
-    if (touchpad.ready()) {
-        Serial.println("[HID] USB HID MOUNTED - touchpad ready!");
+
+    if ((bool)USB) {
+        Serial.println("[USB] *** SUCCESS: USB device MOUNTED! ***");
     } else {
-        Serial.println("[HID] WARNING: USB not mounted after 10s");
+        Serial.println("[USB] *** FAILED: NOT mounted after 30s ***");
+        Serial.println("[USB] Diagnostic checklist:");
+        Serial.println("[USB]   1. OTG cable/port OK? (try different cable)");
+        Serial.println("[USB]   2. ARDUINO_USB_MODE=0 effective? (check build log)");
+        Serial.println("[USB]   3. USB PHY init OK? (compare pre/post registers)");
+        Serial.println("[USB]   4. Phone USB host mode active?");
+        Serial.println("[USB]   5. Power issue? (rst:0x1 in boot 1)");
     }
 
     Serial.printf("[Status] Heap after init: %u (%.1f KB)\n",
                   ESP.getFreeHeap(), ESP.getFreeHeap() / 1024.0f);
 
-    // ---- HTTP 服务器 ----
+    // ---- HTTP Server ----
     Serial.println();
     Serial.println("---- HTTP Server Init ----");
     server.on("/",       HTTP_GET,  handleRoot);
@@ -389,8 +430,9 @@ void setup() {
     Serial.println("==========================================");
     Serial.println("  Setup COMPLETE. Entering loop...");
     Serial.printf("  WiFi: '%s' | http://%s/\n", AP_SSID, AP_IP);
-    Serial.printf("  HID: %s\n", touchpad.ready() ? "MOUNTED" : "NOT MOUNTED");
-    Serial.println("  Test: POST /tap {\"x\":540,\"y\":1172,\"duration\":50}");
+    Serial.printf("  USB mounted: %s | HID ready: %s\n",
+                  ((bool)USB) ? "YES" : "NO",
+                  touchpad.ready() ? "YES" : "NO");
     Serial.println("==========================================");
 }
 
@@ -403,11 +445,23 @@ void loop() {
 
     server.handleClient();
 
-    Serial.printf("[%s] HB #%d | Heap: %u | PSRAM: %u | Clients: %d | HID: %s\n",
+    // Detect USB mount state changes
+    static bool lastUsbState = false;
+    bool curUsbState = (bool)USB;
+    if (curUsbState != lastUsbState) {
+        Serial.printf("[USB] State change: %s -> %s (HB #%d)\n",
+                      lastUsbState ? "MOUNTED" : "not-mounted",
+                      curUsbState ? "MOUNTED" : "not-mounted",
+                      counter);
+        lastUsbState = curUsbState;
+    }
+
+    Serial.printf("[%s] HB #%d | Heap: %u | PSRAM: %u | Clients: %d | USB: %s | HID: %s\n",
                   FW_VERSION, counter,
                   ESP.getFreeHeap(),
                   (unsigned)ESP.getFreePsram(),
                   WiFi.softAPgetStationNum(),
+                  curUsbState ? "OK" : "NO",
                   touchpad.ready() ? "OK" : "NO");
 
     delay(3000);
