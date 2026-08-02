@@ -336,9 +336,9 @@ static void processCommand(const String& cmd) {
             (unsigned)ESP.getFreePsram(),
             ((bool)USB) ? "ok" : "no",
             touchpad.ready() ? "ok" : "no",
-            touchpad.everMounted() ? "yes" : "no",
-            touchpad.failCount(),
-            touchpad.lastFailReason(),
+            touchpad.wasEverMounted() ? "yes" : "no",
+            touchpad.hidFailCount(),
+            touchpad.hidLastFailReason(),
             (unsigned long)(millis() / 1000));
         bleReply(buf);
 

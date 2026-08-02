@@ -175,9 +175,9 @@ private:
 
 public:
     // V2.9.175: 诊断接口——给status命令用
-    bool everMounted() const { return _everMounted; }
-    int failCount() const { return _failCount; }
-    const char* lastFailReason() const { return _lastFailReason; }
+    bool wasEverMounted() const { return _everMounted; }
+    int hidFailCount() const { return _failCount; }
+    const char* hidLastFailReason() const { return _lastFailReason; }
 };
 
 #endif // USB_HID_TOUCHPAD_H
