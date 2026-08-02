@@ -256,7 +256,8 @@ class Esp32BleManager(private val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Connected to GATT server")
                     handler.post {
-                        gatt.discoverServices()
+                        // V2.9.179: 请求最大MTU，减少分包
+                        gatt.requestMtu(512)
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -267,6 +268,12 @@ class Esp32BleManager(private val context: Context) {
             }
         }
         
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            Log.i(TAG, "MTU negotiated: $mtu (status=$status)")
+            // MTU协商完成后发现服务
+            handler.post { gatt.discoverServices() }
+        }
+
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val service = gatt.getService(NUS_SERVICE_UUID)
@@ -301,17 +308,12 @@ class Esp32BleManager(private val context: Context) {
                 val value = characteristic.getStringValue(0)
                 Log.d(TAG, "BLE rx chunk(${value.length}): $value")
                 
-                // V2.9.178: 缓冲拼接，等完整消息再交付
+                // V2.9.179 fix: 不再按\n flush，因为ESP32的status多包响应里自带\n
+                // 第一包到\n就flush的话，后续包全丢了
+                // 改为纯超时 flush，等所有分包的碎片全部拼完
                 handler.removeCallbacks(bleFlushTimeout)
                 bleRxBuffer.append(value)
-                
-                // 如果收到换行符，说明是完整消息，立即 flush
-                if (value.contains("\n")) {
-                    flushBleBuffer()
-                } else {
-                    // 否则等 500ms 无新数据再 flush（兜底超时）
-                    handler.postDelayed(bleFlushTimeout, 500)
-                }
+                handler.postDelayed(bleFlushTimeout, 500)
             }
         }
         

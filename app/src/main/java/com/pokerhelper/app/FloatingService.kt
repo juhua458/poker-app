@@ -556,7 +556,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.178"
+            text = "青云 v2.9.179"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 12f
             setPadding(4, 2, 4, 2)
