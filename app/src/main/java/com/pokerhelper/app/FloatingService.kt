@@ -252,10 +252,17 @@ class FloatingService : Service() {
         }
         bleManager?.onCommandResult = { result ->
             handler.post {
-                // V2.9.174: 放宽匹配——任何ok:开头或err:开头的都可能是status结果
+                // V2.9.176: 放宽匹配——任何ok:开头或err:开头的都可能是status结果
                 // status回复格式: ok:ver=...,heap=...,usb=ok/no,hid=ok/no,...
                 if (result.startsWith("ok:") || result.startsWith("查询ESP32")) {
-                    tvBleStatus?.text = "ESP32: $result"
+                    // V2.9.176: 将逗号分隔的字段格式化为多行显示，便于查看
+                    val formattedResult = if (result.startsWith("ok:")) {
+                        val fields = result.removePrefix("ok:")
+                        "ESP32状态:\n" + fields.split(",").joinToString("\n") { "  $it" }
+                    } else {
+                        "ESP32: $result"
+                    }
+                    tvBleStatus?.text = formattedResult
                     tvBleStatus?.visibility = View.VISIBLE
                 } else {
                     tvStatus?.text = "ESP32: $result"
@@ -647,13 +654,15 @@ class FloatingService : Service() {
             }
         }
 
-        // V2.9.173: BLE诊断信息独立显示行
+        // V2.9.175: BLE诊断信息独立显示行，增大字体+多行显示
         tvBleStatus = TextView(this).apply {
             text = ""
             setTextColor(0xFF90caf9.toInt())
-            textSize = 9f
-            setPadding(4, 1, 4, 1)
-            setBackgroundColor(0x66001a33.toInt())
+            textSize = 11f
+            setPadding(4, 2, 4, 2)
+            maxLines = 8
+            setSingleLine(false)
+            setBackgroundColor(0xCC001a33.toInt())
             visibility = View.GONE
         }
 
