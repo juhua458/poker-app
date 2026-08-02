@@ -234,6 +234,10 @@ class FloatingService : Service() {
                 tvBle?.text = if (connected) "🔗" else "📡"
                 tvBle?.setTextColor(if (connected) 0xFF4ade80.toInt() else 0xFFBDBDBD.toInt())
                 tvStatus?.text = "BLE: $message"
+                // V2.9.171: 连接成功后自动发送status查询USB/HID状态
+                if (connected) {
+                    handler.postDelayed({ bleManager?.sendStatus() }, 500)
+                }
             }
         }
         bleManager?.onCommandResult = { result ->
@@ -528,7 +532,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.171"
+            text = "青云 v2.9.172"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
