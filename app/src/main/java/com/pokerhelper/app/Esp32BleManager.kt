@@ -5,9 +5,11 @@ import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.util.UUID
 
 /**
@@ -38,18 +40,30 @@ class Esp32BleManager(private val context: Context) {
         private set
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onCommandResult: ((String) -> Unit)? = null
-    
+
+    // V2.9.171: 运行时权限检查
+    private fun hasBlePermission(perm: String): Boolean {
+        return ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+    }
+
     // 扫描/连接ESP32设备
     fun startScan() {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         bluetoothAdapter = bluetoothManager?.adapter
-        
+
         if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) {
             notifyStatus(false, "蓝牙未开启")
             return
         }
-        
-        // 策略1: 从已配对设备列表中查找ESP32（无需扫描权限）
+
+        // V2.9.171: BLUETOOTH_CONNECT权限检查
+        if (!hasBlePermission(android.Manifest.permission.BLUETOOTH_CONNECT)) {
+            Log.e(TAG, "BLUETOOTH_CONNECT not granted")
+            notifyStatus(false, "蓝牙连接权限未授予，请打开App权限设置允许")
+            return
+        }
+
+        // 策略1: 从已配对设备列表中查找ESP32
         try {
             val bondedDevices = bluetoothAdapter!!.bondedDevices
             for (device in bondedDevices) {
@@ -65,30 +79,37 @@ class Esp32BleManager(private val context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "getBondedDevices error", e)
         }
-        
-        // 策略2: BLE扫描（需要BLUETOOTH_SCAN+位置权限）
+
+        // V2.9.171: BLUETOOTH_SCAN权限检查
+        if (!hasBlePermission(android.Manifest.permission.BLUETOOTH_SCAN)) {
+            Log.e(TAG, "BLUETOOTH_SCAN not granted")
+            notifyStatus(false, "蓝牙扫描权限未授予，请打开App权限设置允许")
+            return
+        }
+
+        // 策略2: BLE扫描兜底
         notifyStatus(false, "扫描ESP32中...")
-        
+
         val scanner = try {
             bluetoothAdapter?.bluetoothLeScanner
         } catch (e: SecurityException) {
             Log.e(TAG, "bluetoothLeScanner SecurityException", e)
             null
         }
-        
+
         if (scanner == null) {
-            notifyStatus(false, "未配对且无扫描权限，请先在系统蓝牙中配对QingYun-ESP32")
+            notifyStatus(false, "蓝牙扫描器不可用")
             return
         }
-        
+
         try {
             scanner.startScan(scanCallback)
         } catch (e: SecurityException) {
             Log.e(TAG, "startScan SecurityException", e)
-            notifyStatus(false, "蓝牙扫描权限不足，请先在系统蓝牙中配对QingYun-ESP32")
+            notifyStatus(false, "蓝牙扫描异常")
             return
         }
-        
+
         // 10秒超时
         handler.postDelayed({
             if (!isConnected) {

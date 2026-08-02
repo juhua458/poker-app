@@ -62,6 +62,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // V2.9.171: BLE蓝牙权限请求（Android 12+必须，否则无法扫描/连接BLE设备）
+    private val blePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val allGranted = results.values.all { it }
+        if (!allGranted) {
+            val denied = results.filter { !it.value }.keys.joinToString(", ")
+            Log.w(TAG, "BLE permissions denied: $denied")
+            Toast.makeText(this, "蓝牙权限未授予，无法连接ESP32", Toast.LENGTH_LONG).show()
+        } else {
+            Log.i(TAG, "BLE permissions granted")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
@@ -71,6 +85,20 @@ class MainActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+
+            // V2.9.171: Android 12+必须请求BLE权限，否则无法扫描/连接蓝牙设备
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val blePermissions = mutableListOf<String>()
+                if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    blePermissions.add(Manifest.permission.BLUETOOTH_SCAN)
+                }
+                if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    blePermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+                }
+                if (blePermissions.isNotEmpty()) {
+                    blePermissionLauncher.launch(blePermissions.toTypedArray())
                 }
             }
 
