@@ -1,0 +1,36 @@
+name: Build ESP32 Firmware
+
+on:
+  push:
+    paths:
+      - "esp32-firmware/**"
+  workflow_dispatch:
+
+steps:
+  - step: build@python
+    name: 编译 ESP32 固件
+    inputs:
+      python_version: '3.11'
+    commands:
+      - echo "=== 安装 PlatformIO ==="
+      - pip install platformio
+      - echo "=== 安装 ESP32 平台 ==="
+      - pio platform install espressif32
+      - echo "=== 编译固件 ==="
+      - cd esp32-firmware
+      - pio run -e esp32s3-n16r8
+      - echo "=== 准备产物 ==="
+      - mkdir -p firmware_bin
+      - cp .pio/build/esp32s3-n16r8/firmware.bin firmware_bin/ || true
+      - cp .pio/build/esp32s3-n16r8/bootloader.bin firmware_bin/ || true
+      - cp .pio/build/esp32s3-n16r8/partitions.bin firmware_bin/ || true
+      - echo "Flash addresses:" > firmware_bin/flash_instructions.txt
+      - echo "bootloader.bin  -> 0x0000" >> firmware_bin/flash_instructions.txt
+      - echo "partitions.bin  -> 0x8000" >> firmware_bin/flash_instructions.txt
+      - echo "firmware.bin    -> 0x10000" >> firmware_bin/flash_instructions.txt
+      - ls -la firmware_bin/
+    artifacts:
+      - name: esp32-firmware-bin
+        paths:
+          - firmware_bin/*
+        retention_days: 30

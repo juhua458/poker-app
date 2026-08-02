@@ -1,0 +1,24 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+steps:
+  - step: build@android
+    name: 编译 Android APK
+    inputs:
+      java_version: '17'
+      android_sdk_version: '33'
+    commands:
+      - echo "=== 开始编译 Android APK ==="
+      - chmod +x gradlew
+      - ./gradlew assembleDebug --no-daemon
+      - echo "=== 编译完成 ==="
+      - ls -lh app/build/outputs/apk/debug/
+    artifacts:
+      - name: poker-app-debug
+        paths:
+          - app/build/outputs/apk/debug/*.apk
+        retention_days: 30
