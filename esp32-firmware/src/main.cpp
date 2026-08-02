@@ -61,7 +61,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.29"
+#define FW_VERSION "v1.0.30"
 
 // BLE设备名
 #define BLE_DEVICE_NAME "QingYun-ESP32"
@@ -119,94 +119,62 @@ static void qlogf(const char* fmt, ...) {
 }
 
 // ============================================================================
-// HID 报告描述符（触摸屏 Digitizer - 单指）v1.0.29
+// HID 报告描述符（触摸屏 Digitizer - 极简5字节）v1.0.30
 // ============================================================================
-// 参考：Android HID Multitouch协议 / USB-IF HID Usage Tables v1.2 /
-//       真实商用USB触控电视描述符（CSDN u012028275 抓包）。
-// 输入报告布局（共7字节，无Report ID前缀）：
-//   Byte 0: flags      = bit0:Tip Switch | bit1:In Range | bits2-7:padding(0)
-//   Byte 1: contact_id = 触点ID（单指固定为0）
-//   Byte 2-3: X        = 绝对X坐标（0~32767，小端序，LSB first）
-//   Byte 4-5: Y        = 绝对Y坐标（0~32767，小端序，LSB first）
-//   Byte 6: contact_count = 当前触点数（按下=1，抬起=0）
+// 关键发现：v1.0.28/29都失败，根因是Contact Count Maximum Feature报告。
+// arduino-esp32 USBHID库不支持GET_REPORT（Feature报告），Android初始化时
+// 读到STALL会拒绝设备，导致tap返回ok但屏幕无响应。
+// v1.0.30方案：去掉所有Feature报告，精简到CSDN已验证的5字节方案。
+// 输入报告布局（共5字节，无Report ID前缀）：
+//   Byte 0: flags = bit0:Tip Switch | bit1:In Range | bit2:Touch Valid | bits3-7:pad
+//   Byte 1-2: X   = 绝对X坐标（0~32767，小端序）
+//   Byte 3-4: Y   = 绝对Y坐标（0~32767，小端序）
 static const uint8_t touch_report_descriptor[] = {
-    0x05, 0x0D,             // Usage Page (Digitizers)           [0]
-    0x09, 0x04,             // Usage (Touch Screen)               [2]
-    0xA1, 0x01,             // Collection (Application)           [4]
+    0x05, 0x0D,             // Usage Page (Digitizers)
+    0x09, 0x04,             // Usage (Touch Screen)
+    0xA1, 0x01,             // Collection (Application)
 
-    // --- Contact Count Maximum (Feature, 1 byte) ---
-    // 注意：不设置 Report ID（report_id=0无ID字节），Feature和Input共用报告ID 0，
-    // 用 Feature/Input 标志区分，Android HID驱动可正常解析。
-    0x09, 0x55,             //   Usage (Contact Count Maximum)    [6]
-    0x15, 0x00,             //   Logical Minimum (0)
-    0x25, 0x7F,             //   Logical Maximum (127)
-    0x75, 0x08,             //   Report Size (8 bits)
-    0x95, 0x01,             //   Report Count (1)
-    0xB1, 0x02,             //   Feature (Data,Var,Abs)           [14]
+    0x09, 0x22,             //   Usage (Finger)
+    0xA1, 0x02,             //   Collection (Logical)
 
-    // --- Finger 逻辑集合（单指） ---
-    0x09, 0x22,             //   Usage (Finger)                   [18]
-    0xA1, 0x02,             //   Collection (Logical)             [20]
-
-    // Tip Switch (bit0) + In Range (bit1) + 6 bits padding
-    0x09, 0x42,             //     Usage (Tip Switch)            [22]
-    0x09, 0x32,             //     Usage (In Range)              —— v1.0.29关键修复：Android必需
+    // Tip Switch (bit0) + In Range (bit1) + Touch Valid (bit2) + 5 bits padding
+    0x09, 0x42,             //     Usage (Tip Switch)
+    0x09, 0x32,             //     Usage (In Range)
+    0x09, 0x47,             //     Usage (Touch Valid)
     0x15, 0x00,             //     Logical Minimum (0)
     0x25, 0x01,             //     Logical Maximum (1)
     0x75, 0x01,             //     Report Size (1 bit)
-    0x95, 0x02,             //     Report Count (2) = Tip + InRange
-    0x81, 0x02,             //     Input (Data,Var,Abs)          [32]
-    0x95, 0x06,             //     Report Count (6) padding bits
-    0x81, 0x03,             //     Input (Const,Var,Abs) —— padding
-
-    // Contact Identifier (1 byte)
-    0x09, 0x51,             //     Usage (Contact Identifier)
-    0x15, 0x00,             //     Logical Minimum (0)
-    0x25, 0x7F,             //     Logical Maximum (127) —— v1.0.29: 从1放宽到127
-    0x75, 0x08,             //     Report Size (8 bits)
-    0x95, 0x01,             //     Report Count (1)
-    0x81, 0x02,             //     Input (Data,Var,Abs)          [45]
+    0x95, 0x03,             //     Report Count (3) = Tip + InRange + TouchValid
+    0x81, 0x02,             //     Input (Data,Var,Abs)
+    0x95, 0x05,             //     Report Count (5) padding bits
+    0x81, 0x03,             //     Input (Const,Var,Abs)
 
     // X (16 bits, absolute)
     0x05, 0x01,             //     Usage Page (Generic Desktop)
-    0x55, 0x0E,             //     Unit Exponent (-2 = centi, 但Android不严格检查)
-    0x65, 0x11,             //     Unit (SI Linear / cm)
+    0x09, 0x30,             //     Usage (X)
     0x15, 0x00,             //     Logical Minimum (0)
     0x26, 0xFF, 0x7F,      //     Logical Maximum (32767)
-    0x35, 0x00,             //     Physical Minimum (0)
-    0x46, 0xFF, 0x7F,      //     Physical Maximum (32767)
-    0x09, 0x30,             //     Usage (X)
     0x75, 0x10,             //     Report Size (16 bits)
     0x95, 0x01,             //     Report Count (1)
-    0x81, 0x02,             //     Input (Data,Var,Abs)          [64]
+    0x81, 0x02,             //     Input (Data,Var,Abs)
 
     // Y (16 bits, absolute)
     0x09, 0x31,             //     Usage (Y)
-    0x46, 0xFF, 0x7F,      //     Physical Maximum (32767)
-    0x81, 0x02,             //     Input (Data,Var,Abs)          [68]
+    0x26, 0xFF, 0x7F,      //     Logical Maximum (32767)
+    0x75, 0x10,             //     Report Size (16 bits)
+    0x95, 0x01,             //     Report Count (1)
+    0x81, 0x02,             //     Input (Data,Var,Abs)
 
-    0xC0,                   //   End Collection (Logical)        [70]
-
-    // --- Contact Count (Input, 1 byte，放在Finger集合外) ---
-    0x05, 0x0D,             //   Usage Page (Digitizers)
-    0x09, 0x54,             //   Usage (Contact Count)
-    0x15, 0x00,             //   Logical Minimum (0)
-    0x25, 0x7F,             //   Logical Maximum (127)
-    0x75, 0x08,             //   Report Size (8 bits)
-    0x95, 0x01,             //   Report Count (1)
-    0x81, 0x02,             //   Input (Data,Var,Abs)            [81]
-
-    0xC0                    // End Collection (Application)      [83]
+    0xC0,                   //   End Collection (Logical)
+    0xC0                    // End Collection (Application)
 };
 
 // 必须与描述符声明的输入报告完全对应（packed保证无padding字节）
-// flags字节: bit0=Tip Switch, bit1=In Range, bits2-7=0(保留)
+// flags字节: bit0=Tip Switch, bit1=In Range, bit2=Touch Valid, bits3-7=0
 struct __attribute__((packed)) TouchReport {
-    uint8_t  flags;          // byte 0: Tip(bit0) | InRange(bit1) | pad
-    uint8_t  contact_id;     // byte 1: Contact ID (0)
-    uint16_t x;              // byte 2-3: X (0~32767, little-endian)
-    uint16_t y;              // byte 4-5: Y (0~32767, little-endian)
-    uint8_t  contact_count;  // byte 6: 触点数 (0=up, 1=down)
+    uint8_t  flags;          // byte 0
+    uint16_t x;              // byte 1-2
+    uint16_t y;              // byte 3-4
 };
 
 // ============================================================================
@@ -251,20 +219,17 @@ public:
     }
 
     bool touchDown(uint16_t screenX, uint16_t screenY) {
-        yield();  // let TinyUSB task run
+        yield();
         if (!hid.ready()) {
             _failCount++;
             _lastFailReason = "not_ready";
             return false;
         }
-        _report.flags         = 0x03;  // bit0=Tip Switch, bit1=In Range
-        _report.contact_id    = 0;
-        _report.x             = (uint16_t)((uint32_t)screenX * HID_MAX / SCREEN_WIDTH);
-        _report.y             = (uint16_t)((uint32_t)screenY * HID_MAX / SCREEN_HEIGHT);
-        _report.contact_count = 1;
+        _report.flags = 0x07;  // bit0=Tip | bit1=InRange | bit2=TouchValid
+        _report.x     = (uint16_t)((uint32_t)screenX * HID_MAX / SCREEN_WIDTH);
+        _report.y     = (uint16_t)((uint32_t)screenY * HID_MAX / SCREEN_HEIGHT);
         Serial.printf("[HID] down raw(%u,%u) hid(%u,%u) flags=0x%02x\n",
                       screenX, screenY, _report.x, _report.y, _report.flags);
-        // retry with short delay
         for (int retry = 0; retry < 5; retry++) {
             if (hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report))) return true;
             delay(10);
@@ -282,11 +247,9 @@ public:
             _lastFailReason = "not_ready";
             return false;
         }
-        _report.flags         = 0x00;  // Tip+InRange都清除
-        _report.contact_id    = 0;
-        _report.x             = 0;
-        _report.y             = 0;
-        _report.contact_count = 0;
+        _report.flags = 0x00;
+        _report.x     = 0;
+        _report.y     = 0;
         Serial.println("[HID] up");
         for (int retry = 0; retry < 5; retry++) {
             if (hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report))) return true;
