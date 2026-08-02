@@ -35,7 +35,6 @@
 #include <Arduino.h>
 #include <USB.h>
 #include <USBHID.h>
-#include <Adafruit_TinyUSB.h>
 
 // BLE 库
 #include <BLEDevice.h>
@@ -359,8 +358,8 @@ static void processCommand(const String& cmd) {
         }
 
     } else if (cmd == "status") {
-        // V1.0.28: 用TinyUSBDevice.mounted()判断USB是否真正被主机枚举
-        bool usbMounted = TinyUSBDevice.mounted();
+        // V1.0.28: 用USB.mounted()判断USB是否真正被主机枚举
+        bool usbMounted = USB.mounted();
         bool hidReady = touchpad.ready();
         char buf[480];
         snprintf(buf, sizeof(buf),
@@ -502,22 +501,22 @@ void setup() {
     qlog("[USB] Calling USB.begin()...");
     bool usbResult = USB.begin();
     qlogf("[USB] USB.begin() returned: %s", usbResult ? "true" : "false");
-    qlogf("[USB] USB.ready()=%s | TinyUSBDevice.mounted()=%s",
+    qlogf("[USB] USB.ready()=%s | USB.mounted()=%s",
           USB.ready() ? "true" : "false",
-          TinyUSBDevice.mounted() ? "true" : "false");
+          USB.mounted() ? "true" : "false");
 
     disableCore0WDT();
     disableCore1WDT();
     qlog("[TWDT] Dual-core Task WDT disabled");
 
-    // V1.0.28: USB mount wait - 使用TinyUSBDevice.mounted()而非(bool)USB，更准确
+    // V1.0.28: USB mount wait - 使用USB.mounted()而非(bool)USB，更准确
     qlog("[USB] Waiting for USB mount (30s max)...");
     int waitCount = 0;
     bool wasMounted = false;
     while (waitCount < 300) {
         delay(100);
         waitCount++;
-        bool nowMounted = TinyUSBDevice.mounted() && touchpad.ready();
+        bool nowMounted = USB.mounted() && touchpad.ready();
         if (nowMounted && !wasMounted) {
             qlogf("[USB] *** MOUNTED at %d.%ds! HID ready=YES ***",
                   waitCount / 10, waitCount % 10);
@@ -527,14 +526,14 @@ void setup() {
         if (waitCount % 50 == 0) {
             qlogf("[USB] t=%d.%ds | mounted=%s | USB.ready=%s | HID.ready=%s | Heap=%u",
                   waitCount / 10, waitCount % 10,
-                  TinyUSBDevice.mounted() ? "YES" : "no",
+                  USB.mounted() ? "YES" : "no",
                   USB.ready() ? "YES" : "no",
                   touchpad.ready() ? "READY" : "not-ready",
                   ESP.getFreeHeap());
         }
     }
 
-    if (TinyUSBDevice.mounted() && touchpad.ready()) {
+    if (USB.mounted() && touchpad.ready()) {
         qlog("[USB] *** SUCCESS: USB Touch Screen MOUNTED! ***");
     } else {
         qlog("[USB] *** WARNING: Host not detected after 30s ***");
