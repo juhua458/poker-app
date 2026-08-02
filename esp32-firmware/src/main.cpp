@@ -49,7 +49,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.26"
+#define FW_VERSION "v1.0.27"
 
 // BLE设备名
 #define BLE_DEVICE_NAME "QingYun-ESP32"
@@ -328,14 +328,17 @@ static void processCommand(const String& cmd) {
         }
 
     } else if (cmd == "status") {
-        char buf[320];
+        char buf[480];
         snprintf(buf, sizeof(buf),
-            "ok:ver=%s,heap=%u,psram=%u,usb=%s,hid=%s,ble=connected,uptime=%lus",
+            "ok:ver=%s,heap=%u,psram=%u,usb=%s,hid=%s,ever=%s,fails=%d,reason=%s,ble=connected,uptime=%lus",
             FW_VERSION,
             ESP.getFreeHeap(),
             (unsigned)ESP.getFreePsram(),
             ((bool)USB) ? "ok" : "no",
             touchpad.ready() ? "ok" : "no",
+            touchpad.everMounted() ? "yes" : "no",
+            touchpad.failCount(),
+            touchpad.lastFailReason(),
             (unsigned long)(millis() / 1000));
         bleReply(buf);
 

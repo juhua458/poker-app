@@ -94,7 +94,10 @@ static const uint8_t _hid_touchpad_descriptor[] = {
 USBHIDTouchpad::USBHIDTouchpad()
     : _usbHid(_hid_touchpad_descriptor, sizeof(_hid_touchpad_descriptor),
               HID_ITF_PROTOCOL_NONE, 2, false),
-      _isTouching(false)
+      _isTouching(false),
+      _everMounted(false),
+      _failCount(0),
+      _lastFailReason("none")
 {
 }
 
@@ -309,16 +312,20 @@ bool USBHIDTouchpad::sendTouchUp()
 bool USBHIDTouchpad::_sendReport(const touch_report_t* report)
 {
     if (!isMounted()) {
+        _failCount++;
+        _lastFailReason = "not_mounted";
         return false;
     }
+    _everMounted = true;
 
-    // 检查 HID 端点是否就绪
+    // 检查 HID 端点是否就绪，等待最长 300ms
     if (!_usbHid.ready()) {
-        // 端点忙，等待一小段时间重试
         uint32_t start = millis();
         while (!_usbHid.ready()) {
-            if (millis() - start > 100) {
-                Serial.println("[HID] Error: endpoint not ready after 100ms");
+            if (millis() - start > 300) {
+                Serial.println("[HID] Error: endpoint not ready after 300ms");
+                _failCount++;
+                _lastFailReason = "hid_not_ready";
                 return false;
             }
             delay(1);
@@ -329,6 +336,8 @@ bool USBHIDTouchpad::_sendReport(const touch_report_t* report)
     bool result = _usbHid.sendReport(0, report, TOUCH_REPORT_SIZE);
     if (!result) {
         Serial.println("[HID] Error: sendReport failed");
+        _failCount++;
+        _lastFailReason = "send_failed";
     }
     return result;
 }

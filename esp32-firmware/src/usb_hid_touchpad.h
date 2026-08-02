@@ -155,6 +155,9 @@ public:
 private:
     Adafruit_USBD_HID _usbHid;   // TinyUSB HID 实例
     bool _isTouching;             // 当前是否处于触摸状态
+    bool _everMounted;            // 是否曾经挂载成功过
+    int _failCount;               // 发送失败计数
+    const char* _lastFailReason;  // 最近一次失败原因
     
     /**
      * 发送原始触摸报告
@@ -169,6 +172,12 @@ private:
      * @return 限制后的值 (0-32767)
      */
     static uint16_t _clampHidCoord(uint32_t value);
+
+public:
+    // V2.9.175: 诊断接口——给status命令用
+    bool everMounted() const { return _everMounted; }
+    int failCount() const { return _failCount; }
+    const char* lastFailReason() const { return _lastFailReason; }
 };
 
 #endif // USB_HID_TOUCHPAD_H
