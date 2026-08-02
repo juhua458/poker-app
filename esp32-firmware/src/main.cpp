@@ -177,6 +177,10 @@ class USBHIDTouchpad : public USBHIDDevice {
 private:
     USBHID hid;
     TouchReport _report;
+    // V2.9.175: HID诊断追踪
+    bool _everMounted = false;
+    int _failCount = 0;
+    const char* _lastFailReason = "none";
 
 public:
     USBHIDTouchpad() : hid() {
@@ -192,8 +196,15 @@ public:
     }
 
     bool ready() {
-        return hid.ready();
+        bool r = hid.ready();
+        if (r) _everMounted = true;
+        return r;
     }
+
+    // V2.9.175: 诊断接口
+    bool wasEverMounted() const { return _everMounted; }
+    int hidFailCount() const { return _failCount; }
+    const char* hidLastFailReason() const { return _lastFailReason; }
 
     uint16_t _onGetDescriptor(uint8_t* buffer) override {
         memcpy(buffer, touch_report_descriptor, sizeof(touch_report_descriptor));
@@ -202,7 +213,11 @@ public:
 
     bool touchDown(uint16_t screenX, uint16_t screenY) {
         yield();  // let TinyUSB task run
-        if (!hid.ready()) return false;
+        if (!hid.ready()) {
+            _failCount++;
+            _lastFailReason = "not_ready";
+            return false;
+        }
         _report.contact_id    = 0;
         _report.tip_switch    = 0x01;
         _report.x             = (uint16_t)((uint32_t)screenX * HID_MAX / SCREEN_WIDTH);
@@ -214,12 +229,18 @@ public:
             delay(10);
             yield();
         }
+        _failCount++;
+        _lastFailReason = "send_failed";
         return false;
     }
 
     bool touchUp() {
         yield();
-        if (!hid.ready()) return false;
+        if (!hid.ready()) {
+            _failCount++;
+            _lastFailReason = "not_ready";
+            return false;
+        }
         _report.contact_id    = 0;
         _report.tip_switch    = 0x00;
         _report.x             = 0;
@@ -230,6 +251,8 @@ public:
             delay(10);
             yield();
         }
+        _failCount++;
+        _lastFailReason = "send_failed";
         return false;
     }
 
