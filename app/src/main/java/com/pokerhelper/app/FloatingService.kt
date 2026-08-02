@@ -233,7 +233,7 @@ class FloatingService : Service() {
         bleManager = Esp32BleManager(this)
         bleManager?.onStatusChanged = { connected, message ->
             handler.post {
-                tvBle?.text = if (connected) "" else "📡"
+                tvBle?.text = if (connected) "🔗" else "📡"
                 tvBle?.setTextColor(if (connected) 0xFF4ade80.toInt() else 0xFFBDBDBD.toInt())
                 tvStatus?.text = "BLE: $message"
                 // V2.9.173: 连接成功后自动发送status查询USB/HID状态
