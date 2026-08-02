@@ -547,19 +547,19 @@ class FloatingService : Service() {
             setBackgroundColor(0xEE0a1a0a.toInt())
         }
 
-        // Top bar with buttons - V2.9.14: 半透明紧凑顶栏
+        // Top bar with buttons - V2.9.177: 增大内边距
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(0x990a1a0a.toInt())
-            setPadding(4, 1, 4, 1)
+            setPadding(6, 4, 6, 4)
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.175"
+            text = "青云 v2.9.177"
             setTextColor(0xFFe8edf5.toInt())
-            textSize = 9f
-            setPadding(2, 0, 2, 0)
+            textSize = 12f
+            setPadding(4, 2, 4, 2)
         }
 
         // V2.0: 识别结果展示行 - v2.9.35: 紧凑半透明
@@ -654,13 +654,13 @@ class FloatingService : Service() {
             }
         }
 
-        // V2.9.175: BLE诊断信息独立显示行，增大字体+多行显示
+        // V2.9.177: BLE诊断信息独立显示行，增大字体+多行显示，区域加大
         tvBleStatus = TextView(this).apply {
             text = ""
             setTextColor(0xFF90caf9.toInt())
-            textSize = 11f
-            setPadding(4, 2, 4, 2)
-            maxLines = 8
+            textSize = 14f
+            setPadding(8, 4, 8, 4)
+            maxLines = 10
             setSingleLine(false)
             setBackgroundColor(0xCC001a33.toInt())
             visibility = View.GONE

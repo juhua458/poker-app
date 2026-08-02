@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <script>var API_BASE="http://127.0.0.1:8666";</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-<title>青云 v2.9.164 · 翻后对手统计+短码纳什(RTA全链路数学最优)</title>
+<title>青云 v2.9.177 · 翻后对手统计+短码纳什(RTA全链路数学最优)</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;min-height:100vh;padding:3px;max-width:500px;margin:0 auto;user-select:none;font-size:12px}
-body.speed-mode{max-width:none;background:transparent;min-height:auto}
-.res{background:linear-gradient(135deg,#0f1b2e,#16213e);border-radius:14px;padding:12px;text-align:center;margin-bottom:4px;min-height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.r-a{font-size:60px;font-weight:900;letter-spacing:3px;line-height:1}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#080e08;color:#fff;height:100vh;padding:6px;user-select:none;font-size:14px;display:flex;flex-direction:column;overflow-y:auto}
+body.speed-mode{height:auto;background:transparent;min-height:auto;display:block}
+.res{background:linear-gradient(135deg,#0f1b2e,#16213e);border-radius:14px;padding:10px;text-align:center;margin-bottom:6px;min-height:60px;max-height:120px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.r-a{font-size:48px;font-weight:900;letter-spacing:3px;line-height:1}
 .r-a.raise{color:#69F0AE;text-shadow:0 0 25px rgba(105,240,174,.6)}
 .r-a.raise_big{color:#00E676;text-shadow:0 0 30px rgba(0,230,118,.8)}
 .r-a.call{color:#FFAB40;text-shadow:0 0 25px rgba(255,171,64,.6)}
@@ -81,7 +81,7 @@ body.speed-mode .r-tip.allin-tip{color:#CE93D8;background:rgba(206,147,216,.12)}
 .s-tab.pre.on{background:linear-gradient(135deg,#1a4d2e,#0d2818);color:#2ed573}
 .s-tab.post.on{background:linear-gradient(135deg,#4d2600,#2d1800);color:#ffa502}
 .scene-btns{display:flex;gap:3px;flex-wrap:wrap}
-.big-btn{flex:1;min-width:48%;padding:12px 8px;border:none;border-radius:10px;font-size:13px;font-weight:900;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .08s;text-align:center}
+.big-btn{flex:1;min-width:48%;padding:14px 8px;border:none;border-radius:12px;font-size:15px;font-weight:900;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .08s;text-align:center}
 .big-btn:active{transform:scale(.95)}
 .big-btn.on{color:#fff;box-shadow:0 0 15px rgba(255,255,255,.1)}
 .big-btn.open.on{background:linear-gradient(135deg,#1a5c30,#0d3d1f);color:#2ed573}
@@ -147,7 +147,7 @@ body.speed-mode .r-tip.allin-tip{color:#CE93D8;background:rgba(206,147,216,.12)}
 .adv-inp{width:50px;padding:4px 6px;border:1px solid rgba(255,255,255,.08);border-radius:4px;background:rgba(0,0,0,.2);color:#fff;font-size:11px;font-weight:bold;text-align:center}
 .adv-sub{font-size:9px;color:#666;margin-bottom:4px}
 .exploit-row{display:flex;gap:3px;margin-bottom:4px}
-.ex-btn{flex:1;padding:8px 0;border:none;border-radius:8px;font-size:10px;font-weight:900;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .08s;text-align:center}
+.ex-btn{flex:1;padding:10px 0;border:none;border-radius:10px;font-size:13px;font-weight:900;cursor:pointer;background:rgba(255,255,255,.04);color:#555;transition:all .08s;text-align:center}
 .ex-btn:active{transform:scale(.95)}
 .ex-btn.on{color:#fff}
 .ex-btn.fish.on{background:linear-gradient(135deg,#1a5c30,#0d3d1f)}
@@ -158,7 +158,7 @@ body.speed-mode .r-tip.allin-tip{color:#CE93D8;background:rgba(206,147,216,.12)}
 .ex-btn.lag.on{background:linear-gradient(135deg,#5c1a1a,#3d0d0d)}
 .ex-btn.unknown.on{background:linear-gradient(135deg,#333,#222);color:#888}
 .ex-btn .e-emoji{font-size:16px;display:block;margin-bottom:1px}
-.clr{display:block;width:100%;padding:8px;border:1px solid rgba(255,71,87,.15);border-radius:8px;background:transparent;color:#ff4757;font-size:11px;font-weight:bold;cursor:pointer;margin-top:4px}
+.clr{display:inline-block;width:48%;padding:12px;border:1px solid rgba(255,71,87,.15);border-radius:10px;background:transparent;color:#ff4757;font-size:13px;font-weight:bold;cursor:pointer;margin:3px 1%;text-align:center;box-sizing:border-box}
 .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:100;padding:8px;overflow-y:auto}
 .modal.on{display:block}
 .mt{text-align:center;font-size:14px;color:#ffd700;margin-bottom:6px;font-weight:bold}
@@ -380,11 +380,11 @@ body.speed-mode .rec-label{font-size:10px}
   <div class="adv-row"><span class="adv-l">面对</span><input type="number" class="adv-inp" id="betInp" value="0" min="0" max="500" onchange="updateBet()"><span style="color:#444;font-size:9px">BB</span></div>
 </div>
 <button class="clr" onclick="clr()">🔄 下一手</button>
-<button class="clr" style="background:#1a3a5c;font-size:9px;padding:3px 6px" id="hotBtn" onclick="hotUpdate()">📡策略更新</button>
-<button class="clr" style="background:#3a1a1a;font-size:9px;padding:3px 6px;display:none" id="revertBtn" onclick="revertLocal()">↩恢复本地</button>
-<button class="clr" style="background:#1a3a2c;font-size:9px;padding:3px 6px" id="exportBtn" onclick="exportLog()">📤导出日志</button>
-<button class="clr" style="background:#1a2a3a;font-size:9px;padding:3px 6px" id="statsBtn" onclick="showStats()">📊统计</button>
-<button class="clr" style="background:#3a2a1a;font-size:9px;padding:3px 6px" id="reviewBtn" onclick="openReview()">📊复盘</button>
+<button class="clr" style="background:#1a3a5c" id="hotBtn" onclick="hotUpdate()">📡策略更新</button>
+<button class="clr" style="background:#3a1a1a;display:none" id="revertBtn" onclick="revertLocal()">↩恢复本地</button>
+<button class="clr" style="background:#1a3a2c" id="exportBtn" onclick="exportLog()">📤导出日志</button>
+<button class="clr" style="background:#1a2a3a" id="statsBtn" onclick="showStats()">📊统计</button>
+<button class="clr" style="background:#3a2a1a" id="reviewBtn" onclick="openReview()">📊复盘</button>
 <div class="cam-mini"><button class="cam-mini-btn" id="camMiniBtn" onclick="toggleCamModal()">📷</button></div>
 <div class="modal" id="modal">
   <div class="mt" id="mTitle">选牌</div>
