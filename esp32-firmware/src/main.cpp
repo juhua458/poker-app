@@ -1,13 +1,15 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.26)
+ * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.28)
  * ============================================================================
  *
- * v1.0.26：BLE通信替代WiFi AP
- *   - 移除：WiFi AP + HTTP Server（手机连WiFi后无法上网的问题）
- *   - 新增：BLE GATT Server（Nordic UART Service）
- *   - 保留：USB HID 触摸屏模拟（Digitizer + yield/retry）
- *   - 架构：手机移动数据上网 + BLE发指令 + USB HID注入点击
+ * v1.0.28：USB HID修复
+ *   - HID描述符：Touch Screen(0x04) + Contact Count Maximum(0x55)，Android可识别
+ *   - Report ID=0（无前缀），去掉多余ID
+ *   - 设置VID(0x303A)/PID(0x8266)/Manufacturer/Product/Serial
+ *   - status增加mnt字段：使用(bool)USB检测真正mounted状态（arduino-esp32 operator bool() = _started && mounted）
+ *   - 修正API：USB.firmwareVersion() 替代不存在的USB.productVersion()
+ *   - BLE MTU协商到512（App端v2.9.179已支持）
  *
  * BLE协议（Nordic UART Service）：
  *   Service UUID: 6E400001-B5A3-F393-E0A9-E50E24DAB9E9
@@ -358,8 +360,8 @@ static void processCommand(const String& cmd) {
         }
 
     } else if (cmd == "status") {
-        // V1.0.28: 用USB.mounted()判断USB是否真正被主机枚举
-        bool usbMounted = USB.mounted();
+        // V1.0.28: (bool)USB 在arduino-esp32中 = _started && tinyusb_device_mounted（真正被主机枚举）
+        bool usbMounted = (bool)USB;
         bool hidReady = touchpad.ready();
         char buf[480];
         snprintf(buf, sizeof(buf),
@@ -490,9 +492,9 @@ void setup() {
     USB.manufacturerName("QingYun");
     USB.productName("QingYun Touch Screen");
     USB.serialNumber("QY000001");
-    USB.productVersion(0x0100);  // v1.0
+    USB.firmwareVersion(0x0100);  // v1.0
 
-    qlogf("[USB] USB vendorID=0x303A productID=0x8266 (Touch Screen)");
+    qlogf("[USB] USB vendorID=0x%04X productID=0x%04X (Touch Screen)", USB.VID(), USB.PID());
 
     qlog("[USB] Calling touchpad.begin()...");
     touchpad.begin();
@@ -501,22 +503,22 @@ void setup() {
     qlog("[USB] Calling USB.begin()...");
     bool usbResult = USB.begin();
     qlogf("[USB] USB.begin() returned: %s", usbResult ? "true" : "false");
-    qlogf("[USB] USB.ready()=%s | USB.mounted()=%s",
-          USB.ready() ? "true" : "false",
-          USB.mounted() ? "true" : "false");
+    qlogf("[USB] (bool)USB=%s | HID.ready=%s",
+          ((bool)USB) ? "true" : "false",
+          touchpad.ready() ? "true" : "false");
 
     disableCore0WDT();
     disableCore1WDT();
     qlog("[TWDT] Dual-core Task WDT disabled");
 
-    // V1.0.28: USB mount wait - 使用USB.mounted()而非(bool)USB，更准确
+    // V1.0.28: USB mount wait - (bool)USB = _started && tinyusb_device_mounted（真正被主机枚举）
     qlog("[USB] Waiting for USB mount (30s max)...");
     int waitCount = 0;
     bool wasMounted = false;
     while (waitCount < 300) {
         delay(100);
         waitCount++;
-        bool nowMounted = USB.mounted() && touchpad.ready();
+        bool nowMounted = (bool)USB && touchpad.ready();
         if (nowMounted && !wasMounted) {
             qlogf("[USB] *** MOUNTED at %d.%ds! HID ready=YES ***",
                   waitCount / 10, waitCount % 10);
@@ -524,16 +526,15 @@ void setup() {
         wasMounted = nowMounted;
 
         if (waitCount % 50 == 0) {
-            qlogf("[USB] t=%d.%ds | mounted=%s | USB.ready=%s | HID.ready=%s | Heap=%u",
+            qlogf("[USB] t=%d.%ds | mounted=%s | HID.ready=%s | Heap=%u",
                   waitCount / 10, waitCount % 10,
-                  USB.mounted() ? "YES" : "no",
-                  USB.ready() ? "YES" : "no",
+                  ((bool)USB) ? "YES" : "no",
                   touchpad.ready() ? "READY" : "not-ready",
                   ESP.getFreeHeap());
         }
     }
 
-    if (USB.mounted() && touchpad.ready()) {
+    if ((bool)USB && touchpad.ready()) {
         qlog("[USB] *** SUCCESS: USB Touch Screen MOUNTED! ***");
     } else {
         qlog("[USB] *** WARNING: Host not detected after 30s ***");
