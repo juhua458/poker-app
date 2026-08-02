@@ -41,6 +41,20 @@ class Esp32BleManager(private val context: Context) {
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onCommandResult: ((String) -> Unit)? = null
 
+    // V2.9.178: BLE数据缓冲——ESP32 status响应120+字节，BLE单包最多20字节
+    // 必须拼接多包才能拿到完整数据
+    private val bleRxBuffer = StringBuilder()
+    private val bleFlushTimeout = Runnable { flushBleBuffer() }
+    
+    private fun flushBleBuffer() {
+        if (bleRxBuffer.isNotEmpty()) {
+            val msg = bleRxBuffer.toString()
+            bleRxBuffer.clear()
+            Log.d(TAG, "BLE flush complete msg(${msg.length}): $msg")
+            onCommandResult?.invoke(msg)
+        }
+    }
+
     // V2.9.171: 运行时权限检查
     private fun hasBlePermission(perm: String): Boolean {
         return ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
@@ -153,6 +167,8 @@ class Esp32BleManager(private val context: Context) {
     // 断开连接
     fun disconnect() {
         try {
+            handler.removeCallbacks(bleFlushTimeout)
+            bleRxBuffer.clear()
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()
             bluetoothGatt = null
@@ -283,8 +299,19 @@ class Esp32BleManager(private val context: Context) {
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (characteristic.uuid == TX_CHAR_UUID) {
                 val value = characteristic.getStringValue(0)
-                Log.d(TAG, "Received: $value")
-                onCommandResult?.invoke(value)
+                Log.d(TAG, "BLE rx chunk(${value.length}): $value")
+                
+                // V2.9.178: 缓冲拼接，等完整消息再交付
+                handler.removeCallbacks(bleFlushTimeout)
+                bleRxBuffer.append(value)
+                
+                // 如果收到换行符，说明是完整消息，立即 flush
+                if (value.contains("\n")) {
+                    flushBleBuffer()
+                } else {
+                    // 否则等 500ms 无新数据再 flush（兜底超时）
+                    handler.postDelayed(bleFlushTimeout, 500)
+                }
             }
         }
         
