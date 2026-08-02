@@ -127,6 +127,8 @@ class FloatingService : Service() {
     // V2.9.112: BLE ESP32连接
     private var bleManager: Esp32BleManager? = null
     private var tvBle: TextView? = null
+    // V2.9.173: BLE诊断信息独立显示区，不被tap结果覆盖
+    private var tvBleStatus: TextView? = null
 
     // V2.9.38: 隐身模式通知广播接收器
     private val notificationReceiver = object : BroadcastReceiver() {
@@ -231,18 +233,24 @@ class FloatingService : Service() {
         bleManager = Esp32BleManager(this)
         bleManager?.onStatusChanged = { connected, message ->
             handler.post {
-                tvBle?.text = if (connected) "🔗" else "📡"
+                tvBle?.text = if (connected) "" else "📡"
                 tvBle?.setTextColor(if (connected) 0xFF4ade80.toInt() else 0xFFBDBDBD.toInt())
                 tvStatus?.text = "BLE: $message"
-                // V2.9.171: 连接成功后自动发送status查询USB/HID状态
+                // V2.9.173: 连接成功后自动发送status查询USB/HID状态
                 if (connected) {
+                    tvBleStatus?.text = "查询ESP32状态..."
                     handler.postDelayed({ bleManager?.sendStatus() }, 500)
                 }
             }
         }
         bleManager?.onCommandResult = { result ->
             handler.post {
-                tvStatus?.text = "ESP32: $result"
+                // V2.9.173: status结果→tvBleStatus（不被tap覆盖），tap结果→tvStatus
+                if (result.startsWith("ok:ver=") || result.startsWith("查询ESP32")) {
+                    tvBleStatus?.text = "ESP32: $result"
+                } else {
+                    tvStatus?.text = "ESP32: $result"
+                }
             }
         }
     }
@@ -532,7 +540,7 @@ class FloatingService : Service() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "青云 v2.9.172"
+            text = "青云 v2.9.173"
             setTextColor(0xFFe8edf5.toInt())
             textSize = 9f
             setPadding(2, 0, 2, 0)
@@ -630,6 +638,16 @@ class FloatingService : Service() {
             }
         }
 
+        // V2.9.173: BLE诊断信息独立显示行
+        tvBleStatus = TextView(this).apply {
+            text = ""
+            setTextColor(0xFF90caf9.toInt())
+            textSize = 9f
+            setPadding(4, 1, 4, 1)
+            setBackgroundColor(0x66001a33.toInt())
+            visibility = View.GONE
+        }
+
         topBar.addView(tvStatus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         topBar.addView(tvAction!!)
         topBar.addView(tvVoice)
@@ -637,6 +655,7 @@ class FloatingService : Service() {
         topBar.addView(tvBle!!)
         topBar.addView(tvCollapse)
         container.addView(topBar)
+        container.addView(tvBleStatus!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         container.addView(tvRecResult!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         container.addView(tvRecDetail!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))  // V2.9.43: 详情行
 
