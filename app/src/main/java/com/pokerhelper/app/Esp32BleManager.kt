@@ -39,7 +39,7 @@ class Esp32BleManager(private val context: Context) {
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onCommandResult: ((String) -> Unit)? = null
     
-    // 扫描ESP32设备
+    // 扫描/连接ESP32设备
     fun startScan() {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         bluetoothAdapter = bluetoothManager?.adapter
@@ -49,20 +49,50 @@ class Esp32BleManager(private val context: Context) {
             return
         }
         
+        // 策略1: 从已配对设备列表中查找ESP32（无需扫描权限）
+        try {
+            val bondedDevices = bluetoothAdapter!!.bondedDevices
+            for (device in bondedDevices) {
+                val name = try { device.name } catch (e: SecurityException) { null }
+                if (name == DEVICE_NAME) {
+                    Log.i(TAG, "Found ESP32 in bonded devices: $name")
+                    connectToDevice(device)
+                    return
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "getBondedDevices SecurityException", e)
+        } catch (e: Exception) {
+            Log.w(TAG, "getBondedDevices error", e)
+        }
+        
+        // 策略2: BLE扫描（需要BLUETOOTH_SCAN+位置权限）
         notifyStatus(false, "扫描ESP32中...")
         
-        val scanner = bluetoothAdapter?.bluetoothLeScanner
+        val scanner = try {
+            bluetoothAdapter?.bluetoothLeScanner
+        } catch (e: SecurityException) {
+            Log.e(TAG, "bluetoothLeScanner SecurityException", e)
+            null
+        }
+        
         if (scanner == null) {
-            notifyStatus(false, "BLE扫描器不可用")
+            notifyStatus(false, "未配对且无扫描权限，请先在系统蓝牙中配对QingYun-ESP32")
             return
         }
         
-        scanner.startScan(scanCallback)
+        try {
+            scanner.startScan(scanCallback)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "startScan SecurityException", e)
+            notifyStatus(false, "蓝牙扫描权限不足，请先在系统蓝牙中配对QingYun-ESP32")
+            return
+        }
         
         // 10秒超时
         handler.postDelayed({
             if (!isConnected) {
-                scanner.stopScan(scanCallback)
+                try { scanner.stopScan(scanCallback) } catch (_: Exception) {}
                 notifyStatus(false, "未找到ESP32")
             }
         }, 10000)
@@ -80,10 +110,19 @@ class Esp32BleManager(private val context: Context) {
     // 连接指定设备
     private fun connectToDevice(device: BluetoothDevice) {
         stopScan()
-        notifyStatus(false, "连接${device.name}...")
+        val deviceName = try { device.name } catch (e: SecurityException) { "ESP32" }
+        notifyStatus(false, "连接${deviceName}...")
         
         try {
-            bluetoothGatt = device.connectGatt(context, false, gattCallback)
+            // 强制BLE传输模式（不走经典蓝牙）
+            bluetoothGatt = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+            } else {
+                device.connectGatt(context, false, gattCallback)
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "connectGatt SecurityException - need BLUETOOTH_CONNECT permission", e)
+            notifyStatus(false, "需要蓝牙连接权限，请在App权限中允许")
         } catch (e: Exception) {
             Log.e(TAG, "connectGatt failed", e)
             notifyStatus(false, "连接失败: ${e.message}")
