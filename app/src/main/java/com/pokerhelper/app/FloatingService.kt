@@ -239,15 +239,24 @@ class FloatingService : Service() {
                 // V2.9.173: 连接成功后自动发送status查询USB/HID状态
                 if (connected) {
                     tvBleStatus?.text = "查询ESP32状态..."
+                    tvBleStatus?.visibility = View.VISIBLE
                     handler.postDelayed({ bleManager?.sendStatus() }, 500)
+                    // V2.9.174: 5秒无响应超时
+                    handler.postDelayed({
+                        if (tvBleStatus?.text?.toString() == "查询ESP32状态...") {
+                            tvBleStatus?.text = "ESP32: status无响应"
+                        }
+                    }, 5500)
                 }
             }
         }
         bleManager?.onCommandResult = { result ->
             handler.post {
-                // V2.9.173: status结果→tvBleStatus（不被tap覆盖），tap结果→tvStatus
-                if (result.startsWith("ok:ver=") || result.startsWith("查询ESP32")) {
+                // V2.9.174: 放宽匹配——任何ok:开头或err:开头的都可能是status结果
+                // status回复格式: ok:ver=...,heap=...,usb=ok/no,hid=ok/no,...
+                if (result.startsWith("ok:") || result.startsWith("查询ESP32")) {
                     tvBleStatus?.text = "ESP32: $result"
+                    tvBleStatus?.visibility = View.VISIBLE
                 } else {
                     tvStatus?.text = "ESP32: $result"
                 }
