@@ -35,6 +35,7 @@
 #include <Arduino.h>
 #include <USB.h>
 #include <USBHID.h>
+#include <Adafruit_TinyUSB.h>
 
 // BLE 库
 #include <BLEDevice.h>
@@ -49,7 +50,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.27"
+#define FW_VERSION "v1.0.28"
 
 // BLE设备名
 #define BLE_DEVICE_NAME "QingYun-ESP32"
@@ -67,7 +68,7 @@
 #define HID_MAX 32767
 
 // HID Report ID
-#define HID_REPORT_ID_TOUCH 1
+#define HID_REPORT_ID_TOUCH 0
 
 // ============================================================================
 // 日志缓冲区（Serial + BLE log指令可用）
@@ -109,10 +110,17 @@ static void qlogf(const char* fmt, ...) {
 // ============================================================================
 // HID 报告描述符（触摸屏 Digitizer）
 // ============================================================================
+// V1.0.28: Touch Screen (0x04) 而非 Touch Pad (0x05)，Android更容易识别为触摸屏
+// 去掉 Report ID（report_id=0 不发送ID前缀）
 static const uint8_t touch_report_descriptor[] = {
     0x05, 0x0D,             // Usage Page (Digitizers)
-    0x09, 0x05,             // Usage (Touch Pad)
+    0x09, 0x04,             // Usage (Touch Screen) - 关键：用Touch Screen不是Touch Pad
     0xA1, 0x01,             // Collection (Application)
+
+    // Contact Count Maximum (Android必须)
+    0x09, 0x55,             //   Usage (Contact Count Maximum)
+    0x25, 0x01,             //   Logical Maximum (1)
+    0xB1, 0x02,             //   Feature (Data, Var, Abs) - 1个触点
 
     0x09, 0x22,             //   Usage (Finger)
     0xA1, 0x02,             //   Collection (Logical)
@@ -351,18 +359,22 @@ static void processCommand(const String& cmd) {
         }
 
     } else if (cmd == "status") {
+        // V1.0.28: 用TinyUSBDevice.mounted()判断USB是否真正被主机枚举
+        bool usbMounted = TinyUSBDevice.mounted();
+        bool hidReady = touchpad.ready();
         char buf[480];
         snprintf(buf, sizeof(buf),
-            "ok:ver=%s,heap=%u,psram=%u,usb=%s,hid=%s,ever=%s,fails=%d,reason=%s,ble=connected,uptime=%lus",
+            "ok:ver=%s,heap=%u,psram=%u,usb=%s,hid=%s,ever=%s,fails=%d,reason=%s,ble=connected,uptime=%lus,mnt=%d",
             FW_VERSION,
             ESP.getFreeHeap(),
             (unsigned)ESP.getFreePsram(),
-            ((bool)USB) ? "ok" : "no",
-            touchpad.ready() ? "ok" : "no",
+            usbMounted ? "ok" : "no",
+            hidReady ? "ok" : "no",
             touchpad.wasEverMounted() ? "yes" : "no",
             touchpad.hidFailCount(),
             touchpad.hidLastFailReason(),
-            (unsigned long)(millis() / 1000));
+            (unsigned long)(millis() / 1000),
+            usbMounted ? 1 : 0);
         bleReply(buf);
 
     } else if (cmd == "log") {
@@ -472,8 +484,16 @@ void setup() {
     // ---- USB HID ----
     qlog("---- USB HID Init ----");
 
-    qlogf("[USB] USB operator bool = %s (before begin)",
-          ((bool)USB ? "true(MOUNTED)" : "false"));
+    // V1.0.28: 设置USB设备描述符 - VID/PID/Manufacturer/Product/Serial
+    // 用Espressif官方VID(0x303A) + 触摸屏设备PID
+    USB.VID(0x303A);
+    USB.PID(0x8266);
+    USB.manufacturerName("QingYun");
+    USB.productName("QingYun Touch Screen");
+    USB.serialNumber("QY000001");
+    USB.productVersion(0x0100);  // v1.0
+
+    qlogf("[USB] USB vendorID=0x303A productID=0x8266 (Touch Screen)");
 
     qlog("[USB] Calling touchpad.begin()...");
     touchpad.begin();
@@ -482,42 +502,43 @@ void setup() {
     qlog("[USB] Calling USB.begin()...");
     bool usbResult = USB.begin();
     qlogf("[USB] USB.begin() returned: %s", usbResult ? "true" : "false");
-    qlogf("[USB] USB operator bool = %s",
-          ((bool)USB ? "true(MOUNTED)" : "false(not mounted)"));
+    qlogf("[USB] USB.ready()=%s | TinyUSBDevice.mounted()=%s",
+          USB.ready() ? "true" : "false",
+          TinyUSBDevice.mounted() ? "true" : "false");
 
     disableCore0WDT();
     disableCore1WDT();
     qlog("[TWDT] Dual-core Task WDT disabled");
 
-    // USB mount wait (30s max)
+    // V1.0.28: USB mount wait - 使用TinyUSBDevice.mounted()而非(bool)USB，更准确
     qlog("[USB] Waiting for USB mount (30s max)...");
     int waitCount = 0;
     bool wasMounted = false;
     while (waitCount < 300) {
         delay(100);
         waitCount++;
-        bool nowMounted = (bool)USB;
+        bool nowMounted = TinyUSBDevice.mounted() && touchpad.ready();
         if (nowMounted && !wasMounted) {
-            qlogf("[USB] *** MOUNTED at %d.%ds! HID ready=%s ***",
-                  waitCount / 10, waitCount % 10,
-                  touchpad.ready() ? "YES" : "NO");
+            qlogf("[USB] *** MOUNTED at %d.%ds! HID ready=YES ***",
+                  waitCount / 10, waitCount % 10);
         }
         wasMounted = nowMounted;
 
         if (waitCount % 50 == 0) {
-            qlogf("[USB] t=%d.%ds | USB=%s | HID=%s | Heap=%u",
+            qlogf("[USB] t=%d.%ds | mounted=%s | USB.ready=%s | HID.ready=%s | Heap=%u",
                   waitCount / 10, waitCount % 10,
-                  nowMounted ? "MOUNTED" : "not-mounted",
+                  TinyUSBDevice.mounted() ? "YES" : "no",
+                  USB.ready() ? "YES" : "no",
                   touchpad.ready() ? "READY" : "not-ready",
                   ESP.getFreeHeap());
         }
     }
 
-    if ((bool)USB) {
-        qlog("[USB] *** SUCCESS: USB device MOUNTED! ***");
+    if (TinyUSBDevice.mounted() && touchpad.ready()) {
+        qlog("[USB] *** SUCCESS: USB Touch Screen MOUNTED! ***");
     } else {
-        qlog("[USB] *** FAILED: NOT mounted after 30s ***");
-        qlog("[USB] Checklist: 1.OTG口? 2.USB_MODE=0? 3.OTG开关? 4.数据线?");
+        qlog("[USB] *** WARNING: Host not detected after 30s ***");
+        qlog("[USB] If USB not connected yet, plug OTG after boot");
     }
 
     qlogf("[Status] Heap after USB init: %u (%.1f KB)",
