@@ -112,10 +112,12 @@ object VisionApiClient {
 
             // V2.9.156: 统一用新分层prompt，不再区分compact/legacy
             var result: VisionResult? = null
+            var rawResponse: String? = null
             try {
                 val requestJson = buildRequest(dataUri, compact = true)
                 val tApi0 = System.currentTimeMillis()
-                result = parseResponse(sendRequest(requestJson))
+                rawResponse = sendRequest(requestJson)
+                result = parseResponse(rawResponse)
                 val tApi1 = System.currentTimeMillis()
                 if (result != null) {
                     compactSuccessCount++; lastPromptMode = "v156_schema"
@@ -125,6 +127,7 @@ object VisionApiClient {
             
             if (result == null) {
                 compactFailCount++
+                Log.e(TAG, "★ API解析失败, 原始响应前300字符: ${rawResponse?.take(300) ?: "null"}")
                 Log.d(TAG, "v156失败(${compactFailCount}次)")
                 lastError = "API错误: 识别失败"; return null
             }
@@ -417,9 +420,47 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
     private fun parseBlindsString(blinds: String): Pair<Int, Int> = try { val p = blinds.split("/"); if (p.size == 2) Pair(parseChipString(p[0].trim()), parseChipString(p[1].trim())) else Pair(0, 0) } catch (_: Exception) { Pair(0, 0) }
 
     private fun extractJson(text: String): String? {
+        // 1. 整体解析
         try { JSONObject(text); return text } catch (_: Exception) {}
-        val m = Regex("```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```").find(text); if (m != null) try { JSONObject(m.groupValues[1].trim()); return m.groupValues[1].trim() } catch (_: Exception) {}
-        val s = text.indexOf('{'); val e = text.lastIndexOf('}'); if (s >= 0 && e > s) try { JSONObject(text.substring(s, e + 1)); return text.substring(s, e + 1) } catch (_: Exception) {}
+        // 2. markdown 代码块提取
+        val m = Regex("```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```").find(text)
+        if (m != null) try { JSONObject(m.groupValues[1].trim()); return m.groupValues[1].trim() } catch (_: Exception) {}
+        // 3. V2.9.188: 括号匹配法——找到第一个完整的有效JSON对象边界
+        //    避免日志等额外内容污染JSON解析（截屏中包含app日志面板时的常见问题）
+        val firstBrace = text.indexOf('{')
+        if (firstBrace >= 0) {
+            var depth = 0
+            var inString = false
+            var escaped = false
+            for (i in firstBrace until text.length) {
+                val c = text[i]
+                when {
+                    escaped -> escaped = false
+                    c == '\\' && inString -> escaped = true
+                    c == '"' -> inString = !inString
+                    inString -> {} // 字符串内的括号不计入
+                    c == '{' -> depth++
+                    c == '}' -> {
+                        depth--
+                        if (depth == 0) {
+                            val candidate = text.substring(firstBrace, i + 1)
+                            try { JSONObject(candidate); return candidate } catch (_: Exception) {}
+                            // 当前匹配无效，继续寻找下一个 { 开始的位置
+                            break
+                        }
+                    }
+                }
+            }
+            // 如果括号匹配失败，回退到 indexOf/lastIndexOf 方式
+            val lastBrace = text.lastIndexOf('}')
+            if (lastBrace > firstBrace) {
+                try {
+                    val candidate = text.substring(firstBrace, lastBrace + 1)
+                    JSONObject(candidate)
+                    return candidate
+                } catch (_: Exception) {}
+            }
+        }
         return null
     }
 
