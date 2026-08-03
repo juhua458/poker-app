@@ -463,8 +463,29 @@ class FloatingService : Service() {
     
     // V2.9.153: AutoCapture
     fun toggleAutoCapture() {
-        if (autoCaptureEnabled) { stopAutoCapture(); updateBallAdvice("COLOR:CHECK|SIGNAL:NONE|REASON:自动关闭"); updateAdviceNotification("自动模式已关闭","手动模式") }
-        else { startAutoCapture(); updateAdviceNotification("🔄 自动模式","每4秒自动截屏") }
+        if (autoCaptureEnabled) {
+            stopAutoCapture()
+            updateBallAdvice("COLOR:CHECK|SIGNAL:NONE|REASON:自动关闭")
+            updateAdviceNotification("⏸ 全自动已停止", "手动模式")
+            floatingBall?.let { b ->
+                (b.background as? GradientDrawable)?.let { shape ->
+                    shape.setColor(0xDD333333.toInt())
+                    shape.setStroke(0, 0)
+                }
+                b.text = "♠"; b.textSize = 18f
+            }
+        } else {
+            startAutoCapture()
+            updateAdviceNotification("🟢 全自动运行中", "截屏→分析→自动执行")
+            floatingBall?.let { b ->
+                (b.background as? GradientDrawable)?.let { shape ->
+                    shape.setColor(0xDD00C853.toInt())
+                    val density = resources.displayMetrics.density
+                    shape.setStroke((3 * density).toInt(), 0xFF00E676.toInt())
+                }
+                b.text = "▶"; b.textSize = 16f
+            }
+        }
     }
     private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; isVisionInProgress=false; autoCaptureInterval=4000L; scheduleNextAutoCapture() }
     private fun stopAutoCapture() { autoCaptureEnabled=false; autoCaptureRunnable?.let{handler.removeCallbacks(it)}; autoCaptureRunnable=null; isVisionInProgress=false }
@@ -1077,29 +1098,18 @@ class FloatingService : Service() {
                     } else if (!isLongPressed) {
                         val clickTime = System.currentTimeMillis()
                         if (clickTime - lastClickTime < 350) {
-                            Log.d(TAG, "★ 悬浮球双击: 切换自动模式"); toggleAutoCapture(); lastClickTime = 0L
+                            Log.d(TAG, "★ 悬浮球双击: 手动截屏"); triggerCapture(); lastClickTime = 0L
                         } else {
                             lastClickTime = clickTime
                             handler.postDelayed({
                                 if (lastClickTime == clickTime) {
-                                    Log.d(TAG, "★ 悬浮球点击触发") // 缩放反馈+变色
+                                    Log.d(TAG, "★ 悬浮球单击: 切换全自动模式") // 缩放反馈
                         floatingBall?.let { b ->
                             b.animate().scaleX(0.85f).scaleY(0.85f).setDuration(80).withEndAction {
                                 b.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
                             }.start()
                         }
-                        // V2.9.111: 变黄+改边框（同时改背景和边框）
-                        floatingBall?.let { b ->
-                            (b.background as? GradientDrawable)?.let { shape ->
-                                shape.setColor(0xDDFFD600.toInt())
-                                val density = resources.displayMetrics.density
-                                val stroke = (3 * density).toInt()
-                                shape.setStroke(stroke, 0xFFD600.toInt())
-                            }
-                            b.text = "⏳"; b.textSize = 16f
-                        }
-                        updateAdviceNotification("⏳ 点击已触发", "正在截屏...")
-                        triggerCapture()
+                        toggleAutoCapture()
                                 }
                             }, 350)
                         }
