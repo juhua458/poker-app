@@ -2,11 +2,13 @@ package com.pokerhelper.app
 
 import android.util.Base64
 import android.util.Log
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 
 /**
  * V2.9.108: 视觉API客户端 - 单行格式提速+双prompt保险
@@ -20,6 +22,15 @@ import java.net.URL
 object VisionApiClient {
 
     private const val TAG = "VisionAPI"
+    
+    // V2.9.183: OkHttp连接池复用——避免每次TCP握手浪费100-200ms
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(5, 2, TimeUnit.MINUTES))
+            .build()
+    }
     
     // V2.9.108: prompt格式开关——true=单行紧凑(快), false=原格式(稳)
     var useCompactPrompt = true
@@ -305,11 +316,18 @@ ${streetHint}【识别当前图片】"""
     }
 
     private fun sendRequest(requestJson: String): String {
-        val conn = URL(apiUrl).openConnection() as HttpURLConnection
-        conn.apply { requestMethod = "POST"; setRequestProperty("Content-Type", "application/json"); setRequestProperty("Authorization", "Bearer $apiKey"); doOutput = true; connectTimeout = 8000; readTimeout = 20000 }
-        conn.outputStream.use { it.write(requestJson.toByteArray(Charsets.UTF_8)) }
-        return if (conn.responseCode == 200) conn.inputStream.bufferedReader().readText()
-        else throw Exception("HTTP ${conn.responseCode}: ${conn.errorStream?.bufferedReader()?.readText() ?: ""}")
+        val body = requestJson.toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url(apiUrl)
+            .post(body)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .build()
+        val response = httpClient.newCall(request).execute()
+        return if (response.isSuccessful) {
+            response.body?.string() ?: throw Exception("Empty response body")
+        } else {
+            throw Exception("HTTP ${response.code}: ${response.body?.string() ?: ""}")
+        }
     }
 
     private fun parseResponse(responseBody: String): VisionResult? {

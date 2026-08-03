@@ -36,6 +36,14 @@ class Esp32BleManager(private val context: Context) {
     private var txCharacteristic: BluetoothGattCharacteristic? = null
     private var rxCharacteristic: BluetoothGattCharacteristic? = null
     
+    // V2.9.183: BLE自动重连
+    private var lastConnectedDevice: BluetoothDevice? = null
+    private var autoReconnectEnabled = true
+    private var reconnectAttempts = 0
+    private val MAX_RECONNECT_ATTEMPTS = 5
+    private val RECONNECT_DELAY_BASE = 2000L  // 基础重连延迟2秒
+    private var reconnectRunnable: Runnable? = null
+    
     var isConnected = false
         private set
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
@@ -167,6 +175,10 @@ class Esp32BleManager(private val context: Context) {
     // 断开连接
     fun disconnect() {
         try {
+            autoReconnectEnabled = false  // V2.9.183: 主动断开时不自动重连
+            reconnectRunnable?.let { handler.removeCallbacks(it) }
+            reconnectRunnable = null
+            reconnectAttempts = 0
             handler.removeCallbacks(bleFlushTimeout)
             bleRxBuffer.clear()
             bluetoothGatt?.disconnect()
@@ -175,6 +187,7 @@ class Esp32BleManager(private val context: Context) {
             txCharacteristic = null
             rxCharacteristic = null
             isConnected = false
+            lastConnectedDevice = null
             notifyStatus(false, "已断开")
         } catch (e: Exception) {
             Log.w(TAG, "disconnect error", e)
@@ -255,6 +268,9 @@ class Esp32BleManager(private val context: Context) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Connected to GATT server")
+                    // V2.9.183: 保存设备用于自动重连
+                    lastConnectedDevice = gatt.device
+                    reconnectAttempts = 0
                     handler.post {
                         // V2.9.179: 请求最大MTU，减少分包
                         gatt.requestMtu(512)
@@ -264,6 +280,8 @@ class Esp32BleManager(private val context: Context) {
                     Log.i(TAG, "Disconnected from GATT server")
                     isConnected = false
                     notifyStatus(false, "已断开")
+                    // V2.9.183: 自动重连
+                    scheduleReconnect()
                 }
             }
         }
@@ -322,6 +340,32 @@ class Esp32BleManager(private val context: Context) {
                 Log.w(TAG, "Write failed: $status")
             }
         }
+    }
+    
+    // V2.9.183: 自动重连调度
+    private fun scheduleReconnect() {
+        if (!autoReconnectEnabled) return
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            Log.w(TAG, "重连已达最大次数($MAX_RECONNECT_ATTEMPTS)，停止重连")
+            notifyStatus(false, "重连失败(已达上限)")
+            return
+        }
+        val device = lastConnectedDevice ?: return
+        reconnectAttempts++
+        val delay = RECONNECT_DELAY_BASE * reconnectAttempts  // 递增延迟
+        Log.i(TAG, "BLE自动重连: 第${reconnectAttempts}次, ${delay}ms后")
+        notifyStatus(false, "重连中(${reconnectAttempts}/$MAX_RECONNECT_ATTEMPTS)...")
+        
+        reconnectRunnable?.let { handler.removeCallbacks(it) }
+        reconnectRunnable = Runnable {
+            try {
+                connectToDevice(device)
+            } catch (e: Exception) {
+                Log.e(TAG, "重连异常", e)
+                scheduleReconnect()  // 失败后继续重试
+            }
+        }
+        handler.postDelayed(reconnectRunnable!!, delay)
     }
     
     // 通知状态变化

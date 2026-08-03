@@ -98,6 +98,16 @@ class FloatingService : Service() {
     private var autoCaptureEnabled = false
     private var autoCaptureRunnable: Runnable? = null
     private var autoCaptureInterval = 4000L
+    // V2.9.183: 根据street自适应截屏间隔——翻前慢翻后快
+    private fun updateAutoCaptureInterval(street: String) {
+        autoCaptureInterval = when (street.lowercase()) {
+            "preflop" -> 4000L
+            "flop" -> 2500L
+            "turn" -> 2000L
+            "river" -> 2000L
+            else -> 4000L
+        }
+    }
     // V2.9.180: 最新按钮坐标（Vision API返回，用于全自动执行）
     private var latestButtonPositions = emptyList<VisionApiClient.ButtonPosition>()
     private var screenWidth = 1080
@@ -126,7 +136,34 @@ class FloatingService : Service() {
     private lateinit var assetLoader: WebViewAssetLoader
     // V2.9.70: 错误日志——API/截屏失败时记录，豪哥可导出反馈
     private val errorLogs = mutableListOf<String>()
+    private val ERROR_LOG_FILE = "error_logs.txt"
+    private val MAX_ERROR_LOGS = 50
     private var isBlinkingError = false
+    
+    // V2.9.183: errorLogs文件持久化——防止重启丢失
+    private fun loadErrorLogs() {
+        try {
+            val file = File(filesDir, ERROR_LOG_FILE)
+            if (file.exists()) {
+                errorLogs.clear()
+                errorLogs.addAll(file.readLines().takeLast(MAX_ERROR_LOGS))
+            }
+        } catch (_: Exception) {}
+    }
+    
+    private fun addErrorLog(entry: String) {
+        errorLogs.add(entry)
+        if (errorLogs.size > MAX_ERROR_LOGS) errorLogs.removeAt(0)
+        try {
+            File(filesDir, ERROR_LOG_FILE).appendText(entry + "\n", Charsets.UTF_8)
+            // 滚动保留最近200行
+            val file = File(filesDir, ERROR_LOG_FILE)
+            if (file.length() > 32768) {
+                val lines = file.readLines()
+                file.writeText(lines.takeLast(MAX_ERROR_LOGS).joinToString("\n") + "\n")
+            }
+        } catch (_: Exception) {}
+    }
 
     // V2.9.112: BLE ESP32连接
     private var bleManager: Esp32BleManager? = null
@@ -196,6 +233,7 @@ class FloatingService : Service() {
         createNotificationChannel()
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         isStealthMode = prefs?.getBoolean(KEY_STEALTH_MODE, false) ?: false
+        loadErrorLogs()  // V2.9.183: 加载持久化错误日志
 
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -825,8 +863,7 @@ class FloatingService : Service() {
             }
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
                 Log.e(TAG, "WebView加载失败: code=$errorCode desc=$description url=$failingUrl")
-                errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} WebView错误: $errorCode $description")
-                if (errorLogs.size > 50) errorLogs.removeAt(0)
+                addErrorLog("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} WebView错误: $errorCode $description")
                 // V2.9.114: 用AssetLoader URL重载（不依赖HTTP服务器）
                 wv.postDelayed({ wv.loadUrl("https://appassets.androidplatform.net/assets/poker_helper.html") }, 1000)
             }
@@ -1549,8 +1586,7 @@ class FloatingService : Service() {
             updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
             isBlinkingError = true
             floatingBall?.text="⚠️";floatingBall?.textSize=14f
-            errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} 截屏失败: $diag")
-            if (errorLogs.size > 50) errorLogs.removeAt(0)
+            addErrorLog("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} 截屏失败: $diag")
             return
         }
         // V2.9.109: 诊断——截图成功，始终更新通知
@@ -1702,6 +1738,7 @@ class FloatingService : Service() {
                         Log.d(TAG, "★ onVisionResult已调用")
                         // V2.9.70: 正常识别→停止闪烁
                         isBlinkingError = false
+                        updateAutoCaptureInterval(result.street)  // V2.9.183: 自适应截屏间隔
                         updateAdviceNotification("3/4 API识别OK", "策略计算中... WV:$webViewReady")
                         val hole = result.holeCards.map { (if(it.rank=="T") "10" else it.rank) + it.suit }.joinToString(" ")
                         tvStatus?.text = "✅ $hole | ${result.street} | ${result.totalPlayers}人"
@@ -1746,8 +1783,7 @@ class FloatingService : Service() {
                         updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
                         isBlinkingError = true
                         floatingBall?.text="⚠️";floatingBall?.textSize=14f
-                        errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API失败: ${VisionApiClient.lastError.take(100)}")
-                        if (errorLogs.size > 50) errorLogs.removeAt(0)
+                        addErrorLog("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API失败: ${VisionApiClient.lastError.take(100)}")
                         Log.e(TAG, "★ API失败, error=${VisionApiClient.lastError}")
                         updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
                     }
@@ -1760,8 +1796,7 @@ class FloatingService : Service() {
                     updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
                     isBlinkingError = true
                     floatingBall?.text="⚠️";floatingBall?.textSize=14f
-                    errorLogs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API异常: ${e.message?.take(100) ?: "未知"}")
-                    if (errorLogs.size > 50) errorLogs.removeAt(0)
+                    addErrorLog("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API异常: ${e.message?.take(100) ?: "未知"}")
                     updateAdviceNotification("API错误", e.message?.take(50) ?: "")
                 }
             }

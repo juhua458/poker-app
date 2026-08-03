@@ -24,8 +24,8 @@ class HttpServerService : Service() {
         private const val CHANNEL_ID = "poker_http"
         private const val NOTIFICATION_ID = 3
         // v2.9.35: 热更新远程JS地址（ghfast代理 + 直连GitHub双保险）
-        private const val HOTLOAD_URL = "https://ghfast.top/https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
-        private const val HOTLOAD_URL_FALLBACK = "https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
+        private const val HOTLOAD_URL = "https://ghfast.top/https://raw.githubusercontent.com/vd90ba4aof/poker-app/main/app/src/main/assets/poker_helper.html"
+        private const val HOTLOAD_URL_FALLBACK = "https://raw.githubusercontent.com/vd90ba4aof/poker-app/main/app/src/main/assets/poker_helper.html"
         private const val HOTLOAD_FILE = "poker_helper_hot.html"
         private const val HOTLOAD_TIMEOUT = 15000 // 15秒超时
     }
@@ -156,7 +156,7 @@ class HttpServerService : Service() {
                                 put("timeSinceLast", timeSinceLast)
                                 put("error", capture.lastError)
                                 put("panelWidth", panelW)
-                                put("version", "2.9.164")
+                                put("version", BuildConfig.VERSION_NAME)
                                 put("htmlSource", hotloadSource)
                                 put("chipStatus", capture.lastChipStatus)
                                 // V2.9.164: 热更新后通知WebView重载
@@ -491,7 +491,7 @@ class HttpServerService : Service() {
     private fun createNotification(): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("截屏优化 v2.9.164")
+                .setContentTitle("截屏优化 v${BuildConfig.VERSION_NAME}")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
@@ -499,7 +499,7 @@ class HttpServerService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("截屏优化 v2.9.164")
+                .setContentTitle("截屏优化 v${BuildConfig.VERSION_NAME}")
                 .setContentText("HTTP服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)

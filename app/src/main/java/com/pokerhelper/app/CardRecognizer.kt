@@ -186,8 +186,8 @@ class CardRecognizer(private val context: Context) {
             return null
         }
 
-        // === Step 2: Suit识别 (颜色分割) ===
-        val suit = identifySuit(pixels)
+        // === Step 2: Suit识别 (颜色分割+形态分析) ===
+        val suit = identifySuit(pixels, w)
         if (suit == null) {
             Log.w(TAG, "Suit identification failed for $bestRank")
             return null
@@ -232,9 +232,9 @@ class CardRecognizer(private val context: Context) {
     }
 
     /**
-     * 花色识别：颜色分割
+     * 花色识别：颜色分割 + 形态分析
      */
-    private fun identifySuit(pixels: IntArray): String? {
+    private fun identifySuit(pixels: IntArray, width: Int): String? {
         var redCount = 0
         var blackCount = 0
 
@@ -251,34 +251,85 @@ class CardRecognizer(private val context: Context) {
 
         val isRed = redCount > SUIT_COLOR_THRESHOLD && redCount > blackCount
 
-        // 简化版花色区分：红牌中♥vs♦，黑牌中♣vs♠
-        // 用红色区域的分布特征区分
         if (isRed) {
-            // ♥心形 vs ♦菱形：通过红色像素的宽高比
-            val ratio = analyzeRedRegionRatio(pixels)
+            // ♥心形 vs ♦菱形：通过红色像素的宽高比区分
+            val ratio = analyzeRedRegionRatio(pixels, width)
             return if (ratio > 0.85) "h" else "d"
         } else {
-            // ♣梅花 vs ♠黑桃：通过黑色像素分布
-            val ratio = analyzeBlackRegionRatio(pixels)
+            // ♣梅花 vs ♠黑桃：通过黑色像素分布区分
+            val ratio = analyzeBlackRegionRatio(pixels, width)
             return if (ratio < 0.65) "c" else "s"
         }
     }
 
     /**
      * 分析红色区域宽高比（区分♥和♦）
+     * ♥心形：较宽，宽高比一般 > 0.85
+     * ♦菱形：较窄，宽高比一般 < 0.85
      */
-    private fun analyzeRedRegionRatio(pixels: IntArray): Double {
-        // 简化：用整个ROI的宽高比近似
-        // 在实际集成时可通过轮廓分析精确区分
-        // 这里先用一个基于模板匹配分数的备选方案
-        return 0.9  // 默认偏向♥，实际部署时需要更精细的分析
+    private fun analyzeRedRegionRatio(pixels: IntArray, width: Int): Double {
+        val height = pixels.size / width
+        if (height <= 0) return 0.9
+
+        var minX = width; var maxX = 0; var minY = height; var maxY = 0
+        var redCount = 0
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val p = pixels[y * width + x]
+                val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
+                if (r > 150 && g < 100 && b < 100) {
+                    redCount++
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+
+        if (redCount < SUIT_COLOR_THRESHOLD) return 0.9
+
+        val regionW = (maxX - minX + 1).toDouble()
+        val regionH = (maxY - minY + 1).toDouble()
+        if (regionH <= 0.0) return 0.9
+
+        return regionW / regionH
     }
 
     /**
      * 分析黑色区域分布（区分♣和♠）
+     * ♣梅花：三叶圆瓣，分布更分散，宽高比偏高
+     * ♠黑桃：单尖头朝上，较集中，宽高比偏低
      */
-    private fun analyzeBlackRegionRatio(pixels: IntArray): Double {
-        return 0.7  // 默认偏向♠，实际部署时需要更精细的分析
+    private fun analyzeBlackRegionRatio(pixels: IntArray, width: Int): Double {
+        val height = pixels.size / width
+        if (height <= 0) return 0.7
+
+        var minX = width; var maxX = 0; var minY = height; var maxY = 0
+        var blackCount = 0
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val p = pixels[y * width + x]
+                val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
+                if (r < 80 && g < 80 && b < 80) {
+                    blackCount++
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+
+        if (blackCount < SUIT_COLOR_THRESHOLD) return 0.7
+
+        val regionW = (maxX - minX + 1).toDouble()
+        val regionH = (maxY - minY + 1).toDouble()
+        if (regionH <= 0.0) return 0.7
+
+        return regionW / regionH
     }
 
     private fun bitmapToGrayDouble(bmp: Bitmap): DoubleArray {
