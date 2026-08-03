@@ -24,8 +24,8 @@ class HttpServerService : Service() {
         private const val CHANNEL_ID = "poker_http"
         private const val NOTIFICATION_ID = 3
         // v2.9.35: 热更新远程JS地址（ghfast代理 + 直连GitHub双保险）
-        private const val HOTLOAD_URL = "https://ghfast.top/https://raw.githubusercontent.com/vd90ba4aof/poker-app/main/app/src/main/assets/poker_helper.html"
-        private const val HOTLOAD_URL_FALLBACK = "https://raw.githubusercontent.com/vd90ba4aof/poker-app/main/app/src/main/assets/poker_helper.html"
+        private const val HOTLOAD_URL = "https://ghfast.top/https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
+        private const val HOTLOAD_URL_FALLBACK = "https://raw.githubusercontent.com/juhua458/poker-app/main/app/src/main/assets/poker_helper.html"
         private const val HOTLOAD_FILE = "poker_helper_hot.html"
         private const val HOTLOAD_TIMEOUT = 15000 // 15秒超时
     }
