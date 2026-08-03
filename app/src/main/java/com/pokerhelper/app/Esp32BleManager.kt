@@ -49,6 +49,10 @@ class Esp32BleManager(private val context: Context) {
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onCommandResult: ((String) -> Unit)? = null
 
+    // V2.9.184: BLE命令队列——避免writeCharacteristic失败导致命令丢失
+    private val commandQueue = mutableListOf<String>()
+    private var isWriting = false
+
     // V2.9.178: BLE数据缓冲——ESP32 status响应120+字节，BLE单包最多20字节
     // 必须拼接多包才能拿到完整数据
     private val bleRxBuffer = StringBuilder()
@@ -223,24 +227,43 @@ class Esp32BleManager(private val context: Context) {
         sendCommand("ping")
     }
     
-    // 发送命令
+    // V2.9.184: 命令队列——避免并发写入导致命令丢失
     private fun sendCommand(cmd: String) {
+        if (isWriting) {
+            commandQueue.add(cmd)
+            return
+        }
+        writeCommand(cmd)
+    }
+    
+    private fun writeCommand(cmd: String) {
         try {
             val characteristic = txCharacteristic ?: run {
                 onCommandResult?.invoke("err:no_tx_char")
+                processNextCommand()
                 return
             }
-            
             characteristic.value = cmd.toByteArray(Charsets.UTF_8)
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            
             val success = bluetoothGatt?.writeCharacteristic(characteristic) ?: false
-            if (!success) {
+            if (success) {
+                isWriting = true
+            } else {
                 onCommandResult?.invoke("err:write_failed")
+                processNextCommand()
             }
         } catch (e: Exception) {
             Log.e(TAG, "sendCommand error", e)
             onCommandResult?.invoke("err:${e.message}")
+            processNextCommand()
+        }
+    }
+    
+    private fun processNextCommand() {
+        isWriting = false
+        if (commandQueue.isNotEmpty()) {
+            val next = commandQueue.removeAt(0)
+            writeCommand(next)
         }
     }
     
@@ -339,6 +362,7 @@ class Esp32BleManager(private val context: Context) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "Write failed: $status")
             }
+            processNextCommand()  // V2.9.184: 发送队列中的下一条命令
         }
     }
     

@@ -316,18 +316,38 @@ ${streetHint}【识别当前图片】"""
     }
 
     private fun sendRequest(requestJson: String): String {
-        val body = requestJson.toRequestBody("application/json".toMediaType())
-        val request = Request.Builder()
-            .url(apiUrl)
-            .post(body)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .build()
-        val response = httpClient.newCall(request).execute()
-        return if (response.isSuccessful) {
-            response.body?.string() ?: throw Exception("Empty response body")
-        } else {
-            throw Exception("HTTP ${response.code}: ${response.body?.string() ?: ""}")
+        var lastException: Exception? = null
+        // V2.9.184: 网络波动重试1次，间隔500ms
+        repeat(2) { attempt ->
+            try {
+                val body = requestJson.toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url(apiUrl)
+                    .post(body)
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .build()
+                val response = httpClient.newCall(request).execute()
+                return if (response.isSuccessful) {
+                    response.body?.string() ?: throw Exception("Empty response body")
+                } else {
+                    val errBody = response.body?.string() ?: ""
+                    if (attempt == 0 && response.code >= 500) {
+                        Log.w(TAG, "HTTP ${response.code}, retrying...")
+                        lastException = Exception("HTTP ${response.code}: $errBody")
+                        Thread.sleep(500)
+                        continue
+                    }
+                    throw Exception("HTTP ${response.code}: $errBody")
+                }
+            } catch (e: Exception) {
+                lastException = e
+                if (attempt == 0) {
+                    Log.w(TAG, "API request failed, retrying: ${e.message}")
+                    Thread.sleep(500)
+                }
+            }
         }
+        throw lastException ?: Exception("Unknown error")
     }
 
     private fun parseResponse(responseBody: String): VisionResult? {

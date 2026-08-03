@@ -275,9 +275,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun startDirectly() {
         try {
+            // V2.9.184: 无障碍未开启不再完全阻塞——允许启动HTTP服务和WebView，截屏时再提示
             if (!isAccessibilityServiceEnabled()) {
-                Toast.makeText(this, "⚠️ 请先开启无障碍服务（点下方按钮）", Toast.LENGTH_LONG).show()
-                return
+                Toast.makeText(this, "⚠️ 无障碍未开启，截屏功能不可用（已启动HTTP/策略引擎）", Toast.LENGTH_LONG).show()
             }
 
             val httpIntent = Intent(this, HttpServerService::class.java).apply { action = "START" }

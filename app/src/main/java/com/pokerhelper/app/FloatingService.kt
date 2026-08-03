@@ -115,11 +115,12 @@ class FloatingService : Service() {
     private var isVisionInProgress = false
     private var autoConsecutiveErrors = 0
     private val AUTO_MAX_ERRORS = 3
-    private var multiFrameDelay = 200L
+    private var manualErrorCount = 0  // V2.9.184: 手动截屏连续失败计数
+    private var multiFrameDelay = 1500L  // V2.9.184: 200→1500ms，给API调用留足时间
 
     // V2.9.4: WebView加载追踪 + JS调用队列
     private var webViewReady = false
-    private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
+    @Volatile private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
     private var _strategyTimeoutRunnable: Runnable? = null  // V2.9.125: 策略超时定时器引用
     private var _lastStrategyAdvice = ""   // V2.9.113: 最后策略结果
     // V2.9.155: 崩溃状态——JS ReferenceError/未捕获异常时悬浮球显示「崩」+红+快闪
@@ -170,6 +171,7 @@ class FloatingService : Service() {
     private var tvBle: TextView? = null
     // V2.9.173: BLE诊断信息独立显示区，不被tap结果覆盖
     private var tvBleStatus: TextView? = null
+    private var bleStatusPending = false  // V2.9.184: 用标志位替代字符串比较
 
     // V2.9.38: 隐身模式通知广播接收器
     private val notificationReceiver = object : BroadcastReceiver() {
@@ -201,6 +203,7 @@ class FloatingService : Service() {
             try {
                 showFloatingWindow()
                 showFloatingBall()
+                reinitializeComponents()  // V2.9.184: 恢复CardRecognizer/语音/BLE/广播接收器
             } catch (e: Exception) {
                 Log.e("FloatingService", "onStartCommand re-init failed", e)
             }
@@ -270,6 +273,7 @@ class FloatingService : Service() {
         try {
             cardRecognizer = CardRecognizer(this)
             cardRecognizer?.init()
+            CardRecognizer.updateScreenSize(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)  // V2.9.184
             Log.i(TAG, "本地CV识别器初始化完成")
         } catch (e: Exception) {
             Log.e(TAG, "本地CV识别器初始化失败", e)
@@ -291,11 +295,13 @@ class FloatingService : Service() {
                 if (connected) {
                     tvBleStatus?.text = "查询ESP32状态..."
                     tvBleStatus?.visibility = View.VISIBLE
+                    bleStatusPending = true  // V2.9.184
                     handler.postDelayed({ bleManager?.sendStatus() }, 500)
                     // V2.9.174: 5秒无响应超时
                     handler.postDelayed({
-                        if (tvBleStatus?.text?.toString() == "查询ESP32状态...") {
+                        if (bleStatusPending) {
                             tvBleStatus?.text = "ESP32: status无响应"
+                            bleStatusPending = false
                         }
                     }, 5500)
                 }
@@ -303,6 +309,7 @@ class FloatingService : Service() {
         }
         bleManager?.onCommandResult = { result ->
             handler.post {
+                bleStatusPending = false  // V2.9.184: 收到响应，取消超时
                 // V2.9.176: 放宽匹配——任何ok:开头或err:开头的都可能是status结果
                 // status回复格式: ok:ver=...,heap=...,usb=ok/no,hid=ok/no,...
                 if (result.startsWith("ok:") || result.startsWith("查询ESP32")) {
@@ -320,6 +327,77 @@ class FloatingService : Service() {
                 }
             }
         }
+    }
+
+    // V2.9.184: 服务重启后恢复关键组件——onStartCommand(START_STICKY)重启时onCreate不会被调用
+    private fun reinitializeComponents() {
+        // 重新注册通知广播接收器
+        try {
+            val filter = IntentFilter().apply {
+                addAction(ACTION_CAPTURE)
+                addAction(ACTION_VOICE)
+                addAction(ACTION_OPEN)
+                addAction(ACTION_EXPORT)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                registerReceiver(notificationReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(notificationReceiver, filter)
+            }
+        } catch (_: Exception) {}
+        
+        // 重新初始化本地CV
+        try {
+            cardRecognizer = CardRecognizer(this)
+            cardRecognizer?.init()
+            CardRecognizer.updateScreenSize(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)  // V2.9.184
+            localCVEnabled = true
+            Log.i(TAG, "reinit: CardRecognizer OK")
+        } catch (e: Exception) {
+            localCVEnabled = false
+            Log.w(TAG, "reinit: CardRecognizer failed", e)
+        }
+        
+        // 重新初始化语音识别
+        initSpeechRecognizer()
+        
+        // 重新初始化BLE
+        bleManager = Esp32BleManager(this)
+        bleManager?.onStatusChanged = { connected, message ->
+            handler.post {
+                tvBle?.text = if (connected) "🔗" else "📡"
+                tvBle?.setTextColor(if (connected) 0xFF4ade80.toInt() else 0xFFBDBDBD.toInt())
+                tvStatus?.text = "BLE: $message"
+                if (connected) {
+                    tvBleStatus?.text = "查询ESP32状态..."
+                    tvBleStatus?.visibility = View.VISIBLE
+                    bleStatusPending = true
+                    handler.postDelayed({ bleManager?.sendStatus() }, 500)
+                    handler.postDelayed({
+                        if (bleStatusPending) {
+                            tvBleStatus?.text = "ESP32: status无响应"
+                            bleStatusPending = false
+                        }
+                    }, 5500)
+                }
+            }
+        }
+        bleManager?.onCommandResult = { result ->
+            handler.post {
+                bleStatusPending = false  // V2.9.184: 收到响应，取消超时
+                if (result.startsWith("ok:") || result.startsWith("查询ESP32")) {
+                    val formattedResult = if (result.startsWith("ok:")) {
+                        val fields = result.removePrefix("ok:")
+                        "ESP32状态:\n" + fields.split(",").joinToString("\n") { "  $it" }
+                    } else "ESP32: $result"
+                    tvBleStatus?.text = formattedResult
+                    tvBleStatus?.visibility = View.VISIBLE
+                } else {
+                    tvStatus?.text = "ESP32: $result"
+                }
+            }
+        }
+        Log.i(TAG, "reinit: all components restored")
     }
 
     override fun onDestroy() {
@@ -400,6 +478,11 @@ class FloatingService : Service() {
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
+        } else {
+            // V2.9.184: 启动时提示语音不可用
+            handler.postDelayed({
+                tvStatus?.text = "⚠️ 语音不可用"
+            }, 3000)
         }
     }
 
@@ -586,25 +669,25 @@ class FloatingService : Service() {
             executeAutoTapFallback(action)
         }
     }
-    // V2.9.180: 回退固定位置——当Vision API没有按钮坐标时使用
+    // V2.9.184: 回退动态坐标——根据实际屏幕尺寸计算，不再硬编码1080×2344
     private fun executeAutoTapFallback(action: String) {
-        // 一加13T 1080×2344 竖屏，按钮通常在底部
+        val (sw, sh) = getScreenSize()
         val (x, y) = when (action) {
-            "fold" -> 180 to 2050     // 左下
-            "check" -> 540 to 2050    // 中下
-            "call", "weak_call" -> 540 to 2050   // 中下
-            "raise", "raise_big" -> 900 to 2050  // 右下
-            "allin" -> 540 to 2150    // 中下偏上
-            else -> 540 to 2050
+            "fold" -> (sw * 0.17).toInt() to (sh * 0.88).toInt()
+            "check" -> (sw * 0.50).toInt() to (sh * 0.88).toInt()
+            "call", "weak_call" -> (sw * 0.50).toInt() to (sh * 0.88).toInt()
+            "raise", "raise_big" -> (sw * 0.83).toInt() to (sh * 0.88).toInt()
+            "allin" -> (sw * 0.50).toInt() to (sh * 0.92).toInt()
+            else -> (sw * 0.50).toInt() to (sh * 0.88).toInt()
         }
-        Log.d(TAG, "★ autoTapFallback: $action → ($x, $y)")
+        Log.d(TAG, "★ autoTapFallback: $action → ($x, $y) [screen=${sw}x${sh}]")
         bleManager?.sendTap(x, y, 50)
     }
     private fun checkAutoErrors(){if(autoConsecutiveErrors>=AUTO_MAX_ERRORS){stopAutoCapture();updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER|REASON:自动暂停");updateAdviceNotification("⚠️ 自动模式暂停","连续${AUTO_MAX_ERRORS}次错误")}}
     fun triggerMultiFrameCapture(){
         if(!ScreenOptService.isServiceRunning())return;if(isVisionInProgress)return
         isVisionInProgress=true
-        ScreenOptService.onScreenshotReady={s->handler.post{if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{if(s2)processScreenshotAndAnalyze(isMultiFrame2=true)}};ScreenOptService.captureScreen()}},multiFrameDelay)}else isVisionInProgress=false}}
+        ScreenOptService.onScreenshotReady={s->handler.post{if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}else isVisionInProgress=false}};ScreenOptService.captureScreen()}},multiFrameDelay)}else isVisionInProgress=false}}
         ScreenOptService.captureScreen()
     }
     fun setAutoCaptureSpeed(ms:Long){autoCaptureInterval=ms.coerceIn(2000L,10000L);if(autoCaptureEnabled)scheduleNextAutoCapture()}
@@ -630,11 +713,14 @@ class FloatingService : Service() {
                 handler.post {
                     if (success) {
                         Log.d(TAG, "★ 截屏成功，进入processScreenshotAndAnalyze")
+                        manualErrorCount = 0  // V2.9.184: 重置手动截屏错误计数
                         updateAdviceNotification("2/4 截屏成功", "正在调用API识别...")
                         processScreenshotAndAnalyze()
                     } else {
                         Log.e(TAG, "★ 截屏失败: ${ScreenCaptureService.lastError}")
-                        tvStatus?.text = "❌ 截图失败，请重试"
+                        manualErrorCount++  // V2.9.184: 手动截屏失败计数
+                        val errMsg = if (manualErrorCount >= 5) "⚠️ 连续${manualErrorCount}次失败，请检查无障碍" else "❌ 截图失败，请重试"
+                        tvStatus?.text = errMsg
                         tvAction?.alpha = 1.0f
                         executeJs("document.body.classList.remove('api-processing')")
                         updateAdviceNotification("❌ 截屏失败", ScreenCaptureService.lastError.take(30))
@@ -1056,8 +1142,7 @@ class FloatingService : Service() {
         }, "AndroidBridge")
 
         // V2.9.114: WebViewAssetLoader加载——Google官方推荐，零竞态风险
-        // 仍需启动HttpServerService：JS端fetch /api/请求走NanoHTTPD动态接口
-        try { startService(Intent(this, HttpServerService::class.java).apply { action = "START" }) } catch (_: Exception) {}
+        // HttpServerService已在MainActivity中启动，不重复启动
         wv.loadUrl("https://appassets.androidplatform.net/assets/poker_helper.html")
         Log.d(TAG, "★ WebView通过AssetLoader加载poker_helper.html")
 

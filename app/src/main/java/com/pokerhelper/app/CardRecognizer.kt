@@ -19,24 +19,37 @@ class CardRecognizer(private val context: Context) {
     companion object {
         private const val TAG = "CardRecognizer"
 
-        // === GG Poker 竖屏坐标 (1080×2344) ===
-        private val COMMUNITY_Y = 1060 to 1210
-        private val COMMUNITY_CARDS = listOf(
-            155 to 315,
-            305 to 465,
-            455 to 615,
-            605 to 765,
-            755 to 915
+        // === GG Poker 竖屏坐标 (基于1080×2344，运行时按屏幕比例缩放) ===
+        private const val BASE_WIDTH = 1080
+        private const val BASE_HEIGHT = 2344
+        
+        private val COMMUNITY_Y_BASE = 1060 to 1210
+        private val COMMUNITY_CARDS_BASE = listOf(
+            155 to 315, 305 to 465, 455 to 615, 605 to 765, 755 to 915
         )
-
-        private val HAND_Y = 1780 to 1940
-        private val HAND_CARDS = listOf(
-            85 to 180,
-            180 to 295
-        )
+        private val HAND_Y_BASE = 1780 to 1940
+        private val HAND_CARDS_BASE = listOf(85 to 180, 180 to 295)
 
         private const val RANK_MATCH_THRESHOLD = 0.70
         private const val SUIT_COLOR_THRESHOLD = 50
+        
+        // V2.9.184: 运行时缩放因子
+        private var scaleX = 1.0f
+        private var scaleY = 1.0f
+        private var COMMUNITY_Y = 1060 to 1210
+        private var COMMUNITY_CARDS = COMMUNITY_CARDS_BASE
+        private var HAND_Y = 1780 to 1940
+        private var HAND_CARDS = HAND_CARDS_BASE
+        
+        fun updateScreenSize(width: Int, height: Int) {
+            scaleX = width.toFloat() / BASE_WIDTH
+            scaleY = height.toFloat() / BASE_HEIGHT
+            COMMUNITY_Y = (COMMUNITY_Y_BASE.first * scaleY).toInt() to (COMMUNITY_Y_BASE.second * scaleY).toInt()
+            COMMUNITY_CARDS = COMMUNITY_CARDS_BASE.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
+            HAND_Y = (HAND_Y_BASE.first * scaleY).toInt() to (HAND_Y_BASE.second * scaleY).toInt()
+            HAND_CARDS = HAND_CARDS_BASE.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
+            Log.i(TAG, "CardRecognizer坐标缩放: ${width}x${height} scaleX=$scaleX scaleY=$scaleY")
+        }
     }
 
     // 模板数据: key -> (灰度像素数组, 宽, 高)
