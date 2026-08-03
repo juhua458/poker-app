@@ -2571,7 +2571,7 @@ var HandStateMachine=(function(){
         if(_nashR)return _nashR;
       }
     }
-    var eq=eQ(k);
+    var eq=eQ(k,(G.ap||2)-1);
     var profile=DRTA.getProfile();
     var oppType=G.opp||'unknown';
     var p5=_pos5(p);
@@ -4048,7 +4048,11 @@ var DRTA={
   },
   
   classify:function(p){
-    var vpip=p.vpip,af=p.af,ftb=p.fold_to_bet;
+    // V2.9.185: 级别自适应——不同级别玩家池VPIP/AF不同
+    var _lvl=(typeof G!=='undefined'&&G._oppLevel)||'mid';
+    var _lvlAdj={micro:{v:+8,a:-0.4},low:{v:+4,a:-0.2},mid:{v:0,a:0},high:{v:-4,a:+0.2},nosebleed:{v:-8,a:+0.4}};
+    var _adj=_lvlAdj[_lvl]||{v:0,a:0};
+    var vpip=p.vpip-_adj.v,af=p.af-_adj.a,ftb=p.fold_to_bet;
     if(vpip>=65&&af>=3.0)return'maniac';
     if(vpip>=50&&af<0.5)return'calling_station';
     if(vpip>=40&&af<1.0)return'fish';
@@ -6052,7 +6056,32 @@ var SPRZone={
 
 function getHandKey(){var h=G.hole;if(!h[0]||!h[1])return null;var r1=h[0].rank,r2=h[1].rank,s1=h[0].suit,s2=h[1].suit;if(RV[r1]<RV[r2]){var t=r1;r1=r2;r2=t;var ts=s1;s1=s2;s2=ts;}var suited=s1&&s2&&s1===s2;var k=r1+r2+(r1===r2?'':(suited?'s':'o'));return k;}
 function eH(cards){var ranks=[],suits=[];cards.forEach(function(c){if(c){ranks.push(c.rank);if(c.suit)suits.push(c.suit);}});var values=ranks.map(function(r){return RV[r]||0;});values.sort(function(a,b){return b-a;});var isFlush=suits.length>=5&&(function(){var s={};suits.forEach(function(su){s[su]=(s[su]||0)+1;});for(var k in s)if(s[k]>=5)return true;return false;})();var isStraight=(function(){var uniq=[];values.forEach(function(v){if(uniq.indexOf(v)===-1)uniq.push(v);});uniq.sort(function(a,b){return b-a;});if(uniq.length>=5){for(var i=0;i<=uniq.length-5;i++){if(uniq[i]-uniq[i+4]===4)return true;}if(uniq.indexOf(12)>=0&&uniq.indexOf(3)>=0&&uniq.indexOf(2)>=0&&uniq.indexOf(1)>=0&&uniq.indexOf(0)>=0)return true;}return false;})();var pairCount=(function(){var c={};ranks.forEach(function(r){c[r]=(c[r]||0)+1;});return Object.values(c).filter(function(n){return n>=2;}).sort(function(a,b){return b-a;});})();var topPair=(function(){if(pairCount[0]>=2){for(var i=0;i<ranks.length;i++){var cnt=0;for(var j=0;j<ranks.length;j++)if(ranks[j]===ranks[i])cnt++;if(cnt>=2)return RV[ranks[i]];}}return-1;})();var madeHand='high';if(isFlush&&isStraight)madeHand='sf';else if(isFlush)madeHand='flush';else if(isStraight)madeHand='straight';else if(pairCount[0]>=4)madeHand='quads';else if(pairCount[0]>=3&&pairCount[1]>=2)madeHand='fh';else if(pairCount[0]>=3)madeHand='set';else if(pairCount[0]>=2&&pairCount[1]>=2)madeHand='twoPair';else if(pairCount[0]>=2)madeHand='pair';var kicker=Math.max.apply(null,values.slice(0,Math.min(5,values.length)));var score=(function(){var handVals={high:0,pair:100,twoPair:200,set:300,straight:400,flush:500,fh:600,quads:700,sf:800};if(madeHand==='pair'){var npv=values.filter(function(v){return v!==topPair;});var pk=npv.length>0?npv[0]:0;return handVals.pair+topPair*5+pk;}return(handVals[madeHand]||0)+(kicker||0);})();return score;}
-function eQ(key){var pairEq={AA:85,KK:82,QQ:80,JJ:77,TT:75,99:72,88:70,77:68,66:66,55:64,44:62,33:60,22:56};if(pairEq[key])return pairEq[key];var s=key.indexOf('s')>=0?1:0;var m={AK:[65,67],AQ:[62,65],AJ:[58,61],AT:[53,55],A9:[49,55],A8:[48,54],A7:[47,53],A6:[46,53],A5:[46,55],A4:[45,54],A3:[44,53],A2:[43,53],KQ:[58,61],KJ:[53,58],KT:[49,56],K9:[47,53],K8:[40,51],K7:[39,50],K6:[38,49],K5:[37,48],K4:[36,47],K3:[35,46],K2:[34,45],QJ:[51,57],QT:[48,55],Q9:[43,52],Q8:[39,50],JT:[50,57],J9:[41,51],J8:[38,49],T9:[46,56],T8:[39,51],T7:[36,49],98:[38,53],97:[35,49],87:[37,52],86:[34,48],76:[36,51],65:[34,49],54:[32,47],43:[31,45],32:[29,43]};var combo=key.slice(0,2);if(m[combo])return m[combo][s];var idx;if((idx=O6.btn.indexOf(key))!==-1)return 48;if((idx=O6.co.indexOf(key))!==-1)return 45;if((idx=O6.mp.indexOf(key))!==-1)return 42;if((idx=O6.utg.indexOf(key))!==-1)return 38;return 30;}
+// V2.9.185: nOpponents动态调整——多人底池equity衰减
+function eQ(key,nOpponents){
+  var pairEq={AA:85,KK:82,QQ:80,JJ:77,TT:75,99:72,88:70,77:68,66:66,55:64,44:62,33:60,22:56};
+  var base;
+  if(pairEq[key]){base=pairEq[key];}
+  else{
+    var s=key.indexOf('s')>=0?1:0;
+    var m={AK:[65,67],AQ:[62,65],AJ:[58,61],AT:[53,55],A9:[49,55],A8:[48,54],A7:[47,53],A6:[46,53],A5:[46,55],A4:[45,54],A3:[44,53],A2:[43,53],KQ:[58,61],KJ:[53,58],KT:[49,56],K9:[47,53],K8:[40,51],K7:[39,50],K6:[38,49],K5:[37,48],K4:[36,47],K3:[35,46],K2:[34,45],QJ:[51,57],QT:[48,55],Q9:[43,52],Q8:[39,50],JT:[50,57],J9:[41,51],J8:[38,49],T9:[46,56],T8:[39,51],T7:[36,49],98:[38,53],97:[35,49],87:[37,52],86:[34,48],76:[36,51],65:[34,49],54:[32,47],43:[31,45],32:[29,43]};
+    var combo=key.slice(0,2);
+    if(m[combo]){base=m[combo][s];}
+    else{
+      var idx;
+      if((idx=O6.btn.indexOf(key))!==-1)base=48;
+      else if((idx=O6.co.indexOf(key))!==-1)base=45;
+      else if((idx=O6.mp.indexOf(key))!==-1)base=42;
+      else if((idx=O6.utg.indexOf(key))!==-1)base=38;
+      else base=30;
+    }
+  }
+  // V2.9.185: 多人底池动态调整——每多1个对手equity衰减约10%
+  if(nOpponents&&nOpponents>1){
+    base=Math.round(base*Math.pow(0.92,nOpponents-1));
+    if(base<5)base=5;
+  }
+  return base;
+}
 function handClassify(hole,comm){
   var cards=[].concat(hole.filter(function(c){return c;}),comm.filter(function(c){return c;}));
   var cc=comm.filter(function(c){return c;}).length;
@@ -7915,7 +7944,7 @@ function preF(k){
   var cS=adjustPreflopRange(baseC,oppType,scene==='reraise'?'reraise':scene==='raise'?'raise':'open');
   var spr=calcSPR();
   var sprAdvice=getSPRAdvice(spr);
-  var eq=eQ(k);
+  var eq=eQ(k,(G.ap||2)-1);
   // V2.9.141: 投机手牌隐含赔率加成（统一SPR+位置感知）
   // 以小博大：深码多投机，短码少投机；位置好投机更便宜
   var _specBonus=0;
@@ -8992,6 +9021,12 @@ function show(r){
     // V2.9.61: 反剥削状态显示
     var _ceDisp=CounterExploit.getDisplay(CounterExploit.detect(_showProfile));
     if(_ceDisp)h+='<div style="font-size:9px;padding:2px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(0,191,255,.12);color:#00bfff">'+_ceDisp+'</div>';
+    // V2.9.185: 对手范围可视化
+    var _oppType2=G.opp||'unknown';
+    if(typeof OppProfiler!=='undefined'&&OppProfiler.RANGE_DIST&&OppProfiler.RANGE_DIST[_oppType2]){
+      var _rd=OppProfiler.RANGE_DIST[_oppType2];
+      h+='<div style="font-size:10px;padding:3px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(100,180,255,.12);color:#64b4ff">📊 范围: <span style="color:#ff6b6b">宽'+Math.round(_rd.wide*100)+'%</span> <span style="color:#ffd93d">中'+Math.round(_rd.medium*100)+'%</span> <span style="color:#6bcf7f">紧'+Math.round(_rd.tight*100)+'%</span></div>';
+    }
   }
   if(r.hClass&&r.hClass.name!=='PRE'){
     var plan=planStreets(r.hClass,r.eq||50,r.scene,G.opp,G.spr);
