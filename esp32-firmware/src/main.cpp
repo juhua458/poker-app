@@ -1,9 +1,20 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.29)
+ * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.31)
  * ============================================================================
  *
- * v1.0.29：HID触摸屏描述符修复（Android真正产生触摸事件）
+ * v1.0.31：恢复Contact ID，去除Feature报告（根因修复）
+ *   - v1.0.30去掉Contact ID后Android识别为鼠标指针，根因是Contact ID(0x51)
+ *     是Android InputReader区分触摸屏vs鼠标的关键Usage
+ *   - 恢复v1.0.28的Input Report结构：contact_id + flags + X + Y = 6字节
+ *   - 去掉Feature报告(Contact Count Maximum)，避免GET_REPORT STALL
+ *   - 保留In Range(0x32)，去掉Touch Valid(0x47)（Android不识别此Usage）
+ *   - TouchReport结构体：contact_id→flags→x→y
+ *
+ * v1.0.30：极简5字节描述符，去掉Feature报告避免GET_REPORT STALL
+ *   - 去掉Contact Count Maximum + Contact ID，精简到5字节
+ *   - 增加Touch Valid(0x47)位
+ *   - 结果：Android识别为鼠标指针而非触摸屏（缺少Contact ID）
  *   - 修正字段顺序：Tip Switch(bit0) + In Range(bit1) + 6bit padding = 1字节（先于Contact ID）
  *   - 增加 In Range (0x32) usage（Android HID多点触控协议必需字段，缺少则丢弃触摸）
  *   - Contact Count Maximum Feature report 显式声明 Report Size=8/Count=1（之前继承错误）
@@ -61,7 +72,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.30"
+#define FW_VERSION "v1.0.31"
 
 // BLE设备名
 #define BLE_DEVICE_NAME "QingYun-ESP32"
@@ -119,16 +130,16 @@ static void qlogf(const char* fmt, ...) {
 }
 
 // ============================================================================
-// HID 报告描述符（触摸屏 Digitizer - 极简5字节）v1.0.30
+// HID 报告描述符（触摸屏 Digitizer - 6字节带Contact ID）v1.0.31
 // ============================================================================
-// 关键发现：v1.0.28/29都失败，根因是Contact Count Maximum Feature报告。
-// arduino-esp32 USBHID库不支持GET_REPORT（Feature报告），Android初始化时
-// 读到STALL会拒绝设备，导致tap返回ok但屏幕无响应。
-// v1.0.30方案：去掉所有Feature报告，精简到CSDN已验证的5字节方案。
-// 输入报告布局（共5字节，无Report ID前缀）：
-//   Byte 0: flags = bit0:Tip Switch | bit1:In Range | bit2:Touch Valid | bits3-7:pad
-//   Byte 1-2: X   = 绝对X坐标（0~32767，小端序）
-//   Byte 3-4: Y   = 绝对Y坐标（0~32767，小端序）
+// 关键发现：Android InputReader靠Contact ID(0x51)区分触摸屏vs鼠标指针。
+// v1.0.30去掉了Contact ID，Android fallback到鼠标模式（屏幕出现指针图标）。
+// v1.0.31恢复Contact ID，同时去掉Feature报告避免GET_REPORT STALL。
+// 输入报告布局（共6字节，无Report ID前缀）：
+//   Byte 0: contact_id  = 0=释放, 1=按下
+//   Byte 1: flags       = bit0:Tip Switch | bit1:In Range | bits2-7:0
+//   Byte 2-3: X         = 绝对X坐标（0~32767，小端序）
+//   Byte 4-5: Y         = 绝对Y坐标（0~32767，小端序）
 static const uint8_t touch_report_descriptor[] = {
     0x05, 0x0D,             // Usage Page (Digitizers)
     0x09, 0x04,             // Usage (Touch Screen)
@@ -137,16 +148,23 @@ static const uint8_t touch_report_descriptor[] = {
     0x09, 0x22,             //   Usage (Finger)
     0xA1, 0x02,             //   Collection (Logical)
 
-    // Tip Switch (bit0) + In Range (bit1) + Touch Valid (bit2) + 5 bits padding
+    // Contact Identifier (8 bits) - Android靠此区分触摸屏
+    0x09, 0x51,             //     Usage (Contact Identifier)
+    0x15, 0x00,             //     Logical Minimum (0)
+    0x25, 0x01,             //     Logical Maximum (1)
+    0x75, 0x08,             //     Report Size (8)
+    0x95, 0x01,             //     Report Count (1)
+    0x81, 0x02,             //     Input (Data,Var,Abs)
+
+    // Tip Switch (bit0) + In Range (bit1) + 6 bits padding
     0x09, 0x42,             //     Usage (Tip Switch)
     0x09, 0x32,             //     Usage (In Range)
-    0x09, 0x47,             //     Usage (Touch Valid)
     0x15, 0x00,             //     Logical Minimum (0)
     0x25, 0x01,             //     Logical Maximum (1)
     0x75, 0x01,             //     Report Size (1 bit)
-    0x95, 0x03,             //     Report Count (3) = Tip + InRange + TouchValid
+    0x95, 0x02,             //     Report Count (2) = Tip + InRange
     0x81, 0x02,             //     Input (Data,Var,Abs)
-    0x95, 0x05,             //     Report Count (5) padding bits
+    0x95, 0x06,             //     Report Count (6) padding bits
     0x81, 0x03,             //     Input (Const,Var,Abs)
 
     // X (16 bits, absolute)
@@ -170,11 +188,13 @@ static const uint8_t touch_report_descriptor[] = {
 };
 
 // 必须与描述符声明的输入报告完全对应（packed保证无padding字节）
-// flags字节: bit0=Tip Switch, bit1=In Range, bit2=Touch Valid, bits3-7=0
+// contact_id: 0=释放, 1=按下
+// flags: bit0=Tip Switch, bit1=In Range, bits2-7=0
 struct __attribute__((packed)) TouchReport {
-    uint8_t  flags;          // byte 0
-    uint16_t x;              // byte 1-2
-    uint16_t y;              // byte 3-4
+    uint8_t  contact_id;     // byte 0
+    uint8_t  flags;          // byte 1
+    uint16_t x;              // byte 2-3
+    uint16_t y;              // byte 4-5
 };
 
 // ============================================================================
@@ -225,11 +245,12 @@ public:
             _lastFailReason = "not_ready";
             return false;
         }
-        _report.flags = 0x07;  // bit0=Tip | bit1=InRange | bit2=TouchValid
+        _report.contact_id = 1;
+        _report.flags = 0x03;  // bit0=Tip | bit1=InRange
         _report.x     = (uint16_t)((uint32_t)screenX * HID_MAX / SCREEN_WIDTH);
         _report.y     = (uint16_t)((uint32_t)screenY * HID_MAX / SCREEN_HEIGHT);
-        Serial.printf("[HID] down raw(%u,%u) hid(%u,%u) flags=0x%02x\n",
-                      screenX, screenY, _report.x, _report.y, _report.flags);
+        Serial.printf("[HID] down raw(%u,%u) hid(%u,%u) cid=%u flags=0x%02x\n",
+                      screenX, screenY, _report.x, _report.y, _report.contact_id, _report.flags);
         for (int retry = 0; retry < 5; retry++) {
             if (hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report))) return true;
             delay(10);
@@ -247,6 +268,7 @@ public:
             _lastFailReason = "not_ready";
             return false;
         }
+        _report.contact_id = 0;
         _report.flags = 0x00;
         _report.x     = 0;
         _report.y     = 0;
