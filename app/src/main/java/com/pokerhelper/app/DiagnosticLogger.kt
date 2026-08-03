@@ -1,7 +1,11 @@
 package com.pokerhelper.app
 
+import android.os.Environment
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -15,6 +19,69 @@ object DiagnosticLogger {
     private val recognitionLogs = mutableListOf<RecognitionLog>()
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    private val logFileLock = Any()
+    
+    // V2.9.182: 日志文件持久化——每次识别自动追加，滚动保留最近5MB
+    private fun getLogFile(): File {
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        return File(downloadsDir, "poker_log.txt")
+    }
+    
+    private fun autoFlushToFile(log: RecognitionLog) {
+        try {
+            synchronized(logFileLock) {
+                val file = getLogFile()
+                val entry = logToJson(log).toString(2) + ",\n"
+                file.appendText(entry, Charsets.UTF_8)
+                
+                // 滚动保留最近5MB
+                if (file.length() > 5 * 1024 * 1024) {
+                    val content = file.readText(Charsets.UTF_8)
+                    val keepLength = content.length / 2
+                    file.writeText(content.substring(content.length - keepLength), Charsets.UTF_8)
+                }
+            }
+        } catch (_: Exception) {
+            // 文件日志失败不影响主流程
+        }
+    }
+    
+    /**
+     * V2.9.182: 接收JS端console.log日志
+     */
+    fun logJsConsole(message: String) {
+        try {
+            synchronized(logFileLock) {
+                val file = getLogFile()
+                val timeStr = timeFormat.format(Date())
+                file.appendText("[$timeStr] [JS] $message\n", Charsets.UTF_8)
+            }
+        } catch (_: Exception) {}
+    }
+    
+    /**
+     * V2.9.182: 崩溃时紧急写入日志
+     */
+    fun flushCrashLog(throwable: Throwable) {
+        try {
+            synchronized(logFileLock) {
+                val file = getLogFile()
+                val timeStr = dateFormat.format(Date())
+                val sw = StringWriter()
+                throwable.printStackTrace(PrintWriter(sw))
+                file.appendText("\n=== CRASH $timeStr ===\n${sw.toString()}\n", Charsets.UTF_8)
+                
+                // 同步写入内存中的最后5条日志
+                synchronized(recognitionLogs) {
+                    val recent = recognitionLogs.takeLast(5)
+                    file.appendText("=== 崩溃前最后5条识别日志 ===\n", Charsets.UTF_8)
+                    for (log in recent) {
+                        file.appendText(logToJson(log).toString(2) + ",\n", Charsets.UTF_8)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
     
     /**
      * 单次识别记录的完整数据
@@ -135,6 +202,9 @@ object DiagnosticLogger {
                 recognitionLogs.removeAt(0)
             }
         }
+        
+        // V2.9.182: 自动持久化到文件
+        autoFlushToFile(log)
     }
     
     private var lastChips = 0
@@ -176,7 +246,7 @@ object DiagnosticLogger {
     fun exportAsJson(): String {
         val json = JSONObject()
         json.put("exportTime", dateFormat.format(Date()))
-        json.put("version", "2.9.179")
+        json.put("version", "2.9.182")
         json.put("totalLogs", recognitionLogs.size)
         
         val logsArray = JSONArray()

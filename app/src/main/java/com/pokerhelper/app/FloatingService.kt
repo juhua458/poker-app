@@ -184,6 +184,15 @@ class FloatingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        
+        // V2.9.182: 崩溃保护——兜底写入日志到文件
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e(TAG, "★ 应用崩溃: ${throwable.message}", throwable)
+            DiagnosticLogger.flushCrashLog(throwable)
+            // 交给系统默认处理器（显示崩溃对话框）
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
         createNotificationChannel()
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         isStealthMode = prefs?.getBoolean(KEY_STEALTH_MODE, false) ?: false
@@ -836,7 +845,17 @@ class FloatingService : Service() {
                 view?.evaluateJavascript("if(typeof onVisionResult==='function'){console.log('[V2.9.125] ✅策略引擎就绪')}else{console.log('[V2.9.125] ❌策略引擎未加载！')}", null)
             }
         }
-        wv.webChromeClient = WebChromeClient()
+        wv.webChromeClient = object : WebChromeClient() {
+            // V2.9.182: 捕获JS端console.log，写入文件日志
+            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                consoleMessage?.let {
+                    val msg = "[${it.sourceId() ?: "JS"}:${it.lineNumber()}] ${it.message()}"
+                    Log.d("WebViewConsole", msg)
+                    DiagnosticLogger.logJsConsole(msg)
+                }
+                return super.onConsoleMessage(consoleMessage)
+            }
+        }
 
         // ★ 关键：addJavascriptInterface必须在loadUrl之前注册 ★
         wv.addJavascriptInterface(object : Any() {
