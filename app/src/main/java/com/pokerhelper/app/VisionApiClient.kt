@@ -74,7 +74,9 @@ object VisionApiClient {
         val rawResponse: String,
         // V2.9.143: 摊牌检测——对手亮出的牌
         val showdownCards: List<ShowdownInfo>,
-        val oppHud: List<OppHudInfo>
+        val oppHud: List<OppHudInfo>,
+        // V2.9.180: 按钮坐标（用于全自动执行）
+        val buttonPositions: List<ButtonPosition>
     )
 
     data class CardInfo(val rank: String, val suit: String)
@@ -83,6 +85,8 @@ object VisionApiClient {
     data class ShowdownInfo(val seat: Int, val cards: List<CardInfo>, val won: Boolean)
     // V2.9.153: Smart HUD
     data class OppHudInfo(val seat: Int, val vpip: Int, val pfr: Int, val ats: Int, val threeBet: Int)
+    // V2.9.180: 按钮坐标
+    data class ButtonPosition(val text: String, val xPct: Double, val yPct: Double)
 
     fun analyzeScreenshot(jpegData: ByteArray): VisionResult? {
         if (apiKey.isEmpty()) { lastError = "未设置API Key"; return null }
@@ -238,7 +242,7 @@ object VisionApiClient {
         val prompt = """【系统角色】你是GG扑克5-max桌面的精确识别引擎。只输出JSON，不做解释。
 
 【输出Schema】严格按此格式，字段缺失填null：
-{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"Player1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"Player1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"button_positions":[{"text":"弃牌","x_pct":0.17,"y_pct":0.88},{"text":"跟注500","x_pct":0.50,"y_pct":0.88},{"text":"加注","x_pct":0.83,"y_pct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
 
 【花色识别规则 - 极其关键！】
 suit用单字母: s=黑桃♠(实心黑色尖头朝上) h=红心♥(红色心形顶部凹陷) d=方块♦(红色菱形四角对称) c=梅花♣(黑色三叶圆瓣)
@@ -259,6 +263,11 @@ pot必须是完整数字，展开简写：1.2K→1200, 12.5K→12500, 1.5M→150
 buttons必须完整识别屏幕底部所有操作按钮文字，遗漏会导致策略完全错误！
 包括: 弃牌/让牌/过牌/跟注(含金额如"跟注1,500")/加注(含比例如"50%加注4,500"或"加注1,200")/下注(含比例如"33%下注726")/全押/全下/任意加注/最小加注/弃牌让牌(组合按钮=有让牌选项)
 
+【按钮坐标规则 - V2.9.180 全自动执行必需！】
+button_positions: 每个按钮的屏幕相对位置，x_pct/y_pct为0-1的小数(0=左/上, 1=右/下)
+格式: [{"text":"弃牌","x_pct":0.17,"y_pct":0.88}, {"text":"跟注500","x_pct":0.50,"y_pct":0.88}]
+按钮中心点估算，精确到小数点后两位。必须覆盖buttons中所有按钮
+
 【摊牌+HUD规则】
 showdown_cards: 摊牌阶段能看到对手翻开的牌时，识别seat+2张手牌+won。否则填[]
 opp_hud: 识别对手头像旁的统计数字[{"seat":2,"vpip":35,"pfr":18,"ats":40,"three_bet":8}]，看不到填[]
@@ -270,11 +279,11 @@ nickname是玩家唯一标识，用于跟踪玩家进出和统计。必须准确
 
 【Few-Shot示例1：翻后场景】
 输入：A♠K♥手牌，Q♦7♣2♠公共牌，底池1500，3活跃
-输出：{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"},{"rank":"7","suit":"c"},{"rank":"2","suit":"s"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"PokerKing","chips":"18000","action":"check"},{"seat":3,"nickname":"Fish99","chips":"22000","action":"check"}],"buttons":["让牌","下注"],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+输出：{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"},{"rank":"7","suit":"c"},{"rank":"2","suit":"s"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"PokerKing","chips":"18000","action":"check"},{"seat":3,"nickname":"Fish99","chips":"22000","action":"check"}],"buttons":["让牌","下注"],"button_positions":[{"text":"让牌","x_pct":0.50,"y_pct":0.88},{"text":"下注","x_pct":0.83,"y_pct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
 
 【Few-Shot示例2：翻前场景】
 输入：9♦8♦手牌，无公共牌，底池450，4活跃
-输出：{"is_poker_table":true,"hole_cards":[{"rank":"9","suit":"d"},{"rank":"8","suit":"d"}],"community_cards":[],"pot":450,"my_chips":18000,"bet_to_call":200,"dealer_seat":2,"my_seat":4,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":1,"nickname":"Dragon88","chips":"20000","action":""},{"seat":2,"nickname":"Shark_Pro","chips":"15000","action":"raise"},{"seat":3,"nickname":"Lucky7","chips":"12000","action":"fold"},{"seat":5,"nickname":"AceHigh","chips":"25000","action":"call"}],"buttons":["弃牌","跟注200","加注"],"d_button_pos":"bottom-center","total_players":5,"active_players":4,"showdown_cards":[],"opp_hud":[]}
+输出：{"is_poker_table":true,"hole_cards":[{"rank":"9","suit":"d"},{"rank":"8","suit":"d"}],"community_cards":[],"pot":450,"my_chips":18000,"bet_to_call":200,"dealer_seat":2,"my_seat":4,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":1,"nickname":"Dragon88","chips":"20000","action":""},{"seat":2,"nickname":"Shark_Pro","chips":"15000","action":"raise"},{"seat":3,"nickname":"Lucky7","chips":"12000","action":"fold"},{"seat":5,"nickname":"AceHigh","chips":"25000","action":"call"}],"buttons":["弃牌","跟注200","加注"],"button_positions":[{"text":"弃牌","x_pct":0.17,"y_pct":0.88},{"text":"跟注200","x_pct":0.50,"y_pct":0.88},{"text":"加注","x_pct":0.83,"y_pct":0.88}],"d_button_pos":"bottom-center","total_players":5,"active_players":4,"showdown_cards":[],"opp_hud":[]}
 
 ${streetHint}【识别当前图片】"""
 
@@ -312,6 +321,16 @@ ${streetHint}【识别当前图片】"""
         val buttons = if (buttonsJson != null) {
             (0 until buttonsJson.length()).map { buttonsJson.getString(it) }
         } else emptyList()
+        // V2.9.180: 解析按钮坐标
+        val btnPosJson = data.optJSONArray("button_positions")
+        val buttonPositions = if (btnPosJson != null) {
+            (0 until btnPosJson.length()).mapNotNull { i ->
+                try {
+                    val obj = btnPosJson.getJSONObject(i)
+                    ButtonPosition(obj.getString("text"), obj.getDouble("x_pct"), obj.getDouble("y_pct"))
+                } catch (_: Exception) { null }
+            }
+        } else emptyList()
         val players = if (isCompact) parseOppSeats(data.optJSONArray("opp_seats")) else parseLegacyPlayers(data.optJSONArray("players"))
         val callFromButtons = parseCallAmountFromButtons(buttons)
         val finalToCall = if (callFromButtons >= 0) callFromButtons else if (isCompact) parseChipValue(data, "bet_to_call") else data.optInt("to_call", 0)
@@ -323,7 +342,7 @@ ${streetHint}【识别当前图片】"""
         // V2.9.143: 解析摊牌信息
         val showdownCards = parseShowdownCards(data.optJSONArray("showdown_cards"))
         val oppHud = parseOppHud(data.optJSONArray("opp_hud"))
-return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content, showdownCards, oppHud)
+return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content, showdownCards, oppHud, buttonPositions)
     }
 
     private fun parseOppSeats(arr: JSONArray?): List<PlayerInfo> {
@@ -427,6 +446,7 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
             put("pot_size", result.potSize); put("my_chips", result.playerChips); put("total_players", result.totalPlayers); put("active_players", result.activePlayers)
             put("my_position", result.myPosition); put("street", result.street); put("to_call", result.toCall); put("min_raise", result.minRaise)
             put("buttons", JSONArray(result.buttons)); put("blind_sb", result.blindSB); put("blind_bb", result.blindBB); put("ante", result.ante)
+            put("button_positions", JSONArray(result.buttonPositions.map { JSONObject().apply { put("text", it.text); put("x_pct", it.xPct); put("y_pct", it.yPct) } }))
             put("players", JSONArray(result.players.map { JSONObject().apply { put("position", it.position); put("bet", it.bet); put("chips", it.chips); put("active", it.active); if(it.nickname.isNotEmpty()) put("nickname", it.nickname) } }))
             // V2.9.168: 同时输出opp_seats格式供JS OppProfiler使用
             put("opp_seats", JSONArray(result.players.map { p -> JSONObject().apply {

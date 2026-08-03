@@ -98,6 +98,10 @@ class FloatingService : Service() {
     private var autoCaptureEnabled = false
     private var autoCaptureRunnable: Runnable? = null
     private var autoCaptureInterval = 4000L
+    // V2.9.180: 最新按钮坐标（Vision API返回，用于全自动执行）
+    private var latestButtonPositions = emptyList<VisionApiClient.ButtonPosition>()
+    private var screenWidth = 1080
+    private var screenHeight = 2344
     private var isVisionInProgress = false
     private var autoConsecutiveErrors = 0
     private val AUTO_MAX_ERRORS = 3
@@ -487,8 +491,8 @@ class FloatingService : Service() {
             }
         }
     }
-    private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; isVisionInProgress=false; autoCaptureInterval=4000L; scheduleNextAutoCapture() }
-    private fun stopAutoCapture() { autoCaptureEnabled=false; autoCaptureRunnable?.let{handler.removeCallbacks(it)}; autoCaptureRunnable=null; isVisionInProgress=false }
+    private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; isVisionInProgress=false; autoCaptureInterval=4000L; executeJs("if(typeof enableAutoExec==='function')enableAutoExec()"); scheduleNextAutoCapture() }
+    private fun stopAutoCapture() { autoCaptureEnabled=false; autoCaptureRunnable?.let{handler.removeCallbacks(it)}; autoCaptureRunnable=null; isVisionInProgress=false; executeJs("if(typeof disableAutoExec==='function')disableAutoExec()") }
     private fun scheduleNextAutoCapture() {
         if(!autoCaptureEnabled)return; autoCaptureRunnable?.let{handler.removeCallbacks(it)}
         val r=Runnable{if(!autoCaptureEnabled)return@Runnable;if(isVisionInProgress){scheduleNextAutoCapture();return@Runnable};val pm=getSystemService(Context.POWER_SERVICE)as PowerManager;if(!pm.isScreenOn){scheduleNextAutoCapture();return@Runnable};autoCaptureTrigger()}
@@ -501,6 +505,54 @@ class FloatingService : Service() {
         ScreenOptService.captureScreen()
     }
     fun onAutoCaptureVisionDone(success:Boolean){isVisionInProgress=false;if(success)autoConsecutiveErrors=0 else{autoConsecutiveErrors++;checkAutoErrors()};if(success)executeJs("if(typeof FrameDiffEngine!=='undefined')FrameDiffEngine.onAutoFrameDone()");scheduleNextAutoCapture()}
+    // V2.9.180: 全自动执行tap——根据action匹配按钮坐标并发送到ESP32
+    private fun executeAutoTap(action: String, decisionData: org.json.JSONObject) {
+        try {
+            val btns = latestButtonPositions
+            if (btns.isEmpty()) {
+                Log.w(TAG, "autoTap: 无按钮坐标，回退固定位置")
+                executeAutoTapFallback(action)
+                return
+            }
+            
+            // 根据action匹配按钮
+            val targetBtn = when (action) {
+                "fold" -> btns.find { it.text.contains("弃牌") || it.text.contains("fold", true) }
+                "check" -> btns.find { it.text.contains("让牌") || it.text.contains("过牌") || it.text.contains("check", true) }
+                "call", "weak_call" -> btns.find { it.text.contains("跟注") || it.text.contains("call", true) }
+                "raise", "raise_big" -> btns.find { it.text.contains("加注") || it.text.contains("下注") || it.text.contains("raise", true) || it.text.contains("bet", true) }
+                "allin" -> btns.find { it.text.contains("全押") || it.text.contains("全下") || it.text.contains("all", true) }
+                else -> btns.find { it.text.contains(action, true) }
+            }
+            
+            if (targetBtn != null) {
+                val x = (targetBtn.xPct * screenWidth).toInt().coerceIn(0, screenWidth - 1)
+                val y = (targetBtn.yPct * screenHeight).toInt().coerceIn(0, screenHeight - 1)
+                Log.d(TAG, "★ autoTap: $action → ($x, $y) btn=${targetBtn.text}")
+                bleManager?.sendTap(x, y, 50)
+            } else {
+                Log.w(TAG, "autoTap: 未匹配按钮 $action, 回退固定位置")
+                executeAutoTapFallback(action)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "executeAutoTap error", e)
+            executeAutoTapFallback(action)
+        }
+    }
+    // V2.9.180: 回退固定位置——当Vision API没有按钮坐标时使用
+    private fun executeAutoTapFallback(action: String) {
+        // 一加13T 1080×2344 竖屏，按钮通常在底部
+        val (x, y) = when (action) {
+            "fold" -> 180 to 2050     // 左下
+            "check" -> 540 to 2050    // 中下
+            "call", "weak_call" -> 540 to 2050   // 中下
+            "raise", "raise_big" -> 900 to 2050  // 右下
+            "allin" -> 540 to 2150    // 中下偏上
+            else -> 540 to 2050
+        }
+        Log.d(TAG, "★ autoTapFallback: $action → ($x, $y)")
+        bleManager?.sendTap(x, y, 50)
+    }
     private fun checkAutoErrors(){if(autoConsecutiveErrors>=AUTO_MAX_ERRORS){stopAutoCapture();updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER|REASON:自动暂停");updateAdviceNotification("⚠️ 自动模式暂停","连续${AUTO_MAX_ERRORS}次错误")}}
     fun triggerMultiFrameCapture(){
         if(!ScreenOptService.isServiceRunning())return;if(isVisionInProgress)return
@@ -904,6 +956,42 @@ class FloatingService : Service() {
             @JavascriptInterface fun triggerMultiFrame(){handler.post{triggerMultiFrameCapture()}}
             @JavascriptInterface fun setAutoSpeed(ms:Long){setAutoCaptureSpeed(ms)}
             @JavascriptInterface fun isAutoCaptureOn():Boolean=autoCaptureEnabled
+            // V2.9.180: 全自动决策执行——JS计算置信度后回调
+            @JavascriptInterface
+            fun autoDecision(jsonData: String) {
+                handler.post {
+                    try {
+                        val data = org.json.JSONObject(jsonData)
+                        val action = data.optString("action", "fold")
+                        val auto = data.optBoolean("auto", false)
+                        val confidence = data.optString("confidence", "medium")
+                        val reason = data.optString("reason", "")
+                        val eq = data.optInt("eq", 0)
+                        Log.d(TAG, "★ autoDecision: action=$action auto=$auto conf=$confidence reason=$reason eq=$eq")
+                        
+                        if (!auto) {
+                            // 需要人工确认（如中置信+全押）
+                            updateAdviceNotification("⚠️ 需确认: $action", "$reason (eq=$eq%)")
+                            updateBallAdvice("COLOR:CHECK|SIGNAL:ALLIN_NEED|EQ:$eq|REASON:全押需确认")
+                            return@post
+                        }
+                        
+                        if (confidence == "low") {
+                            // 低置信→强制弃牌
+                            updateAdviceNotification("🛑 低置信→弃牌", "$reason (eq=$eq%)")
+                            updateBallAdvice("COLOR:FOLD|SIGNAL:LOW_CONF|EQ:$eq|REASON:低置信弃牌")
+                            // 执行弃牌tap
+                            executeAutoTap("fold", data)
+                        } else {
+                            // 高/中置信自动执行
+                            updateAdviceNotification("🤖 自动执行: $action", "$reason (eq=$eq%)")
+                            executeAutoTap(action, data)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "autoDecision error", e)
+                    }
+                }
+            }
             // V2.9.70: JS可获取Kotlin端错误日志，导出时一并带走
             @JavascriptInterface
             fun getErrorLogs(): String {
@@ -1567,6 +1655,11 @@ class FloatingService : Service() {
                     } else {
                     val resultJson = VisionApiClient.toJson(result)
                     Log.d(TAG, "★ resultJson长度=${resultJson.length}, webViewReady=$webViewReady")
+                    // V2.9.180: 存储按钮坐标供全自动执行使用
+                    if (result.buttonPositions.isNotEmpty()) {
+                        latestButtonPositions = result.buttonPositions
+                        Log.d(TAG, "★ 按钮坐标已存储: ${result.buttonPositions.map { "${it.text}(${it.xPct},${it.yPct})" }}")
+                    }
                     val frameTag=when{isMultiFrame2->",_frameTag:'verify'";isMultiFrame1->",_frameTag:'primary'";isAutoCapture->",_frameTag:'auto'";else->""}
                     // V2.9.125: 策略超时保险——8秒超时+灰色等待（非红色FOLD）
                     // 7000+行JS首次加载+MC模拟2-3秒，5秒根本不够
