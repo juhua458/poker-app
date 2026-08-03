@@ -1,7 +1,11 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.33)
+ * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.34)
  * ============================================================================
+ *
+ * v1.0.34：点击随机抖动，降低行为检测风险
+ *   - tap()坐标±5px随机偏移，时长±20ms随机变化
+ *   - 自检走touchDown/touchUp直连，不受抖动影响
  *
  * v1.0.33：增加HID自检功能（selftest命令+USB挂载自动触发）
  *   - USB首次挂载后自动执行tap(540,1172,50)并记录每步结果
@@ -83,7 +87,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.33"
+#define FW_VERSION "v1.0.34"
 
 // BLE设备名
 #define BLE_DEVICE_NAME "QingYun-ESP32"
@@ -99,6 +103,10 @@
 
 // HID 坐标范围
 #define HID_MAX 32767
+
+// 点击随机抖动（v1.0.34：降低行为检测风险）
+#define JITTER_PX  5     // 坐标±5px随机偏移
+#define JITTER_MS  20    // 时长±20ms随机变化
 
 // HID Report ID
 #define HID_REPORT_ID_TOUCH 0
@@ -295,8 +303,22 @@ public:
     }
 
     bool tap(uint16_t screenX, uint16_t screenY, uint32_t durationMs) {
-        if (!touchDown(screenX, screenY)) return false;
-        delay(durationMs);
+        // v1.0.34: 坐标±5px + 时长±20ms随机抖动，降低行为检测风险
+        int16_t jx = (int16_t)(esp_random() % (JITTER_PX * 2 + 1)) - JITTER_PX;
+        int16_t jy = (int16_t)(esp_random() % (JITTER_PX * 2 + 1)) - JITTER_PX;
+        int16_t adjX = (int16_t)screenX + jx;
+        int16_t adjY = (int16_t)screenY + jy;
+        if (adjX < 0) adjX = 0;
+        if (adjX >= SCREEN_WIDTH) adjX = SCREEN_WIDTH - 1;
+        if (adjY < 0) adjY = 0;
+        if (adjY >= SCREEN_HEIGHT) adjY = SCREEN_HEIGHT - 1;
+
+        int32_t jms = (int32_t)(esp_random() % (JITTER_MS * 2 + 1)) - JITTER_MS;
+        int32_t adjDur = (int32_t)durationMs + jms;
+        if (adjDur < 10) adjDur = 10;
+
+        if (!touchDown((uint16_t)adjX, (uint16_t)adjY)) return false;
+        delay(adjDur);
         return touchUp();
     }
 };
