@@ -1,7 +1,13 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.32)
+ * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.33)
  * ============================================================================
+ *
+ * v1.0.33：增加HID自检功能（selftest命令+USB挂载自动触发）
+ *   - USB首次挂载后自动执行tap(540,1172,50)并记录每步结果
+ *   - BLE命令selftest手动触发自检
+ *   - status回复增加st/st_down/st_up字段，BLE看结果无需盯屏幕
+ *   - 自检结果：ok=全部成功 / down_failed=touchDown失败 / up_failed=touchUp失败
  *
  * v1.0.32：修复touchUp contact_id不一致导致触点无法释放
  *   - touchUp时contact_id从0改为1（与touchDown一致），否则Android收到
@@ -77,7 +83,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.32"
+#define FW_VERSION "v1.0.33"
 
 // BLE设备名
 #define BLE_DEVICE_NAME "QingYun-ESP32"
@@ -298,6 +304,56 @@ public:
 static USBHIDTouchpad touchpad;
 
 // ============================================================================
+// HID 自检状态
+// ============================================================================
+static bool    g_selftestDone   = false;
+static bool    g_selftestDown   = false;
+static bool    g_selftestUp     = false;
+static int     g_selftestFails  = 0;
+static String  g_selftestResult = "waiting";
+
+static void runHidSelfTest() {
+    qlog("[SELFTEST] Starting HID self-test...");
+    g_selftestDone = false;
+    g_selftestDown = false;
+    g_selftestUp   = false;
+    g_selftestFails = 0;
+
+    if (!touchpad.ready()) {
+        g_selftestResult = "HID_not_ready";
+        g_selftestDone = true;
+        qlog("[SELFTEST] FAIL: HID not ready");
+        return;
+    }
+
+    // 执行一次完整tap，记录每步结果
+    g_selftestDown = touchpad.touchDown(540, 1172);
+    if (!g_selftestDown) {
+        g_selftestFails = touchpad.hidFailCount();
+        g_selftestResult = "down_failed";
+        g_selftestDone = true;
+        qlogf("[SELFTEST] FAIL: touchDown failed (fails=%d, reason=%s)",
+              g_selftestFails, touchpad.hidLastFailReason());
+        return;
+    }
+
+    delay(50);
+
+    g_selftestUp = touchpad.touchUp();
+    g_selftestFails = touchpad.hidFailCount();
+    g_selftestDone = true;
+
+    if (g_selftestUp) {
+        g_selftestResult = "ok";
+        qlog("[SELFTEST] PASS: tap(540,1172,50) sent successfully");
+    } else {
+        g_selftestResult = "up_failed";
+        qlogf("[SELFTEST] FAIL: touchUp failed (fails=%d, reason=%s)",
+              g_selftestFails, touchpad.hidLastFailReason());
+    }
+}
+
+// ============================================================================
 // BLE GATT Server（Nordic UART Service）
 // ============================================================================
 static BLECharacteristic* g_pTxChar = nullptr;
@@ -386,9 +442,9 @@ static void processCommand(const String& cmd) {
         // V1.0.28: (bool)USB 在arduino-esp32中 = _started && tinyusb_device_mounted（真正被主机枚举）
         bool usbMounted = (bool)USB;
         bool hidReady = touchpad.ready();
-        char buf[480];
+        char buf[512];
         snprintf(buf, sizeof(buf),
-            "ok:ver=%s,heap=%u,psram=%u,usb=%s,hid=%s,ever=%s,fails=%d,reason=%s,ble=connected,uptime=%lus,mnt=%d",
+            "ok:ver=%s,heap=%u,psram=%u,usb=%s,hid=%s,ever=%s,fails=%d,reason=%s,ble=connected,uptime=%lus,mnt=%d,st=%s,st_down=%s,st_up=%s",
             FW_VERSION,
             ESP.getFreeHeap(),
             (unsigned)ESP.getFreePsram(),
@@ -398,7 +454,10 @@ static void processCommand(const String& cmd) {
             touchpad.hidFailCount(),
             touchpad.hidLastFailReason(),
             (unsigned long)(millis() / 1000),
-            usbMounted ? 1 : 0);
+            usbMounted ? 1 : 0,
+            g_selftestDone ? g_selftestResult.c_str() : "waiting",
+            g_selftestDown ? "ok" : "no",
+            g_selftestUp ? "ok" : "no");
         bleReply(buf);
 
     } else if (cmd == "log") {
@@ -430,8 +489,19 @@ static void processCommand(const String& cmd) {
     } else if (cmd == "ping") {
         bleReply("pong");
 
+    } else if (cmd == "selftest") {
+        runHidSelfTest();
+        char stBuf[256];
+        snprintf(stBuf, sizeof(stBuf),
+            "ok:selftest=%s,down=%s,up=%s,fails=%d",
+            g_selftestResult.c_str(),
+            g_selftestDown ? "ok" : "no",
+            g_selftestUp ? "ok" : "no",
+            g_selftestFails);
+        bleReply(stBuf);
+
     } else {
-        bleReply("err:unknown_cmd. cmds: tap:x,y,ms | status | log | ping");
+        bleReply("err:unknown_cmd. cmds: tap:x,y,ms | status | log | selftest | ping");
     }
 }
 
@@ -605,6 +675,11 @@ void loop() {
               curUsbState ? "MOUNTED" : "not-mounted",
               hbCounter);
         lastUsbState = curUsbState;
+
+        // USB刚挂载时自动触发HID自检
+        if (curUsbState && !g_selftestDone) {
+            runHidSelfTest();
+        }
     }
 
     // 心跳日志（每10秒一次，3s × ~3 = ~9s）
