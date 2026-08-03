@@ -1159,7 +1159,7 @@ function exportLog(){
   var nativeErrors='';
   try{nativeErrors=typeof AndroidBridge!=='undefined'&&AndroidBridge.getErrorLogs?AndroidBridge.getErrorLogs():'';}catch(e){}
   var data={
-    version:'2.9.164',
+    version:'2.9.187',
     exportTime:new Date().toISOString(),
     handHistory:HandHistory.getAll(),
     drtaTracker:DRTA.tracker,
@@ -1169,7 +1169,7 @@ function exportLog(){
   };
   fetch(API_BASE+'/api/export/history',{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:{'Content-Type':'application/json; charset=utf-8'},
     body:JSON.stringify(data)
   }).then(function(r){return r.json();}).then(function(j){
     if(btn){btn.textContent='📤导出日志';btn.disabled=false;}
@@ -1277,7 +1277,7 @@ function showToast(msg){
 // V2.9.46: 缓存管理——版本升级时自动清理旧缓存
 var CacheManager={
   VERSION_KEY:'poker_cache_version',
-  CURRENT_VERSION:'2.9.164',
+  CURRENT_VERSION:'2.9.187',
   init:function(){
     var saved=localStorage.getItem(this.VERSION_KEY);
     if(saved!==this.CURRENT_VERSION){
