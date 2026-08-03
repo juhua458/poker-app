@@ -335,7 +335,7 @@ ${streetHint}【识别当前图片】"""
                         Log.w(TAG, "HTTP ${response.code}, retrying...")
                         lastException = Exception("HTTP ${response.code}: $errBody")
                         Thread.sleep(500)
-                        continue
+                        return@repeat
                     }
                     throw Exception("HTTP ${response.code}: $errBody")
                 }
