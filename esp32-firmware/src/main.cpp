@@ -1,7 +1,12 @@
 /**
  * ============================================================================
- * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.31)
+ * 青云扑克 ESP32-S3 - BLE + USB HID 固件 (v1.0.32)
  * ============================================================================
+ *
+ * v1.0.32：修复touchUp contact_id不一致导致触点无法释放
+ *   - touchUp时contact_id从0改为1（与touchDown一致），否则Android收到
+ *     "触点1按下→触点0释放"，触点1被判为一直按住未松开
+ *   - touchUp的X/Y保持上次位置（不再清零），对齐Android释放坐标要求
  *
  * v1.0.31：恢复Contact ID，去除Feature报告（根因修复）
  *   - v1.0.30去掉Contact ID后Android识别为鼠标指针，根因是Contact ID(0x51)
@@ -72,7 +77,7 @@
 // ============================================================================
 // 常量配置
 // ============================================================================
-#define FW_VERSION "v1.0.31"
+#define FW_VERSION "v1.0.32"
 
 // BLE设备名
 #define BLE_DEVICE_NAME "QingYun-ESP32"
@@ -268,11 +273,11 @@ public:
             _lastFailReason = "not_ready";
             return false;
         }
-        _report.contact_id = 0;
+        // contact_id必须和touchDown一致(1)，否则Android认为触点未释放
+        _report.contact_id = 1;
         _report.flags = 0x00;
-        _report.x     = 0;
-        _report.y     = 0;
-        Serial.println("[HID] up");
+        // X/Y保持上次位置，部分Android版本要求释放坐标与按下一致
+        Serial.printf("[HID] up cid=%u\n", _report.contact_id);
         for (int retry = 0; retry < 5; retry++) {
             if (hid.SendReport(HID_REPORT_ID_TOUCH, &_report, sizeof(_report))) return true;
             delay(10);
