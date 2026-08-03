@@ -2809,7 +2809,7 @@ var HandStateMachine=(function(){
 
     // equity计算
     if(bc.length===5){var rs=riverExactEquity(hole,comm,getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry'));eq=rs.eq;}
-    else{var mcI=bc.length===4?1200:1000;if(bet/(pot+bet)>=.66)mcI=Math.round(mcI*2);else if(bet/(pot+bet)>=.33)mcI=Math.round(mcI*1.3);var ms=mcVsRange(hole,comm,getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry'),Math.min(mcI,4000));eq=ms.eq;}
+    else{var mcI=bc.length===4?2500:2000;if(bet/(pot+bet)>=.66)mcI=Math.round(mcI*2);else if(bet/(pot+bet)>=.33)mcI=Math.round(mcI*1.3);var ms=mcVsRange(hole,comm,getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry'),Math.min(mcI,5000));eq=ms.eq;}
     _mcSimCache=null;
 
     // V2.9.161: 3bet底池+多人池检测
@@ -3456,14 +3456,14 @@ crFreq=_applyPipeline(crFreq,'raise',hcKey,oppType,'flop','cr',_sprAdj,_is3betPo
     if(typeof preEq==='number'&&preEq>0){
       eq=preEq/100;
     }else{
-      // V2.9.162turn: 转牌eq用mcVsRange (蒙特卡洛), 迭代次数2000确保<2%误差
+      // V2.9.185turn: 转牌eq用mcVsRange (蒙特卡洛), 迭代提升到2000-5000确保<1%误差
       var bTexture=boardTexture(bc);
       var oppRange=getOppRange('postflop','cbet',bTexture.wetness>=2?'wet':'dry');
       if(!oppRange||oppRange.length===0)return null;
-      var mcI=1000;
-      if(betSz>0&&betSz/(pot+betSz)>=.66)mcI=2000;
-      else if(betSz>0&&betSz/(pot+betSz)>=.33)mcI=1300;
-      var ms=mcVsRange(hole,bc,oppRange,Math.min(mcI,2000));
+      var mcI=2000;
+      if(betSz>0&&betSz/(pot+betSz)>=.66)mcI=3500;
+      else if(betSz>0&&betSz/(pot+betSz)>=.33)mcI=2500;
+      var ms=mcVsRange(hole,bc,oppRange,Math.min(mcI,5000));
       if(!ms||typeof ms.eq!=='number')return null;
       eq=ms.eq/100;
     }
@@ -6092,7 +6092,7 @@ function handClassify(hole,comm){
           var highEnd=uniqAce[i];var lowEnd=uniqAce[i+3];
           var highOpen=highEnd<12;var lowOpen=lowEnd>0;
           if(lowEnd===0)lowOpen=true;if(lowEnd===-1)lowOpen=false;
-          if(highOpen&&lowOpen)isOpenEnd=true;
+          if(highOpen&&lowOpen){isOpenEnd=true;break;}
           else if(highOpen||lowOpen)isGutshot=true;
         }
       }
@@ -9943,8 +9943,12 @@ function onVisionResult(data){
   var _modelNoTable = data && data.is_poker_table === false;
   var _noHole = !data || !data.hole_cards || data.hole_cards.length<2;
   var _noD = !data || !data.d_button_position || data.d_button_position==='not_found' || data.d_button_position==='';
+  // V2.9.185: 中英文按钮统一检测，与detectSceneFromButtons对齐
   var _noBtn = !data || !data.buttons || data.buttons.length===0 || !data.buttons.some(function(b){
-    return b.indexOf('弃牌')>=0||b.indexOf('跟注')>=0||b.indexOf('加注')>=0||b.indexOf('过牌')>=0||b.indexOf('让牌')>=0||b.indexOf('下注')>=0||b.indexOf('全下')>=0||b.indexOf('全押')>=0;
+    return b.indexOf('弃牌')>=0||b.indexOf('跟注')>=0||b.indexOf('加注')>=0||b.indexOf('过牌')>=0||b.indexOf('让牌')>=0||b.indexOf('下注')>=0||b.indexOf('全下')>=0||b.indexOf('全押')>=0
+        ||b.indexOf('Fold')>=0||b.indexOf('fold')>=0||b.indexOf('Call')>=0||b.indexOf('call')>=0
+        ||b.indexOf('Check')>=0||b.indexOf('check')>=0||b.indexOf('Raise')>=0||b.indexOf('Bet')>=0
+        ||b.indexOf('All-in')>=0||b.indexOf('all-in')>=0||b.indexOf('ALL IN')>=0;
   });
   var _noTableSignals = (_noHole?1:0)+(_noD?1:0)+(_noBtn?1:0);
   var _isNoTable = _modelNoTable || _noTableSignals>=2;
