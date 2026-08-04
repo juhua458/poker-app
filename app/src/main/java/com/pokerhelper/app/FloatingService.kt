@@ -631,8 +631,26 @@ class FloatingService : Service() {
     private fun autoCaptureTrigger() {
         if(!ScreenOptService.isServiceRunning()){autoConsecutiveErrors++;checkAutoErrors();scheduleNextAutoCapture();return}
         isVisionInProgress=true
-        ScreenOptService.onScreenshotReady={s->handler.post{if(s)processScreenshotAndAnalyze(isAutoCapture=true)else{isVisionInProgress=false;autoConsecutiveErrors++;checkAutoErrors();scheduleNextAutoCapture()}}}
+        hideOverlay()  // V2.9.190: 截屏前隐藏悬浮层
+        ScreenOptService.onScreenshotReady={s->handler.post{
+            showOverlay()  // V2.9.190: 截屏后恢复悬浮层
+            if(s)processScreenshotAndAnalyze(isAutoCapture=true)else{isVisionInProgress=false;autoConsecutiveErrors++;checkAutoErrors();scheduleNextAutoCapture()}
+        }}
         ScreenOptService.captureScreen()
+    }
+// V2.9.190: 截屏前隐藏悬浮层，避免日志面板遮挡扑克桌面
+    private fun hideOverlay() {
+        try {
+            floatingView?.visibility = android.view.View.GONE
+            floatingBall?.visibility = android.view.View.GONE
+        } catch (_: Exception) {}
+    }
+    
+    private fun showOverlay() {
+        try {
+            floatingView?.visibility = android.view.View.VISIBLE
+            floatingBall?.visibility = android.view.View.VISIBLE
+        } catch (_: Exception) {}
     }
     fun onAutoCaptureVisionDone(success:Boolean){isVisionInProgress=false;if(success)autoConsecutiveErrors=0 else{autoConsecutiveErrors++;checkAutoErrors()};if(success)executeJs("if(typeof FrameDiffEngine!=='undefined')FrameDiffEngine.onAutoFrameDone()");scheduleNextAutoCapture()}
     // V2.9.180: 全自动执行tap——根据action匹配按钮坐标并发送到ESP32
