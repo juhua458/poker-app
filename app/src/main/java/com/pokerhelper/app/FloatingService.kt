@@ -636,7 +636,7 @@ class FloatingService : Service() {
             showOverlay()  // V2.9.190: 截屏后恢复悬浮层
             if(s)processScreenshotAndAnalyze(isAutoCapture=true)else{isVisionInProgress=false;autoConsecutiveErrors++;checkAutoErrors();scheduleNextAutoCapture()}
         }}
-        ScreenOptService.captureScreen()
+        handler.postDelayed({ScreenOptService.captureScreen()}, 100)  // V2.9.192: 延迟100ms等View渲染
     }
 // V2.9.190: 截屏前隐藏悬浮层，避免日志面板遮挡扑克桌面
     private fun hideOverlay() {
@@ -708,7 +708,7 @@ class FloatingService : Service() {
         hideOverlay()  // V2.9.190: 截屏前隐藏悬浮层
         ScreenOptService.onScreenshotReady={s->handler.post{if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{showOverlay()  // V2.9.190: 第二帧截屏后恢复悬浮层
 if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}else isVisionInProgress=false}};ScreenOptService.captureScreen()}},multiFrameDelay)}else{showOverlay();isVisionInProgress=false}}}
-        ScreenOptService.captureScreen()
+        handler.postDelayed({ScreenOptService.captureScreen()}, 100)  // V2.9.192: 延迟100ms等View渲染
     }
     fun setAutoCaptureSpeed(ms:Long){autoCaptureInterval=ms.coerceIn(2000L,10000L);if(autoCaptureEnabled)scheduleNextAutoCapture()}
 
@@ -752,7 +752,7 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                     }
                 }
             }
-            ScreenOptService.captureScreen()
+            handler.postDelayed({ScreenOptService.captureScreen()}, 100)  // V2.9.192: 延迟100ms等View渲染
         } else {
             Log.e(TAG, "★ 无障碍服务未运行！")
             tvStatus?.text = "⚠️ 请先开启无障碍服务！"
