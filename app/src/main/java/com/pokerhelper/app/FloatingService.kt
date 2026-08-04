@@ -706,8 +706,8 @@ class FloatingService : Service() {
         if(!ScreenOptService.isServiceRunning())return;if(isVisionInProgress)return
         isVisionInProgress=true
         hideOverlay()  // V2.9.190: 截屏前隐藏悬浮层
-        ScreenOptService.onScreenshotReady={s->handler.post{showOverlay()  // V2.9.190: 截屏后恢复悬浮层
-if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}else isVisionInProgress=false}};ScreenOptService.captureScreen()}},multiFrameDelay)}else isVisionInProgress=false}}
+        ScreenOptService.onScreenshotReady={s->handler.post{if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{showOverlay()  // V2.9.190: 第二帧截屏后恢复悬浮层
+if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}else isVisionInProgress=false}};ScreenOptService.captureScreen()}},multiFrameDelay)}else{showOverlay();isVisionInProgress=false}}}
         ScreenOptService.captureScreen()
     }
     fun setAutoCaptureSpeed(ms:Long){autoCaptureInterval=ms.coerceIn(2000L,10000L);if(autoCaptureEnabled)scheduleNextAutoCapture()}
