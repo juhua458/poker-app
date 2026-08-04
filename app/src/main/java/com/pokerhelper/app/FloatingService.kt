@@ -705,7 +705,9 @@ class FloatingService : Service() {
     fun triggerMultiFrameCapture(){
         if(!ScreenOptService.isServiceRunning())return;if(isVisionInProgress)return
         isVisionInProgress=true
-        ScreenOptService.onScreenshotReady={s->handler.post{if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}else isVisionInProgress=false}};ScreenOptService.captureScreen()}},multiFrameDelay)}else isVisionInProgress=false}}
+        hideOverlay()  // V2.9.190: 截屏前隐藏悬浮层
+        ScreenOptService.onScreenshotReady={s->handler.post{showOverlay()  // V2.9.190: 截屏后恢复悬浮层
+if(s){processScreenshotAndAnalyze(isMultiFrame1=true);handler.postDelayed({if(ScreenOptService.isServiceRunning()){ScreenOptService.onScreenshotReady={s2->handler.post{if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}else isVisionInProgress=false}};ScreenOptService.captureScreen()}},multiFrameDelay)}else isVisionInProgress=false}}
         ScreenOptService.captureScreen()
     }
     fun setAutoCaptureSpeed(ms:Long){autoCaptureInterval=ms.coerceIn(2000L,10000L);if(autoCaptureEnabled)scheduleNextAutoCapture()}
@@ -727,8 +729,10 @@ class FloatingService : Service() {
         updateAdviceNotification("1/4 截屏中", "无障碍=${ScreenOptService.isServiceRunning()}")
 
         if (ScreenOptService.isServiceRunning()) {
+            hideOverlay()  // V2.9.190: 截屏前隐藏悬浮层
             ScreenOptService.onScreenshotReady = { success ->
                 handler.post {
+                    showOverlay()  // V2.9.190: 截屏后恢复悬浮层
                     if (success) {
                         Log.d(TAG, "★ 截屏成功，进入processScreenshotAndAnalyze")
                         manualErrorCount = 0  // V2.9.184: 重置手动截屏错误计数
