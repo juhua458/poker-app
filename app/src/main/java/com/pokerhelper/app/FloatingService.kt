@@ -1783,7 +1783,8 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                     totalTimeMs = System.currentTimeMillis() - _diagStartTime,
                     hasError = result == null,
                     errorMessage = if (result == null) VisionApiClient.lastError else null,
-                    strategySent = result != null && result.isPokerTable
+                    strategySent = result != null && result.isPokerTable,
+                    rawResponse = if (result == null) VisionApiClient.lastRawResponse else null  // V2.9.193
                 )
                 // 重置诊断变量
                 _diagLocalCVTimeMs = 0L
@@ -1890,8 +1891,10 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                         updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER")
                         isBlinkingError = true
                         floatingBall?.text="⚠️";floatingBall?.textSize=14f
-                        addErrorLog("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API失败: ${VisionApiClient.lastError.take(100)}")
-                        Log.e(TAG, "★ API失败, error=${VisionApiClient.lastError}")
+                        // V2.9.193: 错误日志包含API原始响应前200字符——直接定位根因
+                        val rawResp = VisionApiClient.lastRawResponse.take(200)
+                        addErrorLog("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} API失败: ${VisionApiClient.lastError.take(100)} | raw: $rawResp")
+                        Log.e(TAG, "★ API失败, error=${VisionApiClient.lastError}, raw=${VisionApiClient.lastRawResponse.take(300)}")
                         updateAdviceNotification("❌ 3/4 API失败", VisionApiClient.lastError.take(40))
                     }
                 }

@@ -133,7 +133,10 @@ object DiagnosticLogger {
         val errorMessage: String?,
         
         // 是否成功发送策略引擎
-        val strategySent: Boolean
+        val strategySent: Boolean,
+        
+        // V2.9.193: API原始响应——诊断识别失败根因
+        val rawResponse: String?
     )
     
     /**
@@ -152,7 +155,8 @@ object DiagnosticLogger {
         totalTimeMs: Long,
         hasError: Boolean,
         errorMessage: String?,
-        strategySent: Boolean
+        strategySent: Boolean,
+        rawResponse: String? = null  // V2.9.193: API原始响应
     ) {
         val now = System.currentTimeMillis()
         val timeStr = timeFormat.format(Date(now))
@@ -193,7 +197,8 @@ object DiagnosticLogger {
             totalTimeMs = totalTimeMs,
             hasError = hasError,
             errorMessage = errorMessage,
-            strategySent = strategySent
+            strategySent = strategySent,
+            rawResponse = rawResponse  // V2.9.193
         )
         
         synchronized(recognitionLogs) {
@@ -325,6 +330,10 @@ object DiagnosticLogger {
                 put("error", log.errorMessage)
             }
             put("strategySent", log.strategySent)
+            // V2.9.193: 导出API原始响应——仅失败时记录，截取前500字符避免日志过大
+            if (log.rawResponse != null && log.hasError) {
+                put("rawApiResponse", log.rawResponse.take(500))
+            }
         }
     }
     
