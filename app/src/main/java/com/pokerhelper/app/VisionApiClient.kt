@@ -259,57 +259,21 @@ object VisionApiClient {
     // V2.9.156: 分层Prompt+Schema+Few-Shot+JSON Mode+temperature=0
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
         val streetHint = streetLocked?.let { "\n【已知street】当前street已确认为${it}，phase字段直接填${it}，buttons识别必须与此street的场景一致。\n" } ?: ""
-        val prompt = """【系统角色】你是GG扑克5-max桌面的精确识别引擎。只输出JSON，不做解释。
-
-【输出Schema】严格按此格式，字段缺失填null：
-{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"Player1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500","加注"],"button_positions":[{"text":"弃牌","xPct":0.17,"yPct":0.88},{"text":"跟注500","xPct":0.50,"yPct":0.88},{"text":"加注","xPct":0.83,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
-
-【花色识别规则 - 极其关键！】
-suit用单字母: s=黑桃♠(实心黑色尖头朝上) h=红心♥(红色心形顶部凹陷) d=方块♦(红色菱形四角对称) c=梅花♣(黑色三叶圆瓣)
-区分♥和♦: ♥顶部有凹陷，♦四角对称无凹陷
-区分♠和♣: ♠尖头朝上只有一尖，♣三个圆瓣底部
-对子的两张牌花色必须不同！如K♠K♥正确，K♠K♠错误
-
-【活跃玩家规则 - 极其关键！】
-active_players = 仅计算面前有扑克牌(明牌或牌背朝上)的玩家
-已弃牌的玩家面前没有牌/牌灰色/座位空，不计入active_players！
-留座离桌的空座也不计入！
-
-【底池数字规则 - 极其关键！】
-pot必须是完整数字，展开简写：1.2K→1200, 12.5K→12500, 1.5M→1500000
-底池位于桌面中央上方，荷官面前的筹码堆是底池，不是任何玩家的下注
-
-【操作按钮规则 - 极其关键！】
-buttons必须完整识别屏幕底部所有操作按钮文字，遗漏会导致策略完全错误！
-包括: 弃牌/让牌/过牌/跟注(含金额如"跟注1,500")/加注(含比例如"50%加注4,500"或"加注1,200")/下注(含比例如"33%下注726")/全押/全下/任意加注/最小加注/弃牌让牌(组合按钮=有让牌选项)
-
-【按钮坐标规则 - V2.9.195 关键！】
-button_positions: 返回屏幕底部每个操作按钮的完整文字和屏幕百分比坐标(xPct,yPct)
-text必须与buttons数组中对应按钮文字完全一致！xPct=按钮中心点X/屏幕宽，yPct=按钮中心点Y/屏幕高
-必须精确到按钮实际位置！加注/下注按钮可能横排4个(33%/50%/75%/100%)，坐标各不相同
-
-【摊牌+HUD规则】
-showdown_cards: 摊牌阶段能看到对手翻开的牌时，识别seat+2张手牌+won。否则填[]
-opp_hud: 识别对手头像旁的统计数字[{"seat":2,"vpip":35,"pfr":18,"ats":40,"three_bet":8}]，看不到填[]
-
-【玩家昵称规则 - V2.9.168 关键！】
-opp_seats中每个seat必须包含nickname字段，读取每位对手头像旁显示的用户名/昵称
-nickname是玩家唯一标识，用于跟踪玩家进出和统计。必须准确识别，看不清时填"unknown"
-格式: {"seat":2,"nickname":"玩家昵称","chips":"3000","action":"fold"}
-
-【Few-Shot示例1：翻后场景】
-输入：A♠K♥手牌，Q♦7♣2♠公共牌，底池1500，3活跃
-输出：{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"},{"rank":"7","suit":"c"},{"rank":"2","suit":"s"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"PokerKing","chips":"18000","action":"check"},{"seat":3,"nickname":"Fish99","chips":"22000","action":"check"}],"buttons":["让牌","下注"],"button_positions":[{"text":"让牌","xPct":0.50,"yPct":0.88},{"text":"下注","xPct":0.83,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
-
-【Few-Shot示例2：翻前场景】
-输入：9♦8♦手牌，无公共牌，底池450，4活跃
-输出：{"is_poker_table":true,"hole_cards":[{"rank":"9","suit":"d"},{"rank":"8","suit":"d"}],"community_cards":[],"pot":450,"my_chips":18000,"bet_to_call":200,"dealer_seat":2,"my_seat":4,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":1,"nickname":"Dragon88","chips":"20000","action":""},{"seat":2,"nickname":"Shark_Pro","chips":"15000","action":"raise"},{"seat":3,"nickname":"Lucky7","chips":"12000","action":"fold"},{"seat":5,"nickname":"AceHigh","chips":"25000","action":"call"}],"buttons":["弃牌","跟注200","加注"],"button_positions":[{"text":"弃牌","xPct":0.17,"yPct":0.88},{"text":"跟注200","xPct":0.50,"yPct":0.88},{"text":"加注","xPct":0.83,"yPct":0.88}],"d_button_pos":"bottom-center","total_players":5,"active_players":4,"showdown_cards":[],"opp_hud":[]}
-
-${streetHint}【识别当前图片】"""
+        // V2.9.196: 精简prompt减少input token加速推理
+        val prompt = """GG扑克5-max识别引擎。只输出JSON。
+Schema(缺填null):{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"P1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500"],"button_positions":[{"text":"弃牌","xPct":0.17,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+花色:s=♠黑 h=♥红心 d=♦方块 c=♣梅花。对子花色须不同。
+pot展开简写:1.2K=1200,1.5M=1500000。底池=桌面中央筹码堆。
+active_players=仅有牌(明/暗)的玩家,弃牌/空座不计。
+buttons=底部全部按钮(弃牌/让牌/跟注含金额/加注含金额比例/下注/全押),不可遗漏!
+button_positions=每按钮{text与buttons一致,xPct=中心X/屏宽,yPct=中心Y/屏高},加注可能横排多坐标。
+opp_seats须含nickname(头像旁用户名)。showdown_cards=摊牌对手牌,看不到填[]。opp_hud=对手统计,看不到填[]。
+示例:{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"King","chips":"18000","action":"check"}],"buttons":["让牌","下注500"],"button_positions":[{"text":"让牌","xPct":0.50,"yPct":0.88},{"text":"下注500","xPct":0.83,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+${streetHint}识别:"""
 
         return JSONObject().apply {
             put("model", model ?: modelName)
-            put("max_tokens", 1500)  // V2.9.194: 800→1500防止响应截断
+            put("max_tokens", 800)  // V2.9.196: 1500→800减少输出等待
             put("temperature", 0.0)  // V2.9.156: 确定性输出
             // V2.9.164: DeepSeek vision模型不支持JSON Mode，跳过
             if (!modelName.contains("deepseek", ignoreCase = true)) {
@@ -318,7 +282,7 @@ ${streetHint}【识别当前图片】"""
             put("messages", JSONArray().apply { put(JSONObject().apply {
                 put("role", "user"); put("content", JSONArray().apply {
                     put(JSONObject().apply { put("type", "text"); put("text", prompt) })
-                    put(JSONObject().apply { put("type", "image_url"); put("image_url", JSONObject().apply { put("url", base64Image); put("detail", "high") }) })
+                    put(JSONObject().apply { put("type", "image_url"); put("image_url", JSONObject().apply { put("url", base64Image); put("detail", "low") }) })  // V2.9.196: high→low提速
                 })
             }) })
         }.toString()
