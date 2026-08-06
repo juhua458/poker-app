@@ -1892,6 +1892,22 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                         latestButtonPositions = result.buttonPositions
                         Log.d(TAG, "★ 按钮坐标已存储: ${result.buttonPositions.map { "${it.text}(${it.xPct},${it.yPct})" }}")
                     }
+                    // V2.9.206: Insurance自动拒绝——检测到Insurance弹窗时自动点击拒绝
+                    if (result.isInsurance && autoCaptureEnabled) {
+                        Log.d(TAG, "★ Insurance detected, auto-declining")
+                        handler.post {
+                            try {
+                                val (ix, iy) = GameModeConfig.getInsuranceDeclinePosition(screenWidth, screenHeight)
+                                bleManager?.sendTap(ix, iy, 50)
+                                updateAdviceNotification("🛡️ Insurance", "已自动拒绝")
+                                updateBallAdvice("COLOR:CHECK|SIGNAL:INSURANCE|REASON:自动拒绝")
+                                Log.d(TAG, "★ Insurance declined at ($ix, $iy)")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Insurance decline error", e)
+                            }
+                        }
+                        return // Insurance处理完，跳过策略计算
+                    }
                     val frameTag=when{isMultiFrame2->",_frameTag:'verify'";isMultiFrame1->",_frameTag:'primary'";isAutoCapture->",_frameTag:'auto'";else->""}
                     // V2.9.125: 策略超时保险——8秒超时+灰色等待（非红色FOLD）
                     // 7000+行JS首次加载+MC模拟2-3秒，5秒根本不够
