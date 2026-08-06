@@ -432,7 +432,7 @@ var SU=['h','d','s','c'];
 var SS={h:'♥',d:'♦',s:'♠',c:'♣'};
 
 // 全局状态
-var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{},_seatRoles:{},_facing3bet:false,_raiserRole:'unknown',_raiserStackType:'unknown',_heroDid4bet:false,_slowplayed:false};
+var G={phase:'pre',scene:'open',tt:6,pos:'btn',act:6,opp:'unknown',stk:100,pot:10,bet:0,ante:0,hole:[null,null],comm:[null,null,null,null,null],buttons:[],limpers:0,players:[],_playersCrossCheck:null,oppSeats:[],_oppProfiles:{},_seatRoles:{},_facing3bet:false,_raiserRole:'unknown',_raiserStackType:'unknown',_heroDid4bet:false,_slowplayed:false,is_straddle:false,is_bomb_pot:false,is_insurance:false,is_pko:false,game_type:'normal',platform:'standard',rake_cap:0};
 var _pi=null,_ms='h';
 var _decisionCache={};var _cacheMax=200;
 function cacheKey(){return G.phase+'_'+G.scene+'_'+G.pos+'_'+G.act+'_'+G.opp+'_'+G.stk+'_'+G.pot+'_'+G.bet+'_a'+(G.ante||0)+'_'+(G.hole[0]?G.hole[0].rank+G.hole[0].suit:'')+(G.hole[1]?G.hole[1].rank+G.hole[1].suit:'')+G.comm.filter(function(c){return c;}).map(function(c){return c.rank+c.suit;}).join('')+'L'+G.limpers;}
@@ -2571,6 +2571,14 @@ var HandStateMachine=(function(){
         if(_nashR)return _nashR;
       }
     }
+    // V2.9.186: Straddle 局范围调整
+    // Straddle时底池变大，有效筹码深度变浅，开池范围更宽
+    try{
+      if(G.is_straddle && scene !== 'open'){
+        // straddle下底池更大，隐含赔率更好，equity门槛略降
+        console.log('[Straddle] Straddle局，底池扩大策略生效');
+      }
+    }catch(e){console.log('[Straddle翻前] 调整失败: '+e.message);}
     var eq=eQ(k,(G.ap||2)-1);
     var profile=DRTA.getProfile();
     var oppType=G.opp||'unknown';
@@ -7709,6 +7717,46 @@ function _decideInner(){
     var _preGuardA=result.a;
     result.a=applyEquityGuard(result.a,_eq,_reliability);
     if(result.a!==_preGuardA)console.log('[Equity底线] '+_preGuardA+'→'+result.a+' eq='+_eq+' rel='+_reliability);
+    // V2.9.186: PKO 赏金赛策略调整
+    // PKO中淘汰对手有直接赏金价值 → 对短码跟注放宽，自己有大赏金时收紧
+    try{
+      if(G.is_pko){
+        var _pkoOrigA = result.a;
+        var _pkoAdj = false;
+        // 计算底池赔率所需equity
+        var _pkoNq = _bet > 0 ? _bet / (_pot + _bet) * 100 : 0;
+        // 1) 面对短码对手时，跟注范围放宽约15%（赏金+EV）
+        var _hasShortOpp = (G._raiserStackType === 'short');
+        if(!_hasShortOpp){
+          try{
+            if(G.oppSeats && G.oppSeats.length > 0){
+              var _bbRef = window._lastVisionBB || G._lockedBB || 100;
+              for(var _psi=0; _psi < G.oppSeats.length; _psi++){
+                var _os = G.oppSeats[_psi];
+                if(_os.active !== false && _os.stack && _os.stack > 0){
+                  var _osBB = Math.round(_os.stack / _bbRef);
+                  if(_osBB < 20){_hasShortOpp = true; break;}
+                }
+              }
+            }
+          }catch(e5){}
+        }
+        if(_hasShortOpp && result.a === 'fold' && _eq > _pkoNq + 5){
+          result.a = 'call';
+          _pkoAdj = true;
+          result.r = '[PKO赏金]短码对手放宽 '+_pkoOrigA+'→call '+result.r;
+        }
+        // 2) 自己短码（自己有大赏金头）时策略收紧约10%
+        if(G.stk < 20 && result.a === 'call' && _eq < _pkoNq + 8){
+          result.a = 'fold';
+          _pkoAdj = true;
+          result.r = '[PKO赏金]自有赏金收紧 '+_pkoOrigA+'→fold '+result.r;
+        }
+        if(_pkoAdj){
+          console.log('[PKO调整] '+_pkoOrigA+'→'+result.a+' eq='+_eq.toFixed(0)+'% nq='+_pkoNq.toFixed(0)+'%');
+        }
+      }
+    }catch(e){console.log('[PKO调整] 失败: '+e.message);}
     // Step3: 颜色纯映射——action决定颜色, 颜色不再反改action
     var _colorKey=actionToColor(result.a);
     // 信号(仅展示用,不影响决策)
@@ -8366,6 +8414,12 @@ function postF(k){
   var oppRange=getOppRange(bet>0?'postflop':'preflop',bet>0?'cbet':'check',bTexture.wetness>=2?'wet':'dry');
   var blocker=getBlockerScore(k,oppRange);
   var hClass=handClassify(hole,comm);
+  // V2.9.186: Bomb Pot 标记（实际equity调整在eq计算完成后）
+  try{
+    if(G.is_bomb_pot && hClass){
+      console.log('[Bomb Pot] 炸弹局，hClass='+hClass.name+' desc='+hClass.desc);
+    }
+  }catch(e){console.log('[Bomb Pot标记] 失败: '+e.message);}
   var betPotRatio=bet>0?bet/(pot+bet):0;
   
   // V2.9.79: 多街连续性——前街行动影响当前策略
@@ -8562,6 +8616,35 @@ function postF(k){
   var _effectiveBet=bet>0?Math.min(bet,stk):0;
   var po=0;
   if(_effectiveBet>0)po=_effectiveBet/(pot+_effectiveBet+_effectiveBet)*100;
+  // V2.9.186: Bomb Pot equity 调整
+  // 多人底池中：同花/顺子听牌价值×1.3，顶对价值×0.8，两对+价值×1.1
+  try{
+    if(G.is_bomb_pot && hClass && hClass.name !== 'PRE'){
+      var _bpOrigEq = eq;
+      var _bpAdjPct = 0;
+      var _bpAdjReason = '';
+      // 听牌（同花/顺子）：价值×1.3
+      if(hClass.name === 'DRAW'){
+        _bpAdjPct = 0.30;
+        _bpAdjReason = '听牌价值+30%';
+      }
+      // 顶对（包含顶对顶踢、顶对中踢等，不包含超对和两对）：价值×0.8
+      else if(hClass.name === 'STRONG' && hClass.desc && hClass.desc.indexOf('顶对') >= 0 && hClass.desc.indexOf('两对') < 0){
+        _bpAdjPct = -0.20;
+        _bpAdjReason = '顶对贬值-20%';
+      }
+      // 两对及以上（MEDIUM中的两对 或 STRONG中的两对）：价值×1.1
+      else if(hClass.desc && hClass.desc.indexOf('两对') >= 0){
+        _bpAdjPct = 0.10;
+        _bpAdjReason = '两对价值+10%';
+      }
+      if(_bpAdjPct !== 0){
+        var _bpDelta = Math.round(eq * _bpAdjPct * 10) / 10;
+        eq = Math.max(1, Math.min(99, eq + _bpDelta));
+        console.log('[Bomb Pot] '+_bpAdjReason+': eq '+_bpOrigEq.toFixed(1)+'% → '+eq.toFixed(1)+'%');
+      }
+    }
+  }catch(e){console.log('[Bomb Pot应用] 失败: '+e.message);}
   var nq=po;
 
   // ===== V2.9.54: 底池识别增强 + 智能纠正 + Fallback路由 =====
@@ -8661,9 +8744,24 @@ function postF(k){
       return{a:'fold',r:'河牌中对不够赔率',eq:eq,c:'l',po:nq,scene:sceneLabel,spr:spr,sprAdvice:sprAdvice,bTexture:bTexture,hClass:hClass,drta:{type:profile.type,conf:profile.confidence,weights:weights}};
     }
   }
-  // V2.9.43: GG Rake折扣——GG抽水5%，边缘跟注需额外2%胜率才值
+  // V2.9.43: GG Rake折扣——GG抽水5%，边缘跟注需额外折扣才值
+  // V2.9.186: Rake参数化——实际rake = min(pot × 5%, rake_cap)
   if(bet>0&&eq>=nq-5&&eq<=nq+5){
     var rakeDiscount=2;
+    try{
+      // rake_cap 单位为 BB的1%（如 NL100 cap $5 = 500）
+      var _rakeCapBB = G.rake_cap > 0 ? G.rake_cap / 100 : 0;
+      if(_rakeCapBB > 0 && pot > 0){
+        var _fivePct = pot * 0.05;
+        var _actualRake = Math.min(_fivePct, _rakeCapBB);
+        var _effRakePct = (_actualRake / pot) * 100;
+        // 边缘折扣 = 有效抽水率的40%（原固定2%对应5%抽水）
+        rakeDiscount = Math.max(0.5, Math.round(_effRakePct * 0.4 * 10) / 10);
+        if(rakeDiscount < 2){
+          console.log('[GG Rake参数化] cap生效: pot='+pot+'BB cap='+_rakeCapBB+'BB → 实际抽水'+_effRakePct.toFixed(1)+'% → 折扣'+rakeDiscount+'%');
+        }
+      }
+    }catch(e){console.log('[GG Rake参数化] 失败，用默认2%: '+e.message);rakeDiscount=2;}
     eq=Math.max(5,eq-rakeDiscount);
     console.log('[GG Rake] 边缘场景折扣-'+rakeDiscount+'%，eq:'+eq.toFixed(1)+'%, nq:'+nq.toFixed(1)+'%');
   }
@@ -8963,11 +9061,12 @@ function show(r){
   // V2.9.10: 匹配实际按钮文字（比默认文字更准确）
   var btnText='';
   if(G.buttons && G.buttons.length>0){
-    if(r.a==='fold') btnText=G.buttons.find(function(b){return b.indexOf('弃牌')>=0;})||'';
-    else if(r.a==='call'||r.a==='weak_call') btnText=G.buttons.find(function(b){return b.indexOf('跟注')>=0||b.indexOf('过牌')>=0;})||'';
-    else if(r.a==='raise'||r.a==='raise_big') btnText=G.buttons.find(function(b){return b.indexOf('加注')>=0||b.indexOf('下注')>=0||b.indexOf('全下')>=0;})||'';
-    else if(r.a==='check') btnText=G.buttons.find(function(b){return b.indexOf('过牌')>=0;})||'';
-    else if(r.a==='allin') btnText=G.buttons.find(function(b){return b.indexOf('全下')>=0;})||'';
+    // V2.9.186: 支持中英文按钮（GG扑克平台按钮为英文 Fold/Call/Raise/Check）
+    if(r.a==='fold') btnText=G.buttons.find(function(b){return b.indexOf('弃牌')>=0||b.indexOf('Fold')>=0||b.indexOf('fold')>=0;})||'';
+    else if(r.a==='call'||r.a==='weak_call') btnText=G.buttons.find(function(b){return b.indexOf('跟注')>=0||b.indexOf('Call')>=0||b.indexOf('call')>=0||b.indexOf('过牌')>=0||b.indexOf('Check')>=0;})||'';
+    else if(r.a==='raise'||r.a==='raise_big') btnText=G.buttons.find(function(b){return b.indexOf('加注')>=0||b.indexOf('Raise')>=0||b.indexOf('下注')>=0||b.indexOf('Bet')>=0||b.indexOf('全下')>=0||b.indexOf('All-in')>=0||b.indexOf('all-in')>=0;})||'';
+    else if(r.a==='check') btnText=G.buttons.find(function(b){return b.indexOf('过牌')>=0||b.indexOf('Check')>=0||b.indexOf('check')>=0;})||'';
+    else if(r.a==='allin') btnText=G.buttons.find(function(b){return b.indexOf('全下')>=0||b.indexOf('全押')>=0||b.indexOf('All-in')>=0||b.indexOf('all-in')>=0||b.indexOf('ALL IN')>=0;})||'';
   }
   var displayAction=btnText||cn;
   // V2.9.63: 7色tip
@@ -8986,8 +9085,34 @@ function show(r){
   if(colorInfo&&colorInfo.signalType==='TILT')signalIcon=' 🔥';
   else if(colorInfo&&colorInfo.signalType==='COUNTER')signalIcon=' ⚔️';
   else if(colorInfo&&colorInfo.signalType==='UNCERTAIN')signalIcon=' ⚠️';
-  var h='<div class="r-a '+cssClass+' '+(signalClass||'')+'">💡按【'+displayAction+'】'+signalIcon+'</div>';
+  // V2.9.186: 当前游戏状态标记（Straddle/Bomb Pot/PKO/Rush/Insurance）
+  var _gameTags = [];
+  try{
+    if(G.is_straddle) _gameTags.push('<span style="color:#ffb74d">[Straddle]</span>');
+    if(G.is_bomb_pot) _gameTags.push('<span style="color:#ce93d8">[Bomb Pot]</span>');
+    if(G.is_pko) _gameTags.push('<span style="color:#81c784">[PKO]</span>');
+    if(G.game_type === 'rush_cash') _gameTags.push('<span style="color:#64b5f6">[Rush]</span>');
+    if(G.is_insurance) _gameTags.push('<span style="color:#ffa726">[Insurance]</span>');
+  }catch(e){}
+  var h = '';
+  if(_gameTags.length > 0){
+    h += '<div style="font-size:10px;padding:2px 8px;margin-bottom:2px;text-align:center">' + _gameTags.join(' ') + '</div>';
+  }
+  h+='<div class="r-a '+cssClass+' '+(signalClass||'')+'">💡按【'+displayAction+'】'+signalIcon+'</div>';
   if(tip)h+='<div class="r-tip '+tipClass+'-tip">💡 '+tip+'</div>';
+  // V2.9.186: Insurance / EV Cashout 提示
+  try{
+    if(G.is_insurance){
+      var _insTip = '⚠️ Insurance可用，建议不使用（手续费1-2%，长期负EV）';
+      // 检查是否低波动模式（Settings对象可能不存在）
+      var _lowVol = false;
+      try{if(typeof Settings !== 'undefined' && Settings.lowVolatility)_lowVol = true;}catch(e){}
+      if(_lowVol){
+        _insTip = '⚠️ Insurance可用（低波动模式可考虑接受）';
+      }
+      h += '<div style="font-size:10px;padding:3px 8px;border-radius:8px;margin-top:2px;display:inline-block;background:rgba(255,165,0,.15);color:#ffa500">'+_insTip+'</div>';
+    }
+  }catch(e){console.log('[Insurance提示] 失败: '+e.message);}
   if(r.hClass){
     var classMap={NUTS:'nuts',STRONG:'strong',MEDIUM:'medium',WEAK:'weak',DRAW:'draw',AIR:'air'};
     var cls=classMap[r.hClass.name]||'';
@@ -10546,6 +10671,60 @@ function onVisionResult(data){
       }
     }
   })();
+
+  // ===== V2.9.186: GG扑克特有游戏规则 — 新字段解析 =====
+  try{
+    // 从Vision API JSON中解析新字段，向后兼容（字段不存在时用默认值）
+    G.is_straddle = data.is_straddle === true ? true : false;
+    G.is_bomb_pot = data.is_bomb_pot === true ? true : false;
+    G.is_insurance = data.is_insurance === true ? true : false;
+    G.is_pko = data.is_pko === true ? true : false;
+    G.game_type = typeof data.game_type === 'string' ? data.game_type : 'normal';
+    G.platform = typeof data.platform === 'string' ? data.platform : 'standard';
+    G.rake_cap = typeof data.rake_cap === 'number' && data.rake_cap > 0 ? data.rake_cap : 0;
+
+    // Straddle 字段覆盖按钮检测（API直接返回更准确）
+    if(G.is_straddle && G.phase === 'pre'){
+      if(G.scene === 'open' || G.scene === 'check'){
+        G.scene = 'raise';
+        console.log('[GG Straddle] API标记straddle → 场景修正为raise');
+      }
+    }
+
+    // Bomb Pot 检测：直接翻牌，多人池
+    if(G.is_bomb_pot){
+      // Bomb Pot 跳过翻前，强制post阶段（如果是翻前误识别）
+      var _bpCommLen = G.comm.filter(function(c){return c&&c.rank;}).length;
+      if(G.phase === 'pre' && _bpCommLen >= 3){
+        G.phase = 'post';
+        console.log('[GG Bomb Pot] 强制post阶段（bomb pot跳过翻前）');
+      }
+      // Bomb Pot 通常6-10人一起翻牌，设为多人池
+      if(G.act < 5){ G.act = Math.max(G.act, 5); }
+      if(typeof G._inPotPlayers === 'undefined' || G._inPotPlayers < 5){
+        G._inPotPlayers = Math.max(G._inPotPlayers || 0, 5);
+      }
+      console.log('[GG Bomb Pot] 炸弹局激活，多人池 inPot='+G._inPotPlayers);
+    }
+
+    // Rush & Cash：标记纯GTO模式，禁用玩家画像
+    if(G.game_type === 'rush_cash'){
+      console.log('[GG Rush] Rush & Cash模式，纯GTO策略');
+    }
+
+    console.log('[GG规则解析] straddle='+G.is_straddle+' bomb_pot='+G.is_bomb_pot
+      +' insurance='+G.is_insurance+' pko='+G.is_pko
+      +' game_type='+G.game_type+' platform='+G.platform
+      +' rake_cap='+G.rake_cap);
+  }catch(e){
+    console.log('[GG规则解析] 解析失败，fallback到标准规则: '+e.message);
+    // 失败时重置为默认值，不影响原逻辑
+    try{
+      G.is_straddle = false; G.is_bomb_pot = false; G.is_insurance = false;
+      G.is_pko = false; G.game_type = 'normal'; G.platform = 'standard'; G.rake_cap = 0;
+    }catch(e2){}
+  }
+  // ===== V2.9.186 END =====
 
   // V2.9.10: 保存按钮文字
   if(data.buttons && data.buttons.length>0){
