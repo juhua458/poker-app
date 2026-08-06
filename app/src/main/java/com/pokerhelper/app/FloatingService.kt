@@ -667,12 +667,17 @@ class FloatingService : Service() {
             }
             
             // 根据action匹配按钮
+            // V2.9.205: 增强按钮文字匹配——GG扑克按钮文字会变(如加注→All In)，需识别内容再匹配
             val targetBtn = when (action) {
                 "fold" -> btns.find { it.text.contains("弃牌") || it.text.contains("fold", true) }
                 "check" -> btns.find { it.text.contains("让牌") || it.text.contains("过牌") || it.text.contains("check", true) }
+                    ?: btns.find { it.text.contains("跟注") || it.text.contains("call", true) } // check→call fallback
                 "call", "weak_call" -> btns.find { it.text.contains("跟注") || it.text.contains("call", true) }
+                    ?: btns.find { it.text.contains("让牌") || it.text.contains("过牌") || it.text.contains("check", true) } // call→check fallback
                 "raise", "raise_big" -> btns.find { it.text.contains("加注") || it.text.contains("下注") || it.text.contains("raise", true) || it.text.contains("bet", true) }
+                    ?: btns.find { it.text.contains("全押") || it.text.contains("全下") || it.text.contains("all", true) } // raise→allin fallback (短码时)
                 "allin" -> btns.find { it.text.contains("全押") || it.text.contains("全下") || it.text.contains("all", true) }
+                    ?: btns.find { it.text.contains("加注") || it.text.contains("下注") || it.text.contains("raise", true) || it.text.contains("bet", true) } // allin→raise fallback
                 else -> btns.find { it.text.contains(action, true) }
             }
             
