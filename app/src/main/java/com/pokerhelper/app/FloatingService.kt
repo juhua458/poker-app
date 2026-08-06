@@ -906,8 +906,9 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                 // 重置手牌锁定，避免跨平台锁定污染
                 VisionApiClient.holeCardsLocked = null
                 VisionApiClient.holeCardsRankLocked = null
-                VisionApiClient.dButtonLocked = ""
+                // dButtonLocked 有 private set，通过下次截图的内部逻辑自动重置
                 VisionApiClient.streetLocked = null
+                latestButtonPositions = emptyList()
             }
             setOnLongClickListener {
                 // 长按显示当前平台全名
