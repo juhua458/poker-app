@@ -121,25 +121,25 @@ object GameModeConfig {
     // 坐标配置
     // ============================================================
 
-    // GG扑克竖屏坐标配置（1080×2400基准，用户提供截图后可精调）
+    // GG扑克竖屏坐标配置（1080×2344基准，基于10张GG截图实测）
     private val GG_PORTRAIT_COORDS = CoordinateConfig(
         // GG竖屏：手牌在底部中央，两张牌左右排列
         handCardsBase = listOf(
-            Pair(320, 450),  // 手牌0 x范围
-            Pair(480, 610)   // 手牌1 x范围
+            Pair(50, 190),   // 手牌0 x范围
+            Pair(130, 310)   // 手牌1 x范围
         ),
-        handYBase = Pair(1650, 1830),  // 手牌y范围
+        handYBase = Pair(1740, 1960),  // 手牌y范围
         // 公共牌在屏幕中部
         communityCardsBase = listOf(
-            Pair(120, 260),   // 公共牌0
-            Pair(290, 430),   // 公共牌1
-            Pair(460, 600),   // 公共牌2
-            Pair(630, 770),   // 公共牌3
-            Pair(800, 940)    // 公共牌4
+            Pair(170, 306),   // 公共牌0
+            Pair(320, 456),   // 公共牌1
+            Pair(470, 606),   // 公共牌2
+            Pair(620, 756),   // 公共牌3
+            Pair(770, 906)    // 公共牌4
         ),
-        communityYBase = Pair(920, 1080),
+        communityYBase = Pair(1075, 1267),
         referenceWidth = 1080,
-        referenceHeight = 2400,
+        referenceHeight = 2344,
         orientation = ScreenOrientation.PORTRAIT
     )
 
@@ -216,12 +216,12 @@ object GameModeConfig {
     fun getAutoTapFallback(action: String, screenW: Int, screenH: Int): Pair<Int, Int> {
         return when (currentPlatform) {
             GamePlatform.GGPOKER -> when (action) {
-                "fold" -> (screenW * 0.15).toInt() to (screenH * 0.90).toInt()
-                "check" -> (screenW * 0.50).toInt() to (screenH * 0.90).toInt()
-                "call", "weak_call" -> (screenW * 0.50).toInt() to (screenH * 0.90).toInt()
-                "raise", "raise_big" -> (screenW * 0.85).toInt() to (screenH * 0.90).toInt()
-                "allin" -> (screenW * 0.50).toInt() to (screenH * 0.85).toInt()
-                else -> (screenW * 0.50).toInt() to (screenH * 0.90).toInt()
+                "fold" -> (screenW * 0.10).toInt() to (screenH * 0.95).toInt()
+                "check" -> (screenW * 0.35).toInt() to (screenH * 0.95).toInt()
+                "call", "weak_call" -> (screenW * 0.35).toInt() to (screenH * 0.95).toInt()
+                "raise", "raise_big" -> (screenW * 0.75).toInt() to (screenH * 0.95).toInt()
+                "allin" -> (screenW * 0.50).toInt() to (screenH * 0.90).toInt()
+                else -> (screenW * 0.50).toInt() to (screenH * 0.95).toInt()
             }
             else -> when (action) {
                 "fold" -> (screenW * 0.17).toInt() to (screenH * 0.88).toInt()
