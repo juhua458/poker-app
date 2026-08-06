@@ -55,6 +55,8 @@ object VisionApiClient {
     var streetLocked: String? = null  // V2.9.165: 本地CV根据公共牌数量锁定的street
     var suitUncertain: Boolean = false
     var lockReason: String = ""
+    // V2.9.197: 混合方案 — 仅锁定rank（本地CV高置信度），suit仍由API识别
+    var holeCardsRankLocked: List<String>? = null
 
     // V2.9.108: 统计信息
     var compactSuccessCount = 0
@@ -142,10 +144,28 @@ object VisionApiClient {
             if (result == null) { lastError = "API返回空结果"; return null }
 
             val currentRankKey = result.holeCards.joinToString(",") { it.rank }
-            val lastRankKey = holeCardsLocked?.joinToString(",") { it.rank } ?: ""
+            val lastRankKey = holeCardsLocked?.joinToString(",") { it.rank }
+                ?: holeCardsRankLocked?.joinToString(",") ?: ""
             if (lastRankKey.isNotEmpty() && currentRankKey != lastRankKey) {
                 Log.d(TAG, "手牌锁定: 新一手牌(rank: $lastRankKey→$currentRankKey)，重置")
-                holeCardsLocked = null; dButtonLocked = ""; streetLocked = null
+                holeCardsLocked = null; holeCardsRankLocked = null; dButtonLocked = ""; streetLocked = null
+            }
+            // V2.9.197: 混合方案 — 本地CV锁定rank + API补充suit
+            // 当本地CV高置信度识别手牌rank时，rank锁定，suit由API提供
+            if (holeCardsRankLocked != null && holeCardsRankLocked!!.size == 2 && result.holeCards.size == 2) {
+                val mergedHoleCards = result.holeCards.mapIndexed { idx, apiCard ->
+                    CardInfo(holeCardsRankLocked!![idx], apiCard.suit)
+                }
+                lockReason = "混合锁定(本地rank+API suit)"
+                suitUncertain = false
+                var mergedResult = result.copy(holeCards = mergedHoleCards)
+                val dPosInsured = applyDButtonInsurance(mergedResult.dButtonPosition, mergedHoleCards)
+                dButtonPosition = dPosInsured; mergedResult = mergedResult.copy(dButtonPosition = dPosInsured)
+                lastResult = mergedResult; lastResultTime = System.currentTimeMillis(); lastError = ""
+                var corrected = applyStreetCorrection(mergedResult)
+                corrected = applyValidationCorrections(corrected); lastResult = corrected
+                Log.d(TAG, "识别成功(混合rank锁定): hand=${mergedHoleCards.map{"${it.rank}${it.suit}"}} | comm=${corrected.communityCards.map{it.rank}.joinToString()} | 底池${corrected.potSize} | D=$dPosInsured")
+                return corrected
             }
             // V2.9.114: 空手牌不应被锁定——如果之前锁定了空列表，必须重置
             // V2.9.134: 保留suit（vision已识别花色），不再抹掉
@@ -259,6 +279,10 @@ object VisionApiClient {
     // V2.9.156: 分层Prompt+Schema+Few-Shot+JSON Mode+temperature=0
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
         val streetHint = streetLocked?.let { "\n【已知street】当前street已确认为${it}，phase字段直接填${it}，buttons识别必须与此street的场景一致。\n" } ?: ""
+        // V2.9.197: 混合方案 — 传递rank锁定提示给API，让API专注suit识别
+        val rankHint = holeCardsRankLocked?.let {
+            if (it.size == 2) "\n【手牌rank已锁定】手牌点数已确认为[${it[0]}, ${it[1]}]，hole_cards的rank字段必须填这两个值，你只需识别suit（花色）。\n" else ""
+        } ?: ""
         // V2.9.196: 精简prompt减少input token加速推理
         val prompt = """GG扑克5-max识别引擎。只输出JSON。
 Schema(缺填null):{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"P1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500"],"button_positions":[{"text":"弃牌","xPct":0.17,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
@@ -269,7 +293,7 @@ buttons=底部全部按钮(弃牌/让牌/跟注含金额/加注含金额比例/�
 button_positions=每按钮{text与buttons一致,xPct=中心X/屏宽,yPct=中心Y/屏高},加注可能横排多坐标。
 opp_seats须含nickname(头像旁用户名)。showdown_cards=摊牌对手牌,看不到填[]。opp_hud=对手统计,看不到填[]。
 示例:{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"King","chips":"18000","action":"check"}],"buttons":["让牌","下注500"],"button_positions":[{"text":"让牌","xPct":0.50,"yPct":0.88},{"text":"下注500","xPct":0.83,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
-${streetHint}识别:"""
+${streetHint}${rankHint}识别:"""
 
         return JSONObject().apply {
             put("model", model ?: modelName)
@@ -511,7 +535,7 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
                 put("active", p.active)
                 if(p.nickname.isNotEmpty()) put("nickname", p.nickname)
             } }))
-            put("is_poker_table", result.isPokerTable); put("d_button_position", result.dButtonPosition); put("suit_uncertain", suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("lock_reason", lockReason)
+            put("is_poker_table", result.isPokerTable); put("d_button_position", result.dButtonPosition); put("suit_uncertain", suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("rank_locked", holeCardsRankLocked != null); put("rank_lock_values", holeCardsRankLocked?.joinToString(",") ?: ""); put("lock_reason", lockReason)
             put("prompt_mode", lastPromptMode)
             // V2.9.143: 摊牌信息
             if (result.showdownCards.isNotEmpty()) {

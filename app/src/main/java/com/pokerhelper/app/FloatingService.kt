@@ -1727,33 +1727,39 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                         0 -> "preflop"; 3 -> "flop"; 4 -> "turn"; 5 -> "river"; else -> null
                     }
 
-                    if (localResult.handCards.size == 2) {
-                        // 本地CV识别出手牌，锁定给VisionAPI使用
-                        val lockedCards = localResult.handCards.map {
-                            VisionApiClient.CardInfo(it.rank, it.suit)
-                        }
-                        VisionApiClient.holeCardsLocked = lockedCards
-                        VisionApiClient.lockReason = "本地CV锁定(${tLocalEnd - tLocalStart}ms)"
-                        // V2.9.165: 根据本地CV公共牌数量锁定street
-                        val localStreet = when (localResult.communityCards.size) {
-                            0 -> "preflop"
-                            3 -> "flop"
-                            4 -> "turn"
-                            5 -> "river"
-                            else -> null  // 无效数量(1/2/6+)不锁定，回退VLM判断
-                        }
-                        VisionApiClient.streetLocked = localStreet
-                        Log.i(TAG, "★ 本地CV锁定手牌: ${lockedCards.map { "${it.rank}${it.suit}" }} | street=${localStreet ?: "未锁定(公共牌${localResult.communityCards.size}张)"}")
-                        tvStatus?.text = "🎯 本地CV:${lockedCards.joinToString(" "){"${it.rank}${it.suit}"}} | API补充中..."
-                        updateAdviceNotification("本地CV识别OK", "手牌已锁定,API补充场景...")
+                    // V2.9.197: 混合方案 — 根据置信度决定锁定策略
+                    val minConf = localResult.minConfidence
+                    val handRanks = localResult.handCards.map { it.rank }
+                    val streetFromLocal = localResult.inferStreet()
+                    
+                    if (localResult.handCards.size == 2 && minConf >= 0.85f) {
+                        // 高置信度: 锁定rank（rank-only），suit由API补充
+                        VisionApiClient.holeCardsRankLocked = handRanks
+                        VisionApiClient.holeCardsLocked = null  // 不锁定完整牌，让API提供suit
+                        VisionApiClient.streetLocked = streetFromLocal
+                        VisionApiClient.lockReason = "混合锁定 rank=${handRanks} conf=${"%.2f".format(minConf)} (${tLocalEnd - tLocalStart}ms)"
+                        Log.i(TAG, "★ 混合锁定(高置信度${"%.2f".format(minConf)}): ranks=$handRanks | street=$streetFromLocal")
+                        tvStatus?.text = "🎯 混合:${handRanks.joinToString(" ")}(conf=${"%.0f".format(minConf*100)}%) | API补suit..."
+                        updateAdviceNotification("本地CV高置信", "rank已锁定,API补suit...")
+                    } else if (localResult.handCards.size == 2) {
+                        // 中等置信度: 不锁定rank，让API完整识别，但仍锁定street
+                        VisionApiClient.holeCardsRankLocked = null
+                        VisionApiClient.holeCardsLocked = null
+                        VisionApiClient.streetLocked = streetFromLocal
+                        VisionApiClient.lockReason = "CV低置信(${"%.2f".format(minConf)}), API全识别"
+                        Log.i(TAG, "混合模式(中置信度${"%.2f".format(minConf)}): ranks=$handRanks 不锁定, API完整识别 | street=$streetFromLocal")
+                        tvStatus?.text = "🎯 CV:${handRanks.joinToString(" ")}(低conf) | API全识别..."
+                        updateAdviceNotification("本地CV中置信", "API完整识别中...")
                     } else {
-                        Log.w(TAG, "本地CV手牌识别不完整(${localResult.handCards.size}/2), 回退VisionAPI")
+                        // 手牌识别不完整
+                        Log.w(TAG, "本地CV手牌不完整(${localResult.handCards.size}/2), 纯API模式")
+                        VisionApiClient.holeCardsRankLocked = null
                         VisionApiClient.holeCardsLocked = null; VisionApiClient.streetLocked = null
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "本地CV异常, 回退VisionAPI", e)
-                VisionApiClient.holeCardsLocked = null; VisionApiClient.streetLocked = null
+                VisionApiClient.holeCardsRankLocked = null; VisionApiClient.holeCardsLocked = null; VisionApiClient.streetLocked = null
             }
         }
 
