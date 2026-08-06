@@ -115,15 +115,64 @@ class CardRecognizer(private val context: Context) {
      * 通过idx+cardIdx查ground truth获取rank
      */
     private fun extractRankFromFilename(filename: String, dir: String): String {
-        // ground truth映射 — 与extract_ranks_v3.py一致
+        // ground truth映射 — 24个截图(idx 0-23)
+        // idx 0-8: v2.9.197原有9张截图
+        // idx 9-23: 新增15张截图（2026-06-12~13）
         val groundTruthHands = arrayOf(
-            arrayOf("3","2"), arrayOf("A","4"), arrayOf("A","2"), arrayOf("K","Q"), arrayOf("7","4"),
-            arrayOf("K","9"), arrayOf("Q","5"), arrayOf("7","7"), arrayOf("A","8")
+            // idx 0-8 (v2.9.197原有)
+            arrayOf("3","2"),   // 00: 06-03-02-56-27
+            arrayOf("A","4"),   // 01: 06-03-02-56-39
+            arrayOf("A","2"),   // 02
+            arrayOf("K","Q"),   // 03
+            arrayOf("7","4"),   // 04
+            arrayOf("K","9"),   // 05
+            arrayOf("Q","5"),   // 06
+            arrayOf("7","7"),   // 07
+            arrayOf("A","8"),   // 08
+            // idx 9-23 (新增15张)
+            arrayOf("J","5"),   // 09: 06-13-16-12-04 J♠ 5♠
+            arrayOf("3","2"),   // 10: 06-13-12-08-56 3♠ 2♣
+            arrayOf("A","4"),   // 11: 06-13-12-05-28 A♠ 4♦
+            arrayOf("A","2"),   // 12: 06-13-03-07-43 A♥ 2♦
+            arrayOf("K","Q"),   // 13: 06-13-02-33-09 K♣ Q♦
+            arrayOf("7","4"),   // 14: 06-13-02-28-21 7♥ 4♥
+            arrayOf("K","9"),   // 15: 06-13-02-26-11 K♦ 9♦
+            arrayOf("Q","5"),   // 16: 06-13-02-24-21 Q♣ 5♦
+            arrayOf("7","7"),   // 17: 06-13-02-20-54 7♠ 7♦
+            arrayOf("A","8"),   // 18: 06-12-22-45-58 A♠ 8♠
+            arrayOf("A","7"),   // 19: 06-12-02-29-08 A♦ 7♥
+            arrayOf("K","K"),   // 20: 06-12-03-04-45 K♠ K♥
+            arrayOf("K","J"),   // 21: 06-12-03-49-30 K♥ J♠
+            arrayOf("K","J"),   // 22: 06-12-03-49-50 K♥ J♠
+            arrayOf("A","6")    // 23: 06-12-22-42-10 A♦ 6♠
         )
         val groundTruthBoards = arrayOf(
-            arrayOf("8","10","6"), arrayOf("2","J","2","10"), arrayOf("5","K","J"), arrayOf("8","5","7","5","7"),
-            arrayOf("9","4","10"), arrayOf("10","A","9","8","7"), arrayOf("9","6","9"), arrayOf("8","8","A","3","9"),
-            arrayOf("Q","A","Q","K")
+            // idx 0-8 (v2.9.197原有)
+            arrayOf("8","10","6"),              // 00
+            arrayOf("2","J","2","10"),          // 01
+            arrayOf("5","K","J"),               // 02
+            arrayOf("8","5","7","5","7"),       // 03
+            arrayOf("9","4","10"),              // 04
+            arrayOf("10","A","9","8","7"),      // 05
+            arrayOf("9","6","9"),               // 06
+            arrayOf("8","8","A","3","9"),       // 07
+            arrayOf("Q","A","Q","K"),           // 08
+            // idx 9-23 (新增15张)
+            arrayOf("3","8","K"),               // 09: 06-13-16-12-04 3♥ 8♦ K♣
+            arrayOf("8","10","6"),              // 10: 06-13-12-08-56 8♦ 10♣ 6♣
+            arrayOf("2","J","2","10"),          // 11: 06-13-12-05-28 2♥ J♣ 2♠ 10♥
+            arrayOf("5","K","J"),               // 12: 06-13-03-07-43 5♠ K♦ J♦
+            arrayOf("8","5","7","5","7"),       // 13: 06-13-02-33-09 8♣ 5♠ 7♦ 5♣ 7♥
+            arrayOf("9","4","10"),              // 14: 06-13-02-28-21 9♠ 4♠ 10♦
+            arrayOf("10","A","9","8","7"),      // 15: 06-13-02-26-11 10♥ A♥ 9♥ 8♦ 7♣
+            arrayOf("9","6","9"),               // 16: 06-13-02-24-21 9♦ 6♦ 9♣
+            arrayOf("8","8","A","3","9"),       // 17: 06-13-02-20-54 8♣ 8♥ A♠ 3♦ 9♠
+            arrayOf("Q","A","Q","K"),           // 18: 06-12-22-45-58 Q♥ A♥ Q♠ K
+            arrayOf("9","6","K","Q","4"),       // 19: 06-12-02-29-08 9♥ 6♦ K♠ Q♠ 4♥
+            arrayOf("J","Q","7","9"),           // 20: 06-12-03-04-45 J♣ Q♥ 7♠ 9♦
+            arrayOf("5","8","A","6"),           // 21: 06-12-03-49-30 5♥ 8♥ A♣ 6♣
+            arrayOf("5","8","A","6","7"),       // 22: 06-12-03-49-50 5♥ 8♥ A♣ 6♣ 7♠
+            arrayOf("7","A","10")               // 23: 06-12-22-42-10 7♠ A♠ 10♦
         )
 
         // 解析文件名: 00_hand0_rank.jpg -> idx=0, type=hand, cardIdx=0
