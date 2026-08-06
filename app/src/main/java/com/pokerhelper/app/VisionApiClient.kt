@@ -91,7 +91,12 @@ object VisionApiClient {
         val showdownCards: List<ShowdownInfo>,
         val oppHud: List<OppHudInfo>,
         // V2.9.180: 按钮坐标（用于全自动执行）
-        val buttonPositions: List<ButtonPosition>
+        val buttonPositions: List<ButtonPosition>,
+        // V2.9.200: GG扑克特有字段
+        val isStraddle: Boolean = false,           // 是否Straddle阶段
+        val isBombPot: Boolean = false,            // 是否Bomb Pot
+        val isInsurance: Boolean = false,          // 是否出现Insurance/Cashout按钮
+        val isPKO: Boolean = false                 // 是否PKO赏金赛
     )
 
     data class CardInfo(val rank: String, val suit: String)
@@ -276,6 +281,27 @@ object VisionApiClient {
         } catch (_: Exception) { bmp }
     }
 
+    /**
+     * V2.9.200: 根据当前平台生成Prompt差异化描述
+     * 返回 Pair(平台前缀描述, 按钮描述文本)
+     */
+    private fun buildPlatformPromptHint(): Pair<String, String> {
+        return when (GameModeConfig.currentPlatform) {
+            GamePlatform.GGPOKER -> Pair(
+                "GG扑克(GGPoker)。特征:深蓝/深绿色桌面,竖屏布局,按钮可能是英文(Fold/Check/Call/Raise/All In)或中文,行动时按钮放大10%,可能有Straddle/Bomb Pot/Insurance/PKO等特殊模式。",
+                "Fold/Check/Call含金额/Raise含金额/All In,可能含预设加注额(1/2Pot,2/3Pot,Pot),中英文都可能"
+            )
+            GamePlatform.SHORT_DECK -> Pair(
+                "短牌扑克(6+)。特征:去掉2-5,只有36张牌(A-6),牌面显示与常规一致。",
+                "弃牌/让牌/跟注含金额/加注含金额比例/下注/全押"
+            )
+            GamePlatform.STANDARD -> Pair(
+                "标准德州扑克。",
+                "弃牌/让牌/跟注含金额/加注含金额比例/下注/全押"
+            )
+        }
+    }
+
     // V2.9.156: 分层Prompt+Schema+Few-Shot+JSON Mode+temperature=0
     private fun buildRequest(base64Image: String, model: String? = null, compact: Boolean = true): String {
         val streetHint = streetLocked?.let { "\n【已知street】当前street已确认为${it}，phase字段直接填${it}，buttons识别必须与此street的场景一致。\n" } ?: ""
@@ -284,15 +310,18 @@ object VisionApiClient {
             if (it.size == 2) "\n【手牌rank已锁定】手牌点数已确认为[${it[0]}, ${it[1]}]，hole_cards的rank字段必须填这两个值，你只需识别suit（花色）。\n" else ""
         } ?: ""
         // V2.9.196: 精简prompt减少input token加速推理
-        val prompt = """GG扑克5-max识别引擎。只输出JSON。
-Schema(缺填null):{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"P1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500"],"button_positions":[{"text":"弃牌","xPct":0.17,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+        // V2.9.200: 根据当前平台动态调整prompt描述（GG/标准/短牌）
+        val platformHint = buildPlatformPromptHint()
+        val prompt = """${platformHint.first}5-max识别引擎。只输出JSON。
+Schema(缺填null):{"is_poker_table":bool,"hole_cards":[{"rank":"A","suit":"s"}],"community_cards":[],"pot":数字,"my_chips":数字,"bet_to_call":数字,"dealer_seat":1-5,"my_seat":1-5,"blinds":"100/200","phase":"preflop","opp_seats":[{"seat":2,"nickname":"P1","chips":"3000","action":"fold"}],"buttons":["弃牌","跟注500"],"button_positions":[{"text":"弃牌","xPct":0.17,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[],"is_straddle":false,"is_bomb_pot":false,"is_insurance":false,"is_pko":false}
 花色:s=♠黑 h=♥红心 d=♦方块 c=♣梅花。对子花色须不同。
 pot展开简写:1.2K=1200,1.5M=1500000。底池=桌面中央筹码堆。
 active_players=仅有牌(明/暗)的玩家,弃牌/空座不计。
-buttons=底部全部按钮(弃牌/让牌/跟注含金额/加注含金额比例/下注/全押),不可遗漏!
+buttons=底部全部按钮(${platformHint.second}),不可遗漏!
 button_positions=每按钮{text与buttons一致,xPct=中心X/屏宽,yPct=中心Y/屏高},加注可能横排多坐标。
 opp_seats须含nickname(头像旁用户名)。showdown_cards=摊牌对手牌,看不到填[]。opp_hud=对手统计,看不到填[]。
-示例:{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"King","chips":"18000","action":"check"}],"buttons":["让牌","下注500"],"button_positions":[{"text":"让牌","xPct":0.50,"yPct":0.88},{"text":"下注500","xPct":0.83,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[]}
+GG特有字段:is_straddle=是否Straddle(第三盲注);is_bomb_pot=是否BombPot(所有玩家ante后直接翻牌);is_insurance=是否出现Insurance/EV Cashout按钮;is_pko=是否PKO赏金赛(牌桌有赏金标识)。
+示例:{"is_poker_table":true,"hole_cards":[{"rank":"A","suit":"s"},{"rank":"K","suit":"h"}],"community_cards":[{"rank":"Q","suit":"d"}],"pot":1500,"my_chips":25000,"bet_to_call":0,"dealer_seat":3,"my_seat":1,"blinds":"100/200","phase":"flop","opp_seats":[{"seat":2,"nickname":"King","chips":"18000","action":"check"}],"buttons":["让牌","下注500"],"button_positions":[{"text":"让牌","xPct":0.50,"yPct":0.88},{"text":"下注500","xPct":0.83,"yPct":0.88}],"d_button_pos":"left-top","total_players":5,"active_players":3,"showdown_cards":[],"opp_hud":[],"is_straddle":false,"is_bomb_pot":false,"is_insurance":false,"is_pko":false}
 ${streetHint}${rankHint}识别:"""
 
         return JSONObject().apply {
@@ -377,7 +406,12 @@ ${streetHint}${rankHint}识别:"""
         // V2.9.143: 解析摊牌信息
         val showdownCards = parseShowdownCards(data.optJSONArray("showdown_cards"))
         val oppHud = parseOppHud(data.optJSONArray("opp_hud"))
-return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content, showdownCards, oppHud, buttonPositions)
+// V2.9.200: GG特有字段
+        val isStraddle = data.optBoolean("is_straddle", false)
+        val isBombPot = data.optBoolean("is_bomb_pot", false)
+        val isInsurance = data.optBoolean("is_insurance", false)
+        val isPKO = data.optBoolean("is_pko", false)
+return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content, showdownCards, oppHud, buttonPositions, isStraddle, isBombPot, isInsurance, isPKO)
     }
 
     private fun parseOppSeats(arr: JSONArray?): List<PlayerInfo> {
@@ -478,9 +512,19 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
 
     private fun parseCallAmountFromButtons(buttons: List<String>): Int {
         for (btn in buttons) {
-            if (btn.contains("过牌") || btn.contains("让牌")) return 0
-            if (btn.contains("跟注")) { val n = btn.replace("跟注","").trim().replace(",",""); return try { if (n.isEmpty()) 0 else if (n.endsWith("K",true)) (n.dropLast(1).toFloat()*1000).toInt() else if (n.endsWith("M",true)) (n.dropLast(1).toFloat()*1000000).toInt() else n.toInt() } catch (_: Exception) { -1 } }
-            if (btn.contains("全押") || btn.contains("全下")) { val n = btn.replace("全押","").replace("全下","").trim().replace(",",""); return try { if (n.isEmpty()) -1 else if (n.endsWith("K",true)) (n.dropLast(1).toFloat()*1000).toInt() else if (n.endsWith("M",true)) (n.dropLast(1).toFloat()*1000000).toInt() else n.toInt() } catch (_: Exception) { -1 } }
+            // V2.9.200: 同时支持中英文按钮（GG扑克英文按钮）
+            if (btn.contains("过牌") || btn.contains("让牌") ||
+                btn.contains("check", ignoreCase = true)) return 0
+            if (btn.contains("跟注") || btn.contains("call", ignoreCase = true)) {
+                val n = btn.replace(Regex("(?i)call|跟注"),"").trim().replace(",","")
+                return try { if (n.isEmpty()) 0 else if (n.endsWith("K",true)) (n.dropLast(1).toFloat()*1000).toInt() else if (n.endsWith("M",true)) (n.dropLast(1).toFloat()*1000000).toInt() else n.toInt() } catch (_: Exception) { -1 }
+            }
+            if (btn.contains("全押") || btn.contains("全下") ||
+                btn.contains("all in", ignoreCase = true) ||
+                btn.contains("all-in", ignoreCase = true)) {
+                val n = btn.replace(Regex("(?i)all[\\s-]?in|全押|全下"),"").trim().replace(",","")
+                return try { if (n.isEmpty()) -1 else if (n.endsWith("K",true)) (n.dropLast(1).toFloat()*1000).toInt() else if (n.endsWith("M",true)) (n.dropLast(1).toFloat()*1000000).toInt() else n.toInt() } catch (_: Exception) { -1 }
+            }
         }
         return -1
     }
@@ -546,6 +590,12 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
                 } }))
             }
             if (result.oppHud.isNotEmpty()) { put("opp_hud", JSONArray(result.oppHud.map { JSONObject().apply { put("seat", it.seat); put("vpip", it.vpip); put("pfr", it.pfr); put("ats", it.ats); put("three_bet", it.threeBet) } })) }
+            // V2.9.200: GG扑克特有字段
+            put("platform", GameModeConfig.currentPlatform.name)
+            put("is_straddle", result.isStraddle)
+            put("is_bomb_pot", result.isBombPot)
+            put("is_insurance", result.isInsurance)
+            put("is_pko", result.isPKO)
             if (warnings.isNotEmpty()) put("_warnings", JSONArray(warnings))
         }.toString()
     }

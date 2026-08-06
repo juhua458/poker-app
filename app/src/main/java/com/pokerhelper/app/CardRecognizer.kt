@@ -14,24 +14,12 @@ import java.io.InputStream
  * - 只识别rank，suit由云端API补充（混合方案）
  * - 返回置信度分数，用于自适应API调用策略
  * - <300ms完成，用于快速锁定+减少API依赖
- *
- * 坐标基于 GG Poker 竖屏 1080×2344 分辨率
+ * V2.9.200: 坐标由 GameModeConfig 动态提供，支持多平台（标准/GG/短牌）切换
  */
 class CardRecognizer(private val context: Context) {
 
     companion object {
         private const val TAG = "CardRecognizer"
-
-        // === GG Poker 竖屏坐标 (基于1080×2344，运行时按屏幕比例缩放) ===
-        private const val BASE_WIDTH = 1080
-        private const val BASE_HEIGHT = 2344
-
-        private val COMMUNITY_Y_BASE = 1060 to 1210
-        private val COMMUNITY_CARDS_BASE = listOf(
-            155 to 315, 305 to 465, 455 to 615, 605 to 765, 755 to 915
-        )
-        private val HAND_Y_BASE = 1780 to 1940
-        private val HAND_CARDS_BASE = listOf(85 to 180, 180 to 295)
 
         private const val RANK_MATCH_THRESHOLD = 0.65  // V2.9.197: 降低阈值让低置信度走API兜底
 
@@ -39,18 +27,39 @@ class CardRecognizer(private val context: Context) {
         private var scaleX = 1.0f
         private var scaleY = 1.0f
         private var COMMUNITY_Y = 1060 to 1210
-        private var COMMUNITY_CARDS = COMMUNITY_CARDS_BASE
+        private var COMMUNITY_CARDS = listOf(155 to 315, 305 to 465, 455 to 615, 605 to 765, 755 to 915)
         private var HAND_Y = 1780 to 1940
-        private var HAND_CARDS = HAND_CARDS_BASE
+        private var HAND_CARDS = listOf(85 to 180, 180 to 295)
+        // V2.9.200: 记录当前坐标对应的平台，用于切换时强制刷新
+        private var currentPlatform: GamePlatform = GamePlatform.STANDARD
 
+        /**
+         * V2.9.200: 应用当前游戏模式坐标 + 按屏幕尺寸缩放
+         * 平台切换或屏幕尺寸变化时调用
+         */
+        fun applyGameMode() {
+            val config = GameModeConfig.getCoordinateConfig()
+            currentPlatform = GameModeConfig.currentPlatform
+            COMMUNITY_CARDS = config.communityCardsBase.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
+            COMMUNITY_Y = (config.communityYBase.first * scaleY).toInt() to (config.communityYBase.second * scaleY).toInt()
+            HAND_CARDS = config.handCardsBase.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
+            HAND_Y = (config.handYBase.first * scaleY).toInt() to (config.handYBase.second * scaleY).toInt()
+            Log.i(TAG, "applyGameMode: platform=$currentPlatform orientation=${config.orientation} scaleX=$scaleX scaleY=$scaleY")
+        }
+
+        /**
+         * V2.9.200: 更新屏幕尺寸并应用当前游戏模式坐标
+         */
         fun updateScreenSize(width: Int, height: Int) {
-            scaleX = width.toFloat() / BASE_WIDTH
-            scaleY = height.toFloat() / BASE_HEIGHT
-            COMMUNITY_Y = (COMMUNITY_Y_BASE.first * scaleY).toInt() to (COMMUNITY_Y_BASE.second * scaleY).toInt()
-            COMMUNITY_CARDS = COMMUNITY_CARDS_BASE.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
-            HAND_Y = (HAND_Y_BASE.first * scaleY).toInt() to (HAND_Y_BASE.second * scaleY).toInt()
-            HAND_CARDS = HAND_CARDS_BASE.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
-            Log.i(TAG, "CardRecognizer坐标缩放: ${width}x${height} scaleX=$scaleX scaleY=$scaleY")
+            val config = GameModeConfig.getCoordinateConfig()
+            currentPlatform = GameModeConfig.currentPlatform
+            scaleX = width.toFloat() / config.referenceWidth
+            scaleY = height.toFloat() / config.referenceHeight
+            COMMUNITY_Y = (config.communityYBase.first * scaleY).toInt() to (config.communityYBase.second * scaleY).toInt()
+            COMMUNITY_CARDS = config.communityCardsBase.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
+            HAND_Y = (config.handYBase.first * scaleY).toInt() to (config.handYBase.second * scaleY).toInt()
+            HAND_CARDS = config.handCardsBase.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
+            Log.i(TAG, "updateScreenSize: ${width}x${height} platform=$currentPlatform scaleX=$scaleX scaleY=$scaleY")
         }
     }
 

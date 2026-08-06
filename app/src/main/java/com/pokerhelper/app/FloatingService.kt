@@ -238,6 +238,9 @@ class FloatingService : Service() {
         isStealthMode = prefs?.getBoolean(KEY_STEALTH_MODE, false) ?: false
         loadErrorLogs()  // V2.9.183: 加载持久化错误日志
 
+        // V2.9.200: 初始化游戏模式配置（读取用户上次选择的平台）
+        GameModeConfig.init(this)
+
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -687,18 +690,11 @@ class FloatingService : Service() {
             executeAutoTapFallback(action)
         }
     }
-    // V2.9.184: 回退动态坐标——根据实际屏幕尺寸计算，不再硬编码1080×2344
+    // V2.9.200: 回退动态坐标——使用GameModeConfig根据当前平台自动适配
     private fun executeAutoTapFallback(action: String) {
         val (sw, sh) = getScreenSize()
-        val (x, y) = when (action) {
-            "fold" -> (sw * 0.17).toInt() to (sh * 0.88).toInt()
-            "check" -> (sw * 0.50).toInt() to (sh * 0.88).toInt()
-            "call", "weak_call" -> (sw * 0.50).toInt() to (sh * 0.88).toInt()
-            "raise", "raise_big" -> (sw * 0.83).toInt() to (sh * 0.88).toInt()
-            "allin" -> (sw * 0.50).toInt() to (sh * 0.92).toInt()
-            else -> (sw * 0.50).toInt() to (sh * 0.88).toInt()
-        }
-        Log.d(TAG, "★ autoTapFallback: $action → ($x, $y) [screen=${sw}x${sh}]")
+        val (x, y) = GameModeConfig.getAutoTapFallback(action, sw, sh)
+        Log.d(TAG, "★ autoTapFallback: $action → ($x, $y) [screen=${sw}x${sh} platform=${GameModeConfig.currentPlatform}]")
         bleManager?.sendTap(x, y, 50)
     }
     private fun checkAutoErrors(){if(autoConsecutiveErrors>=AUTO_MAX_ERRORS){stopAutoCapture();updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER|REASON:自动暂停");updateAdviceNotification("⚠️ 自动模式暂停","连续${AUTO_MAX_ERRORS}次错误")}}
@@ -882,6 +878,44 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
             }
         }
 
+        // V2.9.200: 平台切换按钮（标准/GG/短牌）
+        val tvPlatform = TextView(this).apply {
+            text = "🎮"
+            setTextColor(0xFF4ade80.toInt())
+            textSize = 14f
+            setPadding(6, 2, 6, 2)
+            setBackgroundColor(0x00000000)
+            setOnClickListener {
+                // 循环切换：STANDARD → GGPOKER → SHORT_DECK → STANDARD
+                val nextPlatform = when (GameModeConfig.currentPlatform) {
+                    GamePlatform.STANDARD -> GamePlatform.GGPOKER
+                    GamePlatform.GGPOKER -> GamePlatform.SHORT_DECK
+                    GamePlatform.SHORT_DECK -> GamePlatform.STANDARD
+                }
+                GameModeConfig.setPlatform(nextPlatform)
+                // 更新CardRecognizer坐标
+                CardRecognizer.applyGameMode()
+                // 更新按钮文字颜色提示当前平台
+                when (nextPlatform) {
+                    GamePlatform.STANDARD -> setTextColor(0xFF4ade80.toInt())
+                    GamePlatform.GGPOKER -> setTextColor(0xFFfbbf24.toInt())  // GG=金色
+                    GamePlatform.SHORT_DECK -> setTextColor(0xFFf472b6.toInt())  // 短牌=粉色
+                }
+                tvStatus?.text = "已切换到${nextPlatform.displayName}"
+                Log.i(TAG, "平台切换: ${nextPlatform.displayName}")
+                // 重置手牌锁定，避免跨平台锁定污染
+                VisionApiClient.holeCardsLocked = null
+                VisionApiClient.holeCardsRankLocked = null
+                VisionApiClient.dButtonLocked = ""
+                VisionApiClient.streetLocked = null
+            }
+            setOnLongClickListener {
+                // 长按显示当前平台全名
+                tvStatus?.text = "当前平台: ${GameModeConfig.currentPlatform.displayName}"
+                true
+            }
+        }
+
         // V2.9.177: BLE诊断信息独立显示行，增大字体+多行显示，区域加大
         tvBleStatus = TextView(this).apply {
             text = ""
@@ -899,6 +933,7 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
         topBar.addView(tvVoice)
         topBar.addView(tvReset)
         topBar.addView(tvBle!!)
+        topBar.addView(tvPlatform)  // V2.9.200: 平台切换按钮
         topBar.addView(tvCollapse)
         container.addView(topBar)
         container.addView(tvBleStatus!!, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
