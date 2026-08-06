@@ -1921,7 +1921,7 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                             try {
                                 val (ix, iy) = GameModeConfig.getInsuranceDeclinePosition(screenWidth, screenHeight)
                                 bleManager?.sendTap(ix, iy, 50)
-                                updateAdviceNotification("🛡️ Insurance", "已自动拒绝")
+                                updateAdviceNotification("️ Insurance", "已自动拒绝")
                                 updateBallAdvice("COLOR:CHECK|SIGNAL:INSURANCE|REASON:自动拒绝")
                                 Log.d(TAG, "★ Insurance declined at ($ix, $iy)")
                             } catch (e: Exception) {
@@ -1929,6 +1929,20 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                             }
                         }
                         return // Insurance处理完，跳过策略计算
+                    }
+                    // V2.9.206: 搓牌检测——花色不确定时等待动画完成
+                    if (result.suitUncertain && autoCaptureEnabled) {
+                        Log.d(TAG, "★ Squeeze detected (suit_uncertain), waiting 3s")
+                        updateAdviceNotification("🎴 搓牌中", "等待牌面完全揭示")
+                        updateBallAdvice("COLOR:CHECK|SIGNAL:SQUEEZE|REASON:搓牌动画中")
+                        handler.postDelayed({
+                            // 3秒后重新截屏
+                            if (autoCaptureEnabled && ScreenOptService.isServiceRunning()) {
+                                Log.d(TAG, "★ Squeeze wait done, re-capturing")
+                                processScreenshotAndAnalyze(isAutoCapture=true)
+                            }
+                        }, 3000)
+                        return // 搓牌处理中，跳过策略计算
                     }
                     val frameTag=when{isMultiFrame2->",_frameTag:'verify'";isMultiFrame1->",_frameTag:'primary'";isAutoCapture->",_frameTag:'auto'";else->""}
                     // V2.9.125: 策略超时保险——8秒超时+灰色等待（非红色FOLD）

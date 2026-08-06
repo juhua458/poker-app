@@ -92,6 +92,8 @@ object VisionApiClient {
         val oppHud: List<OppHudInfo>,
         // V2.9.180: 按钮坐标（用于全自动执行）
         val buttonPositions: List<ButtonPosition>,
+        // V2.9.206: 搓牌检测——花色不确定时可能正在squeeze
+        val suitUncertain: Boolean = false,
         // V2.9.200: GG扑克特有字段
         val isStraddle: Boolean = false,           // 是否Straddle阶段
         val isBombPot: Boolean = false,            // 是否Bomb Pot
@@ -411,7 +413,7 @@ ${streetHint}${rankHint}识别:"""
         val isBombPot = data.optBoolean("is_bomb_pot", false)
         val isInsurance = data.optBoolean("is_insurance", false)
         val isPKO = data.optBoolean("is_pko", false)
-return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content, showdownCards, oppHud, buttonPositions, isStraddle, isBombPot, isInsurance, isPKO)
+return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), parseCards(data.optJSONArray("community_cards")), insuredPot, parseChipValue(data, "my_chips"), data.optInt("total_players", 6), data.optInt("active_players", 2), data.optString("my_position", ""), street, finalToCall, data.optInt("min_raise", 0), buttons, blindSB, blindBB, parseChipValue(data, "ante"), players, data.optString("d_button_pos", ""), content, showdownCards, oppHud, buttonPositions, suitUncertain, isStraddle, isBombPot, isInsurance, isPKO)
     }
 
     private fun parseOppSeats(arr: JSONArray?): List<PlayerInfo> {
@@ -579,7 +581,7 @@ return VisionResult(isPokerTable, parseCards(data.optJSONArray("hole_cards")), p
                 put("active", p.active)
                 if(p.nickname.isNotEmpty()) put("nickname", p.nickname)
             } }))
-            put("is_poker_table", result.isPokerTable); put("d_button_position", result.dButtonPosition); put("suit_uncertain", suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("rank_locked", holeCardsRankLocked != null); put("rank_lock_values", holeCardsRankLocked?.joinToString(",") ?: ""); put("lock_reason", lockReason)
+            put("is_poker_table", result.isPokerTable); put("d_button_position", result.dButtonPosition); put("suit_uncertain", result.suitUncertain); put("hole_cards_locked", holeCardsLocked != null); put("rank_locked", holeCardsRankLocked != null); put("rank_lock_values", holeCardsRankLocked?.joinToString(",") ?: ""); put("lock_reason", lockReason)
             put("prompt_mode", lastPromptMode)
             // V2.9.143: 摊牌信息
             if (result.showdownCards.isNotEmpty()) {
