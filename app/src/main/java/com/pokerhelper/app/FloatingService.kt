@@ -115,6 +115,9 @@ class FloatingService : Service() {
     private var isVisionInProgress = false
     private var autoConsecutiveErrors = 0
     private val AUTO_MAX_ERRORS = 3
+    // V2.9.206: Shot Clock保护——记录上次决策时间，超时强制行动
+    private var lastDecisionTime: Long = 0
+    private val SHOT_CLOCK_TIMEOUT = 18000L // 18秒超时（GG默认30秒，留12秒余量）
     private var manualErrorCount = 0  // V2.9.184: 手动截屏连续失败计数
     private var multiFrameDelay = 1500L  // V2.9.184: 200→1500ms，给API调用留足时间
 
@@ -624,7 +627,7 @@ class FloatingService : Service() {
             }
         }
     }
-    private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; isVisionInProgress=false; autoCaptureInterval=4000L; executeJs("if(typeof enableAutoExec==='function')enableAutoExec()"); scheduleNextAutoCapture() }
+    private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; lastDecisionTime=0; isVisionInProgress=false; autoCaptureInterval=4000L; executeJs("if(typeof enableAutoExec==='function')enableAutoExec()"); scheduleNextAutoCapture() }
     private fun stopAutoCapture() { autoCaptureEnabled=false; autoCaptureRunnable?.let{handler.removeCallbacks(it)}; autoCaptureRunnable=null; isVisionInProgress=false; executeJs("if(typeof disableAutoExec==='function')disableAutoExec()") }
     private fun scheduleNextAutoCapture() {
         if(!autoCaptureEnabled)return; autoCaptureRunnable?.let{handler.removeCallbacks(it)}
@@ -659,6 +662,17 @@ class FloatingService : Service() {
     // V2.9.180: 全自动执行tap——根据action匹配按钮坐标并发送到ESP32
     private fun executeAutoTap(action: String, decisionData: org.json.JSONObject) {
         try {
+            // V2.9.206: Shot Clock保护——检查是否超时
+            val now = System.currentTimeMillis()
+            if (lastDecisionTime > 0 && (now - lastDecisionTime) > SHOT_CLOCK_TIMEOUT) {
+                Log.w(TAG, "★ Shot Clock timeout! Forcing emergency fold")
+                executeAutoTapFallback("fold")
+                lastDecisionTime = now
+                updateAdviceNotification("⏰ Shot Clock", "超时强制弃牌")
+                updateBallAdvice("COLOR:FOLD|SIGNAL:TIMEOUT|REASON:Shot Clock超时")
+                return
+            }
+            
             // V2.9.206: GG扑克下注金额自动输入——先点预设%按钮，再点加注确认
             if (action == "raise" || action == "raise_big") {
                 val sizing = decisionData.optInt("sizing", 0)
@@ -672,6 +686,7 @@ class FloatingService : Service() {
                     handler.postDelayed({
                         try {
                             executeAutoTapFallback("raise")
+                            lastDecisionTime = System.currentTimeMillis()
                             Log.d(TAG, "★ GG bet confirm: raise button tapped")
                         } catch (e: Exception) {
                             Log.e(TAG, "GG bet confirm error", e)
@@ -708,9 +723,11 @@ class FloatingService : Service() {
                 val y = (targetBtn.yPct * screenHeight).toInt().coerceIn(0, screenHeight - 1)
                 Log.d(TAG, "★ autoTap: $action → ($x, $y) btn=${targetBtn.text}")
                 bleManager?.sendTap(x, y, 50)
+                lastDecisionTime = System.currentTimeMillis()
             } else {
                 Log.w(TAG, "autoTap: 未匹配按钮 $action, 回退固定位置")
                 executeAutoTapFallback(action)
+                lastDecisionTime = System.currentTimeMillis()
             }
         } catch (e: Exception) {
             Log.e(TAG, "executeAutoTap error", e)
@@ -723,6 +740,7 @@ class FloatingService : Service() {
         val (x, y) = GameModeConfig.getAutoTapFallback(action, sw, sh)
         Log.d(TAG, "★ autoTapFallback: $action → ($x, $y) [screen=${sw}x${sh} platform=${GameModeConfig.currentPlatform}]")
         bleManager?.sendTap(x, y, 50)
+        lastDecisionTime = System.currentTimeMillis()
     }
     private fun checkAutoErrors(){if(autoConsecutiveErrors>=AUTO_MAX_ERRORS){stopAutoCapture();updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER|REASON:自动暂停");updateAdviceNotification("⚠️ 自动模式暂停","连续${AUTO_MAX_ERRORS}次错误")}}
     fun triggerMultiFrameCapture(){
@@ -1891,6 +1909,10 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                     if (result.buttonPositions.isNotEmpty()) {
                         latestButtonPositions = result.buttonPositions
                         Log.d(TAG, "★ 按钮坐标已存储: ${result.buttonPositions.map { "${it.text}(${it.xPct},${it.yPct})" }}")
+                    }
+                    // V2.9.206: 新牌局重置Shot Clock计时器
+                    if (result.holeCards.size >= 2) {
+                        lastDecisionTime = 0
                     }
                     // V2.9.206: Insurance自动拒绝——检测到Insurance弹窗时自动点击拒绝
                     if (result.isInsurance && autoCaptureEnabled) {
