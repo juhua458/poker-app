@@ -281,7 +281,8 @@ class CardRecognizer(private val context: Context) {
         // 选择对应的模板池
         val templatePool = if (isHand) handRankTemplates else commRankTemplates
         if (templatePool.isEmpty()) {
-            Log.w(TAG, "${if(isHand)"手牌":"公共牌"}模板池为空")
+            val poolLabel = if (isHand) "手牌" else "公共牌"
+            Log.w(TAG, "${poolLabel}模板池为空")
             return null
         }
 
