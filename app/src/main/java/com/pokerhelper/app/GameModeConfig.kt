@@ -216,14 +216,14 @@ object GameModeConfig {
     fun getAutoTapFallback(action: String, screenW: Int, screenH: Int): Pair<Int, Int> {
         return when (currentPlatform) {
             GamePlatform.GGPOKER -> when (action) {
-                // V2.9.204: 基于实机截图像素级精确测量（1080x2344），底部3按钮中心y=2275 (97.1%)
-                "fold" -> (screenW * 0.181).toInt() to (screenH * 0.971).toInt()
-                "check" -> (screenW * 0.500).toInt() to (screenH * 0.971).toInt()
-                "call", "weak_call" -> (screenW * 0.500).toInt() to (screenH * 0.971).toInt()
-                "raise", "raise_big" -> (screenW * 0.819).toInt() to (screenH * 0.971).toInt()
+                // V2.9.205: Y坐标上移，按钮几何中心y=2250 (96.0%)
+                "fold" -> (screenW * 0.181).toInt() to (screenH * 0.960).toInt()
+                "check" -> (screenW * 0.500).toInt() to (screenH * 0.960).toInt()
+                "call", "weak_call" -> (screenW * 0.500).toInt() to (screenH * 0.960).toInt()
+                "raise", "raise_big" -> (screenW * 0.819).toInt() to (screenH * 0.960).toInt()
                 // GG无独立allin按钮，点击右侧100%最大下注面板
                 "allin" -> (screenW * 0.93).toInt() to (screenH * 0.76).toInt()
-                else -> (screenW * 0.500).toInt() to (screenH * 0.971).toInt()
+                else -> (screenW * 0.500).toInt() to (screenH * 0.960).toInt()
             }
             else -> when (action) {
                 "fold" -> (screenW * 0.17).toInt() to (screenH * 0.88).toInt()
