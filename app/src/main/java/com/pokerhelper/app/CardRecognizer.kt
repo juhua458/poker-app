@@ -294,9 +294,9 @@ class CardRecognizer(private val context: Context) {
             for (tpl in tplList) {
                 // 缩放输入到模板尺寸（处理分辨率差异）
                 val scaled = if (rankW != tpl.width || rankH != tpl.height) {
-                    resizeDoubleArray(rankGray, tpl.width, tpl.height)
+                    resizeDoubleArray(rankGray.grayPixels, tpl.width, tpl.height)
                 } else {
-                    rankGray
+                    rankGray.grayPixels
                 }
                 val score = nccMatch(scaled, tpl.grayPixels)
                 if (score > rankBest) rankBest = score
@@ -339,7 +339,7 @@ class CardRecognizer(private val context: Context) {
      * 手牌: 左上角约95×100区域（rank indicator在牌面左上）
      * 公共牌: 左上角50%宽×50%高区域
      */
-    private fun extractRankIndicator(pixels: IntArray, w: Int, h: Int, isHand: Boolean): DoubleArray? {
+    private fun extractRankIndicator(pixels: IntArray, w: Int, h: Int, isHand: Boolean): RankTemplate? {
         val rankW: Int
         val rankH: Int
         if (isHand) {
@@ -364,7 +364,7 @@ class CardRecognizer(private val context: Context) {
                 }
             }
         }
-        return result
+        return RankTemplate(result, rankW, rankH)
     }
 
     /**
