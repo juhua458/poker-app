@@ -11750,7 +11750,8 @@ function autoExecuteDecision(r, isAutoMode) {
         reason: exec.reason,
         eq: r.eq || 0,
         hClass: r.hClass ? r.hClass.name : '?',
-        sizing: r.v || 0
+        sizing: r.v || 0,
+        pot: G.pot || 0
       }));
     }
     return true;

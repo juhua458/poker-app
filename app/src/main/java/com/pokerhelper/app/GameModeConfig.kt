@@ -221,8 +221,13 @@ object GameModeConfig {
                 "check" -> (screenW * 0.500).toInt() to (screenH * 0.960).toInt()
                 "call", "weak_call" -> (screenW * 0.500).toInt() to (screenH * 0.960).toInt()
                 "raise", "raise_big" -> (screenW * 0.819).toInt() to (screenH * 0.960).toInt()
-                // GG无独立allin按钮，点击右侧100%最大下注面板
-                "allin" -> (screenW * 0.93).toInt() to (screenH * 0.76).toInt()
+                // V2.9.206: 修正allin坐标，使用100%下注按钮实测位置(81.9%, 75.1%)
+                "allin" -> (screenW * 0.819).toInt() to (screenH * 0.751).toInt()
+                // V2.9.206: GG右侧4档下注预设按钮
+                "bet_100" -> (screenW * 0.819).toInt() to (screenH * 0.751).toInt()
+                "bet_75" -> (screenW * 0.819).toInt() to (screenH * 0.821).toInt()
+                "bet_50" -> (screenW * 0.819).toInt() to (screenH * 0.890).toInt()
+                "bet_33" -> (screenW * 0.819).toInt() to (screenH * 0.937).toInt()
                 else -> (screenW * 0.500).toInt() to (screenH * 0.960).toInt()
             }
             else -> when (action) {
@@ -240,4 +245,30 @@ object GameModeConfig {
      * 当前平台是否为竖屏
      */
     fun isPortrait(): Boolean = getCoordinateConfig().orientation == ScreenOrientation.PORTRAIT
+}
+
+    /**
+     * V2.9.206: 根据下注金额和底池计算应点击的下注预设按钮
+     * @param sizing 策略推荐的下注金额
+     * @param pot 当前底池大小
+     * @return 按钮action字符串: bet_100/bet_75/bet_50/bet_33
+     */
+    fun getBetButtonAction(sizing: Int, pot: Int): String {
+        if (pot <= 0) return "bet_100" // 底池为0时默认100%
+        val ratio = sizing.toDouble() / pot.toDouble()
+        return when {
+            ratio >= 0.90 -> "bet_100"  // 90%以上→100%按钮
+            ratio >= 0.65 -> "bet_75"   // 65%-90%→75%按钮
+            ratio >= 0.40 -> "bet_50"   // 40%-65%→50%按钮
+            else -> "bet_33"            // 40%以下→33%按钮
+        }
+    }
+}
+    /**
+     * V2.9.206: GG扑克Insurance拒绝按钮坐标（约在屏幕右侧中间）
+     */
+    fun getInsuranceDeclinePosition(screenW: Int, screenH: Int): Pair<Int, Int> {
+        // Insurance拒绝按钮大约在屏幕右侧60%位置，y坐标约45%
+        return (screenW * 0.85).toInt() to (screenH * 0.55).toInt()
+    }
 }

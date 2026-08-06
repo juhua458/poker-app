@@ -659,6 +659,28 @@ class FloatingService : Service() {
     // V2.9.180: 全自动执行tap——根据action匹配按钮坐标并发送到ESP32
     private fun executeAutoTap(action: String, decisionData: org.json.JSONObject) {
         try {
+            // V2.9.206: GG扑克下注金额自动输入——先点预设%按钮，再点加注确认
+            if (action == "raise" || action == "raise_big") {
+                val sizing = decisionData.optInt("sizing", 0)
+                val pot = decisionData.optInt("pot", 0)
+                if (sizing > 0 && pot > 0 && GameModeConfig.currentPlatform == GamePlatform.GGPOKER) {
+                    val betBtnAction = GameModeConfig.getBetButtonAction(sizing, pot)
+                    Log.d(TAG, "★ GG bet sizing: action=$action sizing=$sizing pot=$pot → $betBtnAction")
+                    // 先点击下注预设按钮
+                    executeAutoTapFallback(betBtnAction)
+                    // 延迟200ms后点击加注按钮确认
+                    handler.postDelayed({
+                        try {
+                            executeAutoTapFallback("raise")
+                            Log.d(TAG, "★ GG bet confirm: raise button tapped")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "GG bet confirm error", e)
+                        }
+                    }, 200)
+                    return
+                }
+            }
+            
             val btns = latestButtonPositions
             if (btns.isEmpty()) {
                 Log.w(TAG, "autoTap: 无按钮坐标，回退固定位置")
