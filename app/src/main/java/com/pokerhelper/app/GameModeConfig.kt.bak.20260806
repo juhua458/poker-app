@@ -125,10 +125,10 @@ object GameModeConfig {
     private val GG_PORTRAIT_COORDS = CoordinateConfig(
         // GG竖屏：手牌在底部中央，两张牌左右排列
         handCardsBase = listOf(
-            Pair(50, 185),   // 手牌0 x范围（左牌，实测宽135px）
-            Pair(175, 321)   // 手牌1 x范围（右牌，实测宽146px，与左牌重叠）
+            Pair(50, 190),   // 手牌0 x范围
+            Pair(130, 310)   // 手牌1 x范围
         ),
-        handYBase = Pair(1748, 2046),  // 手牌y范围（覆盖左牌1748-1897 + 右牌1898-2046）
+        handYBase = Pair(1740, 1960),  // 手牌y范围
         // 公共牌在屏幕中部
         communityCardsBase = listOf(
             Pair(170, 306),   // 公共牌0
