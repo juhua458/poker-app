@@ -245,7 +245,6 @@ object GameModeConfig {
      * 当前平台是否为竖屏
      */
     fun isPortrait(): Boolean = getCoordinateConfig().orientation == ScreenOrientation.PORTRAIT
-}
 
     /**
      * V2.9.206: 根据下注金额和底池计算应点击的下注预设按钮
@@ -263,12 +262,12 @@ object GameModeConfig {
             else -> "bet_33"            // 40%以下→33%按钮
         }
     }
-}
+
     /**
      * V2.9.206: GG扑克Insurance拒绝按钮坐标（约在屏幕右侧中间）
      */
     fun getInsuranceDeclinePosition(screenW: Int, screenH: Int): Pair<Int, Int> {
-        // Insurance拒绝按钮大约在屏幕右侧60%位置，y坐标约45%
+        // Insurance拒绝按钮大约在屏幕右侧85%位置，y坐标约55%
         return (screenW * 0.85).toInt() to (screenH * 0.55).toInt()
     }
 }
