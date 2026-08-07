@@ -5,7 +5,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.util.Log
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.InputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * 本地牌面识别器 V2 - Rank-only NCC匹配
@@ -222,7 +227,7 @@ class CardRecognizer(private val context: Context) {
         val elapsed = System.currentTimeMillis() - t0
         val minConfidence = if (allConfidences.isEmpty()) 0f else allConfidences.min()
 
-        Log.d(TAG, "本地CV: ${elapsed}ms hand=${handCards.map{"${it.rank}(${String.format("%.2f",it.confidence)})"}} board=${communityCards.map{"${it.rank}(${String.format("%.2f",it.confidence)})"}} minConf=$minConfidence")
+        Log.d(TAG, "本地CV: ${elapsed}ms hand=${handCards.map{"${it.rank}${it.suit}(${String.format("%.2f",it.confidence)})"}} board=${communityCards.map{"${it.rank}${it.suit}(${String.format("%.2f",it.confidence)})"}} minConf=$minConfidence")
 
         return HybridRecognitionResult(
             communityCards = communityCards,
@@ -320,14 +325,19 @@ class CardRecognizer(private val context: Context) {
         // NCC score范围[-1,1]，映射到[0,1]作为置信度
         val confidence = ((bestScore + 1.0) / 2.0).toFloat()
 
+        // V2.9.208: 花色识别（颜色+形状分析）
+        val (suit, suitSym) = detectSuit(pixels, w, h, isHand)
+
         if (bestScore < RANK_MATCH_THRESHOLD) {
-            Log.w(TAG, "Rank匹配分数过低: ${String.format("%.3f", bestScore)} ($bestRank)")
+            Log.w(TAG, "Rank匹配分数过低: ${String.format("%.3f", bestScore)} ($bestRank) suit=$suit")
             // 仍然返回结果，但置信度低 → 混合方案会用API兜底
             return IdentifiedCard(
                 rank = if (bestRank == "10") "T" else if (bestRank.isNotEmpty()) bestRank else "?",
-                suit = "?",
-                suitSymbol = "?",
-                fullKey = "",
+                suit = suit,
+                suitSymbol = suitSym,
+                fullKey = if (suit != "?" && (bestRank == "10" || bestRank.isNotEmpty())) {
+                    (if (bestRank == "10") "T" else bestRank) + suit else ""
+                },
                 confidence = confidence,
                 position = -1
             )
@@ -336,12 +346,233 @@ class CardRecognizer(private val context: Context) {
         val rankDisplay = if (bestRank == "10") "T" else bestRank
         return IdentifiedCard(
             rank = rankDisplay,
-            suit = "?",  // suit由API补充
-            suitSymbol = "?",
-            fullKey = "",
+            suit = suit,
+            suitSymbol = suitSym,
+            fullKey = if (suit != "?") rankDisplay + suit else "",
             confidence = confidence,
             position = -1
         )
+    }
+
+    // ============ V2.9.208: 花色识别 ============
+
+    /**
+     * 检测牌的花色（颜色+形状双重分析）
+     * @param pixels 原始ARGB像素
+     * @param w 裁剪区域宽
+     * @param h 裁剪区域高
+     * @param isHand 是否手牌（影响suit symbol位置）
+     * @return Pair<suit, suitSymbol>，如 ("h","♥")；失败返回 ("?","?")
+     */
+    private fun detectSuit(pixels: IntArray, w: Int, h: Int, isHand: Boolean): Pair<String, String> {
+        // suit symbol位于rank indicator下方
+        val suitStartY: Int
+        val suitEndY: Int
+        if (isHand) {
+            suitStartY = (h * 0.45).toInt()  // rank占上45%，suit在下55%
+            suitEndY = minOf(h, (h * 0.95).toInt())
+        } else {
+            suitStartY = (h * 0.35).toInt()
+            suitEndY = minOf(h, (h * 0.92).toInt())
+        }
+        val suitW = (w * 0.65).toInt()  // suit symbol在左侧
+
+        // Step 1: 颜色分析 — 统计红/黑色像素
+        var redPixels = 0
+        var blackPixels = 0
+        for (y in suitStartY until suitEndY) {
+            for (x in 0 until suitW) {
+                val idx = y * w + x
+                if (idx >= pixels.size) continue
+                val p = pixels[idx]
+                val r = Color.red(p)
+                val g = Color.green(p)
+                val b = Color.blue(p)
+                // 红色: R高且明显高于G和B
+                if (r > 130 && r - g > 50 && r - b > 50) redPixels++
+                // 黑色: 所有通道都低（但不是白色背景）
+                else if (r < 90 && g < 90 && b < 90) blackPixels++
+            }
+        }
+        val total = redPixels + blackPixels
+        if (total < 15) {
+            // 彩色像素太少，可能是公共牌区域或背景干扰
+            return "?" to "?"
+        }
+
+        val color: String
+        val symbol: String
+        if (redPixels > blackPixels * 2) {
+            color = "red"
+        } else if (blackPixels > redPixels * 2) {
+            color = "black"
+        } else {
+            // 红黑比例不明确，用形状分析尝试
+            color = "unknown"
+        }
+
+        // Step 2: 形状分析 — 区分同色花色
+        val shapeResult = analyzeSuitShape(pixels, w, h, suitStartY, suitEndY, suitW, color)
+        if (shapeResult.first != "?") {
+            return shapeResult
+        }
+
+        // Step 3: 颜色兜底（形状分析不确定时）
+        return when (color) {
+            "red" -> "h" to "♥"
+            "black" -> "s" to "♠"
+            else -> "?" to "?"
+        }
+    }
+
+    /**
+     * 形状分析区分同色花色
+     * 基于像素分布特征：topRatio, bottomRatio, leftRatio, rightRatio, symmetry
+     */
+    private fun analyzeSuitShape(
+        pixels: IntArray, w: Int, h: Int,
+        startY: Int, endY: Int, maxX: Int, knownColor: String
+    ): Pair<String, String> {
+        // 收集该区域的"彩色像素"mask
+        val mask = BooleanArray((endY - startY) * maxX)
+        var coloredCount = 0
+        for (y in startY until endY) {
+            for (x in 0 until maxX) {
+                val idx = y * w + x
+                if (idx >= pixels.size) continue
+                val p = pixels[idx]
+                val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
+                val isColored = when (knownColor) {
+                    "red" -> r > 130 && r - g > 50 && r - b > 50
+                    "black" -> r < 90 && g < 90 && b < 90
+                    else -> (r > 130 && r - g > 50 && r - b > 50) || (r < 90 && g < 90 && b < 90)
+                }
+                if (isColored) {
+                    mask[(y - startY) * maxX + x] = true
+                    coloredCount++
+                }
+            }
+        }
+        if (coloredCount < 10) return "?" to "?"
+
+        val regH = endY - startY
+        val halfH = regH / 2
+        val halfW = maxX / 2
+
+        // 上下左右分布
+        var topHalf = 0; var bottomHalf = 0
+        var leftHalf = 0; var rightHalf = 0
+        var centerCol = 0.0
+        for (y in 0 until regH) {
+            for (x in 0 until maxX) {
+                if (!mask[y * maxX + x]) continue
+                if (y < halfH) topHalf++ else bottomHalf++
+                if (x < halfW) leftHalf++ else rightHalf++
+                centerCol += x
+            }
+        }
+        centerCol /= coloredCount
+        val topRatio = topHalf.toDouble() / coloredCount
+        val bottomRatio = bottomHalf.toDouble() / coloredCount
+        val leftRatio = leftHalf.toDouble() / coloredCount
+        val rightRatio = rightHalf.toDouble() / coloredCount
+        val centerX = maxX / 2.0
+        val symmetry = 1.0 - Math.abs(centerCol - centerX) / centerX  // 0~1, 越高越对称
+
+        // 最宽行位置（topHalfMax / bottomHalfMax）
+        var maxTopW = 0; var maxBotW = 0
+        for (y in 0 until halfH) {
+            var cnt = 0
+            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
+            if (cnt > maxTopW) maxTopW = cnt
+        }
+        for (y in halfH until regH) {
+            var cnt = 0
+            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
+            if (cnt > maxBotW) maxBotW = cnt
+        }
+
+        // 顶部边缘宽度（前20%行）
+        var topEdgeW = 0
+        val topEdgeEnd = (regH * 0.2).toInt().coerceAtLeast(1)
+        for (y in 0 until topEdgeEnd) {
+            var cnt = 0
+            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
+            if (cnt > topEdgeW) topEdgeW = cnt
+        }
+        // 底部边缘宽度（后20%行）
+        var botEdgeW = 0
+        val botEdgeStart = (regH * 0.8).toInt()
+        for (y in botEdgeStart until regH) {
+            var cnt = 0
+            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
+            if (cnt > botEdgeW) botEdgeW = cnt
+        }
+
+        // === 各花色评分 ===
+        var hScore = 0.0; var dScore = 0.0; var cScore = 0.0; var sScore = 0.0
+
+        when (knownColor) {
+            "red" -> {
+                // ♥ Heart: 宽顶部（双圆弧），窄底部（尖点）, topRatio > 0.55
+                hScore += topRatio * 2.0
+                hScore += (maxTopW.toDouble() / coloredCount) * 1.5
+                hScore += symmetry * 0.5
+                if (topEdgeW > botEdgeW * 1.3) hScore += 1.0  // 顶宽>底宽
+
+                // ♦ Diamond: 上下对称, 中部最宽
+                dScore += (1.0 - Math.abs(topRatio - 0.5) * 2.0) * 2.0
+                dScore += symmetry * 1.5
+                dScore += (maxTopW.toDouble() / coloredCount) * 0.5
+            }
+            "black" -> {
+                // ♠ Spade: 窄顶部（尖点），宽底部（圆弧+茎）, bottomRatio > 0.55
+                sScore += bottomRatio * 2.0
+                sScore += (maxBotW.toDouble() / coloredCount) * 1.5
+                sScore += symmetry * 0.5
+                if (botEdgeW > topEdgeW * 1.2) sScore += 0.8
+
+                // ♣ Club: 最顶部宽（三圆弧），底部窄（茎）
+                cScore += topRatio * 1.5
+                cScore += (topEdgeW.toDouble() / (maxX * 0.5 + 1)) * 1.0
+                cScore += symmetry * 0.3
+            }
+            else -> {
+                // 颜色未知，全部评估
+                // ♥
+                hScore += topRatio * 1.5
+                if (topEdgeW > botEdgeW) hScore += 0.5
+                hScore += symmetry * 0.3
+                // ♦
+                dScore += (1.0 - Math.abs(topRatio - 0.5) * 2.0) * 1.5
+                dScore += symmetry * 1.0
+                // ♠
+                sScore += bottomRatio * 1.5
+                if (botEdgeW > topEdgeW) sScore += 0.5
+                sScore += symmetry * 0.3
+                // ♣
+                cScore += topRatio * 1.0
+                cScore += symmetry * 0.2
+            }
+        }
+
+        // 选最高分
+        val scores = listOf("h" to hScore, "d" to dScore, "c" to cScore, "s" to sScore)
+        val sorted = scores.sortedByDescending { it.second }
+        val best = sorted[0]
+        val second = sorted[1]
+
+        // 最高分需比第二高至少20%才采用形状结果
+        if (best.second > 0 && best.second > second.second * 1.2) {
+            return when (best.first) {
+                "h" -> "h" to "♥"
+                "d" -> "d" to "♦"
+                "c" -> "c" to "♣"
+                "s" -> "s" to "♠"
+                else -> "?" to "?"
+            }
+        }
+        return "?" to "?"
     }
 
     /**
@@ -436,6 +667,93 @@ class CardRecognizer(private val context: Context) {
             result[i] = 0.299 * Color.red(p) + 0.587 * Color.green(p) + 0.114 * Color.blue(p)
         }
         return result
+    }
+
+    // ============ V2.9.208: 底池OCR（ML Kit） ============
+
+    /**
+     * 从截图指定区域读取底池大小
+     * @param screenshot 全屏截图
+     * @param x1, y1, x2, y2 底池区域像素坐标
+     * @return 底池数值（整数），失败返回 -1
+     */
+    fun readPotSize(screenshot: Bitmap, x1: Int, y1: Int, x2: Int, y2: Int): Int {
+        val safeX1 = x1.coerceIn(0, screenshot.width - 1)
+        val safeY1 = y1.coerceIn(0, screenshot.height - 1)
+        val safeX2 = x2.coerceIn(safeX1 + 1, screenshot.width)
+        val safeY2 = y2.coerceIn(safeY1 + 1, screenshot.height)
+
+        val regionBmp = try {
+            Bitmap.createBitmap(screenshot, safeX1, safeY1, safeX2 - safeX1, safeY2 - safeY1)
+        } catch (e: Exception) {
+            Log.e(TAG, "readPotSize: 裁剪失败", e)
+            return -1
+        }
+
+        val latch = CountDownLatch(1)
+        var potSize = -1
+
+        try {
+            val image = InputImage.fromBitmap(regionBmp, 0)
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    potSize = parsePotFromText(visionText.text)
+                    latch.countDown()
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "readPotSize OCR失败: ${e.message}")
+                    latch.countDown()
+                }
+            latch.await(2, TimeUnit.SECONDS)
+            recognizer.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "readPotSize异常", e)
+        } finally {
+            regionBmp.recycle()
+        }
+
+        if (potSize > 0) {
+            Log.d(TAG, "★ 底池OCR: $potSize")
+        }
+        return potSize
+    }
+
+    /**
+     * 从OCR文本中解析底池数值
+     * 支持格式: "Pot: 1,234" / "底池: 1234" / "$1,234" / "1234"
+     */
+    private fun parsePotFromText(text: String): Int {
+        // 去除常见前缀
+        val cleaned = text
+            .replace(Regex("(?i)(pot|底池|prize|pool)\\s*[:：]?\\s*"), "")
+            .replace(Regex("[\\$€£]"), "")
+            .replace(",", "")
+            .replace(" ", "")
+            .trim()
+
+        // 提取所有数字序列，取最大的作为底池
+        val numbers = Regex("\\d+").findAll(cleaned).map { it.value.toIntOrNull() ?: 0 }.filter { it > 0 }.toList()
+        return numbers.maxOrNull() ?: -1
+    }
+
+    // ============ V2.9.208: 按钮状态推断 ============
+
+    /**
+     * 根据toCall推断当前可用按钮文本
+     * GG扑克：toCall>0 → Fold/Call/Raise；toCall=0 → Check/Bet
+     * @param toCall 当前需要跟注的金额
+     * @param isGG 是否GG平台
+     * @return 按钮文本列表
+     */
+    fun inferButtons(toCall: Int, isGG: Boolean = true): List<String> {
+        return if (isGG) {
+            if (toCall > 0) listOf("Fold", "Call", "Raise")
+            else listOf("Check", "Bet")
+        } else {
+            if (toCall > 0) listOf("弃牌", "跟注", "加注")
+            else listOf("过牌", "下注")
+        }
     }
 
     fun release() {

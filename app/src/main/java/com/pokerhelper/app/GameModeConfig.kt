@@ -209,6 +209,57 @@ object GameModeConfig {
         }
     }
 
+    // ============ V2.9.208: 底池区域坐标（百分比，用于本地OCR） ============
+
+    /**
+     * 获取底池显示区域（屏幕百分比坐标）
+     * @return (x1%, y1%, x2%, y2%) 底池文字所在区域
+     */
+    fun getPotRegionPct(): Pair<Pair<Double, Double>, Pair<Double, Double>> {
+        return when (currentPlatform) {
+            GamePlatform.GGPOKER -> (0.30 to 0.16) to (0.70 to 0.24)  // GG竖屏：中部偏上
+            GamePlatform.SHORT_DECK -> (0.35 to 0.13) to (0.65 to 0.21)
+            GamePlatform.STANDARD -> (0.35 to 0.13) to (0.65 to 0.21)
+        }
+    }
+
+    /**
+     * V2.9.208: 获取底池区域的像素坐标（基于实际屏幕尺寸）
+     */
+    fun getPotRegionPixels(screenW: Int, screenH: Int): Pair<Pair<Int, Int>, Pair<Int, Int>> {
+        val ((x1p, y1p), (x2p, y2p)) = getPotRegionPct()
+        return ((x1p * screenW).toInt() to (y1p * screenH).toInt()) to
+               ((x2p * screenW).toInt() to (y2p * screenH).toInt())
+    }
+
+    // ============ V2.9.208: 玩家筹码区域坐标（屏幕百分比） ============
+    // GG竖屏6人桌：上3人+下2人+自己，简化为固定区域
+
+    /**
+     * 获取6个座位的筹码显示区域（屏幕百分比）
+     * 返回 [(x1%, y1%, x2%, y2%), ...] 对应 seat 0-5
+     */
+    fun getChipRegionPcts(): List<Pair<Pair<Double, Double>, Pair<Double, Double>>> {
+        return when (currentPlatform) {
+            GamePlatform.GGPOKER -> listOf(
+                (0.02 to 0.24) to (0.28 to 0.34),  // seat 0: 左上
+                (0.35 to 0.65) to (0.08 to 0.16),  // seat 1: 正上
+                (0.72 to 0.98) to (0.24 to 0.34),  // seat 2: 右上
+                (0.72 to 0.98) to (0.56 to 0.66),  // seat 3: 右中
+                (0.35 to 0.65) to (0.70 to 0.78),  // seat 4: 正下（对手）
+                (0.02 to 0.28) to (0.56 to 0.66)   // seat 5: 左中
+            )
+            else -> listOf(
+                (0.05 to 0.25) to (0.30 to 0.40),
+                (0.30 to 0.70) to (0.15 to 0.25),
+                (0.75 to 0.95) to (0.30 to 0.40),
+                (0.75 to 0.95) to (0.55 to 0.65),
+                (0.30 to 0.70) to (0.70 to 0.80),
+                (0.05 to 0.25) to (0.55 to 0.65)
+            )
+        }
+    }
+
     /**
      * Auto-tap fallback坐标（按屏幕百分比）
      * GG竖屏 vs 标准横屏，按钮位置不同

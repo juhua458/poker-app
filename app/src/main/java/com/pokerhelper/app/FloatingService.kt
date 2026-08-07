@@ -758,6 +758,38 @@ class FloatingService : Service() {
         bleManager?.sendTap(x, y, 50)
         handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }; lastDecisionTime = System.currentTimeMillis()
     }
+    // V2.9.208: 根据toCall推断按钮坐标（当latestButtonPositions为空时使用GG固定坐标）
+    private fun inferButtonPositions(toCall: Int): List<VisionApiClient.ButtonPosition> {
+        val isGG = GameModeConfig.currentPlatform == GamePlatform.GGPOKER
+        return if (isGG) {
+            if (toCall > 0) {
+                listOf(
+                    VisionApiClient.ButtonPosition("Fold", 0.181, 0.960),
+                    VisionApiClient.ButtonPosition("Call", 0.500, 0.960),
+                    VisionApiClient.ButtonPosition("Raise", 0.819, 0.960)
+                )
+            } else {
+                listOf(
+                    VisionApiClient.ButtonPosition("Check", 0.500, 0.960),
+                    VisionApiClient.ButtonPosition("Bet", 0.819, 0.960)
+                )
+            }
+        } else {
+            if (toCall > 0) {
+                listOf(
+                    VisionApiClient.ButtonPosition("弃牌", 0.17, 0.88),
+                    VisionApiClient.ButtonPosition("跟注", 0.50, 0.88),
+                    VisionApiClient.ButtonPosition("加注", 0.83, 0.88)
+                )
+            } else {
+                listOf(
+                    VisionApiClient.ButtonPosition("过牌", 0.50, 0.88),
+                    VisionApiClient.ButtonPosition("下注", 0.50, 0.88)
+                )
+            }
+        }
+    }
+
     private fun checkAutoErrors(){if(autoConsecutiveErrors>=AUTO_MAX_ERRORS){stopAutoCapture();updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER|REASON:自动暂停");updateAdviceNotification("⚠️ 自动模式暂停","连续${AUTO_MAX_ERRORS}次错误")}}
     fun triggerMultiFrameCapture(){
         if(!ScreenOptService.isServiceRunning())return;if(isVisionInProgress)return
@@ -1860,67 +1892,94 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
             }
         }
 
-        // V2.9.207: 本地CV快速通道——高置信度时跳过VLM，直接用本地数据+缓存场景数据
+        // V2.9.208: 本地CV快速通道——完全脱离VLM，花色+底池OCR+按钮推断
         if (autoCaptureEnabled && localCVEnabled && cardRecognizer != null) {
+            var fastBmp: android.graphics.Bitmap? = null
             val fastLocalResult = try {
-                val bmp = android.graphics.BitmapFactory.decodeByteArray(screenshot, 0, screenshot.size)
-                if (bmp != null) {
-                    val lr = cardRecognizer!!.recognizeAll(bmp)
-                    bmp.recycle()
-                    lr
-                } else null
+                fastBmp = android.graphics.BitmapFactory.decodeByteArray(screenshot, 0, screenshot.size)
+                if (fastBmp != null) cardRecognizer!!.recognizeAll(fastBmp) else null
             } catch (e: Exception) { null }
 
             if (fastLocalResult != null && fastLocalResult.handCards.size == 2
                 && fastLocalResult.minConfidence >= FAST_PATH_MIN_CONFIDENCE
-                && cachedPotSize > 0  // 必须有缓存的场景数据（首次VLM调用后才有）
-                && latestButtonPositions.isNotEmpty()  // 必须有按钮坐标（auto-tap需要）
             ) {
-                val handCards = fastLocalResult.handCards.map { VisionApiClient.CardInfo(it.rank, "?") }
-                val communityCards = fastLocalResult.communityCards.map { VisionApiClient.CardInfo(it.rank, "?") }
-                val street = when (communityCards.size) {
-                    0 -> "preflop"; 3 -> "flop"; 4 -> "turn"; 5 -> "river"; else -> "preflop"
-                }
-                val fastResult = VisionApiClient.VisionResult(
-                    isPokerTable = true,
-                    holeCards = handCards,
-                    communityCards = communityCards,
-                    potSize = cachedPotSize,
-                    playerChips = cachedPlayerChips,
-                    totalPlayers = cachedTotalPlayers,
-                    activePlayers = cachedActivePlayers,
-                    myPosition = cachedMyPosition,
-                    street = street,
-                    toCall = cachedToCall,
-                    minRaise = cachedMinRaise,
-                    buttons = latestButtonPositions.map { it.text },
-                    blindSB = cachedBlindSB,
-                    blindBB = cachedBlindBB,
-                    ante = 0,
-                    players = emptyList(),
-                    dButtonPosition = cachedMyPosition,
-                    rawResponse = "fast_path_local_cv",
-                    showdownCards = emptyList(),
-                    oppHud = emptyList(),
-                    buttonPositions = latestButtonPositions,
-                    suitUncertain = false,
-                    isInsurance = false
-                )
-                Log.i(TAG, "★ 本地CV快速通道: hand=${handCards.map{it.rank}} board=${communityCards.map{it.rank}} street=$street pot=$cachedPotSize toCall=$cachedToCall (跳过VLM)")
-                tvStatus?.text = "⚡ 本地CV快速决策 (${fastLocalResult.elapsedMs}ms)"
-                updateAdviceNotification("⚡ 快速模式", "本地CV直接决策")
-                // 直接发送结果给JS引擎，不走VLM
-                val resultJson = VisionApiClient.toJson(fastResult)
-                // 添加frameTag标记，让JS知道这是快速通道数据
-                val taggedJson = resultJson.dropLast(1) + ",\"_frameTag\":\"auto\"}"
-                handler.post {
-                    if (webViewReady) {
-                        executeJs("if(typeof onVisionResult==='function'){onVisionResult($taggedJson)}")
+                // V2.9.208 Phase 2: 本地OCR读取底池（优先），失败用缓存
+                val localPot = if (fastBmp != null) {
+                    try {
+                        val ((px1, py1), (px2, py2)) = GameModeConfig.getPotRegionPixels(screenWidth, screenHeight)
+                        cardRecognizer!!.readPotSize(fastBmp, px1, py1, px2, py2)
+                    } catch (e: Exception) { -1 }
+                } else -1
+                if (localPot > 0) cachedPotSize = localPot  // OCR成功→更新缓存
+                fastBmp?.recycle(); fastBmp = null
+
+                if (cachedPotSize <= 0) {
+                    // 既没有OCR结果也没有缓存，无法快速通道
+                } else {
+                    // V2.9.208 Phase 1: 使用真实花色（不再传"?"）
+                    val handCards = fastLocalResult.handCards.map {
+                        VisionApiClient.CardInfo(it.rank, if (it.suit != "?") it.suit else "x")
                     }
-                    handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }
-                    onAutoCaptureVisionDone(true)  // 正确重置错误计数+调度下次截屏
+                    val communityCards = fastLocalResult.communityCards.map {
+                        VisionApiClient.CardInfo(it.rank, if (it.suit != "?") it.suit else "x")
+                    }
+                    val anySuitUnknown = handCards.any { it.suit == "x" } || communityCards.any { it.suit == "x" }
+                    val street = when (communityCards.size) {
+                        0 -> "preflop"; 3 -> "flop"; 4 -> "turn"; 5 -> "river"; else -> "preflop"
+                    }
+
+                    // V2.9.208 Phase 3: 按钮状态推断 + 缓存按钮坐标
+                    val fastButtons = if (latestButtonPositions.isNotEmpty()) {
+                        latestButtonPositions.map { it.text }
+                    } else {
+                        cardRecognizer!!.inferButtons(cachedToCall, GameModeConfig.currentPlatform == GamePlatform.GGPOKER)
+                    }
+                    val fastButtonPositions = if (latestButtonPositions.isNotEmpty()) {
+                        latestButtonPositions
+                    } else {
+                        // 使用GG固定坐标构建按钮位置
+                        inferButtonPositions(cachedToCall)
+                    }
+
+                    val fastResult = VisionApiClient.VisionResult(
+                        isPokerTable = true,
+                        holeCards = handCards,
+                        communityCards = communityCards,
+                        potSize = cachedPotSize,
+                        playerChips = cachedPlayerChips,
+                        totalPlayers = cachedTotalPlayers,
+                        activePlayers = cachedActivePlayers,
+                        myPosition = cachedMyPosition,
+                        street = street,
+                        toCall = cachedToCall,
+                        minRaise = cachedMinRaise,
+                        buttons = fastButtons,
+                        blindSB = cachedBlindSB,
+                        blindBB = cachedBlindBB,
+                        ante = 0,
+                        players = emptyList(),
+                        dButtonPosition = cachedMyPosition,
+                        rawResponse = "fast_path_local_cv_v2",
+                        showdownCards = emptyList(),
+                        oppHud = emptyList(),
+                        buttonPositions = fastButtonPositions,
+                        suitUncertain = anySuitUnknown,
+                        isInsurance = false
+                    )
+                    Log.i(TAG, "★ 本地CV快速通道v2: hand=${handCards.map{"${it.rank}${it.suit}"}} board=${communityCards.map{"${it.rank}${it.suit}"}} street=$street pot=$cachedPotSize toCall=$cachedToCall suitOK=${!anySuitUnknown} (跳过VLM)")
+                    tvStatus?.text = "⚡ 纯本地CV (${fastLocalResult.elapsedMs}ms)"
+                    updateAdviceNotification("⚡ 纯本地模式", "零API延迟")
+                    val resultJson = VisionApiClient.toJson(fastResult)
+                    val taggedJson = resultJson.dropLast(1) + ",\"_frameTag\":\"auto\"}"
+                    handler.post {
+                        if (webViewReady) {
+                            executeJs("if(typeof onVisionResult==='function'){onVisionResult($taggedJson)}")
+                        }
+                        handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }
+                        onAutoCaptureVisionDone(true)
+                    }
+                    return  // 跳过VLM
                 }
-                return  // 跳过VLM
             }
         }
 
