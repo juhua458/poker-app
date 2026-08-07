@@ -368,11 +368,11 @@ class CardRecognizer(private val context: Context) {
         val suitStartY: Int
         val suitEndY: Int
         if (isHand) {
-            suitStartY = (h * 0.45).toInt()  // rank占上45%，suit在下55%
-            suitEndY = minOf(h, (h * 0.95).toInt())
+            suitStartY = (h * 0.45).toInt()  // rank占上45%，suit在下半部
+            suitEndY = minOf(h, (h * 0.75).toInt())  // y=95%会扫到玩家名字区域，改为75%截断
         } else {
             suitStartY = (h * 0.35).toInt()
-            suitEndY = minOf(h, (h * 0.92).toInt())
+            suitEndY = minOf(h, (h * 0.75).toInt())  // 公共牌suit在牌面上部，y=92%会扫到牌下方的筹码/背景
         }
         val suitW = (w * 0.65).toInt()  // suit symbol在左侧
 
@@ -425,8 +425,10 @@ class CardRecognizer(private val context: Context) {
     }
 
     /**
-     * 形状分析区分同色花色
-     * 基于像素分布特征：topRatio, bottomRatio, leftRatio, rightRatio, symmetry
+     * 形状分析区分同色花色 — V2.9.208修复
+     * 核心判别量：y质心(comY) + 顶边宽度比
+     * ♥ comY≈0.35 topEdge宽  |  ♦ comY≈0.50 顶边窄
+     * ♣ comY≈0.42 topEdge宽(三圆弧) | ♠ comY≈0.58 顶边窄(尖点)
      */
     private fun analyzeSuitShape(
         pixels: IntArray, w: Int, h: Int,
@@ -458,38 +460,25 @@ class CardRecognizer(private val context: Context) {
         val halfH = regH / 2
         val halfW = maxX / 2
 
-        // 上下左右分布
+        // y质心 + topRatio + symmetry
+        var sumY = 0
         var topHalf = 0; var bottomHalf = 0
         var leftHalf = 0; var rightHalf = 0
         var centerCol = 0.0
         for (y in 0 until regH) {
             for (x in 0 until maxX) {
                 if (!mask[y * maxX + x]) continue
+                sumY += y
                 if (y < halfH) topHalf++ else bottomHalf++
                 if (x < halfW) leftHalf++ else rightHalf++
                 centerCol += x
             }
         }
         centerCol /= coloredCount
+        val comY = sumY.toDouble() / coloredCount / regH  // 0~1, 越小越靠上
         val topRatio = topHalf.toDouble() / coloredCount
-        val bottomRatio = bottomHalf.toDouble() / coloredCount
-        val leftRatio = leftHalf.toDouble() / coloredCount
-        val rightRatio = rightHalf.toDouble() / coloredCount
         val centerX = maxX / 2.0
-        val symmetry = 1.0 - Math.abs(centerCol - centerX) / centerX  // 0~1, 越高越对称
-
-        // 最宽行位置（topHalfMax / bottomHalfMax）
-        var maxTopW = 0; var maxBotW = 0
-        for (y in 0 until halfH) {
-            var cnt = 0
-            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
-            if (cnt > maxTopW) maxTopW = cnt
-        }
-        for (y in halfH until regH) {
-            var cnt = 0
-            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
-            if (cnt > maxBotW) maxBotW = cnt
-        }
+        val symmetry = 1.0 - Math.abs(centerCol - centerX) / centerX
 
         // 顶部边缘宽度（前20%行）
         var topEdgeW = 0
@@ -507,51 +496,37 @@ class CardRecognizer(private val context: Context) {
             for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
             if (cnt > botEdgeW) botEdgeW = cnt
         }
+        val topEdgeRatio = topEdgeW.toDouble() / (maxX * 0.5 + 1)
+        val botEdgeRatio = botEdgeW.toDouble() / (maxX * 0.5 + 1)
 
         // === 各花色评分 ===
         var hScore = 0.0; var dScore = 0.0; var cScore = 0.0; var sScore = 0.0
 
         when (knownColor) {
             "red" -> {
-                // ♥ Heart: 宽顶部（双圆弧），窄底部（尖点）, topRatio > 0.55
-                hScore += topRatio * 2.0
-                hScore += (maxTopW.toDouble() / coloredCount) * 1.5
-                hScore += symmetry * 0.5
-                if (topEdgeW > botEdgeW * 1.3) hScore += 1.0  // 顶宽>底宽
-
-                // ♦ Diamond: 上下对称, 中部最宽
-                dScore += (1.0 - Math.abs(topRatio - 0.5) * 2.0) * 2.0
-                dScore += symmetry * 1.5
-                dScore += (maxTopW.toDouble() / coloredCount) * 0.5
+                // ♥ Heart: comY低(~0.35) + topEdge宽(双圆弧顶部)
+                hScore = (1.0 - comY) * 0.5 + topRatio * 0.3 + symmetry * 0.2
+                if (topEdgeRatio > botEdgeRatio * 1.3) hScore += 0.3
+                // ♦ Diamond: comY中(~0.50) + 上下对称 + 顶边窄(尖点)
+                dScore = (1.0 - Math.abs(comY - 0.5) * 2.0) * 0.5 + symmetry * 0.4 + topRatio * 0.1
             }
             "black" -> {
-                // ♠ Spade: 窄顶部（尖点），宽底部（圆弧+茎）, bottomRatio > 0.55
-                sScore += bottomRatio * 2.0
-                sScore += (maxBotW.toDouble() / coloredCount) * 1.5
-                sScore += symmetry * 0.5
-                if (botEdgeW > topEdgeW * 1.2) sScore += 0.8
-
-                // ♣ Club: 最顶部宽（三圆弧），底部窄（茎）
-                cScore += topRatio * 1.5
-                cScore += (topEdgeW.toDouble() / (maxX * 0.5 + 1)) * 1.0
-                cScore += symmetry * 0.3
+                // ♣ Club: comY较低(~0.42) + topEdge宽(三圆弧)
+                cScore = (1.0 - comY) * 0.5 + topRatio * 0.3 + symmetry * 0.2
+                if (topEdgeRatio > botEdgeRatio * 1.5) cScore += 0.3
+                // ♠ Spade: comY较高(~0.58) + topEdge窄(尖点) + botEdge宽
+                sScore = comY * 0.5 + (1.0 - topRatio) * 0.3 + symmetry * 0.2
+                if (botEdgeRatio > topEdgeRatio * 1.2) sScore += 0.2
             }
             else -> {
                 // 颜色未知，全部评估
-                // ♥
-                hScore += topRatio * 1.5
-                if (topEdgeW > botEdgeW) hScore += 0.5
-                hScore += symmetry * 0.3
-                // ♦
-                dScore += (1.0 - Math.abs(topRatio - 0.5) * 2.0) * 1.5
-                dScore += symmetry * 1.0
-                // ♠
-                sScore += bottomRatio * 1.5
-                if (botEdgeW > topEdgeW) sScore += 0.5
-                sScore += symmetry * 0.3
-                // ♣
-                cScore += topRatio * 1.0
-                cScore += symmetry * 0.2
+                hScore = (1.0 - comY) * 0.4 + topRatio * 0.3 + symmetry * 0.1
+                if (topEdgeRatio > botEdgeRatio) hScore += 0.2
+                dScore = (1.0 - Math.abs(comY - 0.5) * 2.0) * 0.4 + symmetry * 0.3
+                cScore = (1.0 - comY) * 0.3 + topRatio * 0.2 + symmetry * 0.1
+                if (topEdgeRatio > botEdgeRatio) cScore += 0.15
+                sScore = comY * 0.3 + (1.0 - topRatio) * 0.2 + symmetry * 0.1
+                if (botEdgeRatio > topEdgeRatio) sScore += 0.15
             }
         }
 
@@ -561,8 +536,8 @@ class CardRecognizer(private val context: Context) {
         val best = sorted[0]
         val second = sorted[1]
 
-        // 最高分需比第二高至少20%才采用形状结果
-        if (best.second > 0 && best.second > second.second * 1.2) {
+        // 最高分需比第二高至少15%才采用形状结果
+        if (best.second > 0 && best.second > second.second * 1.15) {
             return when (best.first) {
                 "h" -> "h" to "♥"
                 "d" -> "d" to "♦"

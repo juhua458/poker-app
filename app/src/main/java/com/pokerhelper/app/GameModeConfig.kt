@@ -217,7 +217,7 @@ object GameModeConfig {
      */
     fun getPotRegionPct(): Pair<Pair<Double, Double>, Pair<Double, Double>> {
         return when (currentPlatform) {
-            GamePlatform.GGPOKER -> (0.30 to 0.16) to (0.70 to 0.24)  // GG竖屏：中部偏上
+            GamePlatform.GGPOKER -> (0.25 to 0.35) to (0.75 to 0.42)  // GG竖屏：桌面中央绿色pill区域
             GamePlatform.SHORT_DECK -> (0.35 to 0.13) to (0.65 to 0.21)
             GamePlatform.STANDARD -> (0.35 to 0.13) to (0.65 to 0.21)
         }
