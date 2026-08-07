@@ -9315,6 +9315,8 @@ function go(){
       console.log('[go诊断] decide()返回null→手牌不足,强制FOLD');
       if(typeof AndroidBridge!=='undefined'&&AndroidBridge.showAdvice){AndroidBridge.showAdvice('弃牌|COLOR:FOLD|SIGNAL:NO_DATA');}
       HandHistory.add({a:'fold',r:'[无手牌]',eq:0,c:'l',_colorInfo:{colorKey:'FOLD'}},false);
+      // V2.9.207: 自动模式下无手牌也要执行auto-tap点击弃牌按钮
+      try{if(typeof autoExecuteDecision==="function"){var _am=typeof AndroidBridge!=="undefined"&&AndroidBridge.isAutoCaptureOn?AndroidBridge.isAutoCaptureOn():false;if(_am)autoExecuteDecision({a:'fold',eq:0,r:'[无手牌]',_colorInfo:{colorKey:'FOLD',signalType:'NONE'}},_am);}}catch(_ae){console.log("[autoExec] 无手牌fold err:"+_ae.message);}
       return;
     }
     console.log('[go诊断] decide()返回 a='+r.a+' eq='+(r.eq||'?')+' color='+(r._colorInfo?r._colorInfo.colorKey:'无'));

@@ -118,6 +118,8 @@ class FloatingService : Service() {
     // V2.9.206: Shot Clock保护——记录上次决策时间，超时强制行动
     private var lastDecisionTime: Long = 0
     private val SHOT_CLOCK_TIMEOUT = 18000L // 18秒超时（GG默认30秒，留12秒余量）
+    // V2.9.207: 记录当前手牌开始分析时间——修复Shot Clock新牌局永远不触发的bug
+    private var handStartTime: Long = 0
     private var manualErrorCount = 0  // V2.9.184: 手动截屏连续失败计数
     private var multiFrameDelay = 1500L  // V2.9.184: 200→1500ms，给API调用留足时间
 
@@ -125,6 +127,8 @@ class FloatingService : Service() {
     private var webViewReady = false
     @Volatile private var _strategyReceived = false  // V2.9.113: 策略引擎是否已回调
     private var _strategyTimeoutRunnable: Runnable? = null  // V2.9.125: 策略超时定时器引用
+    // V2.9.207: Shot Clock硬超时定时器——16秒强制弃牌（比SHOT_CLOCK_TIMEOUT早2秒，留缓冲）
+    private var _shotClockRunnable: Runnable? = null
     private var _lastStrategyAdvice = ""   // V2.9.113: 最后策略结果
     // V2.9.155: 崩溃状态——JS ReferenceError/未捕获异常时悬浮球显示「崩」+红+快闪
     private var _isCrashed = false
@@ -627,8 +631,8 @@ class FloatingService : Service() {
             }
         }
     }
-    private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; lastDecisionTime=0; isVisionInProgress=false; autoCaptureInterval=4000L; executeJs("if(typeof enableAutoExec==='function')enableAutoExec()"); scheduleNextAutoCapture() }
-    private fun stopAutoCapture() { autoCaptureEnabled=false; autoCaptureRunnable?.let{handler.removeCallbacks(it)}; autoCaptureRunnable=null; isVisionInProgress=false; executeJs("if(typeof disableAutoExec==='function')disableAutoExec()") }
+    private fun startAutoCapture() { autoCaptureEnabled=true; autoConsecutiveErrors=0; lastDecisionTime=0; handStartTime=0; isVisionInProgress=false; autoCaptureInterval=4000L; executeJs("if(typeof enableAutoExec==='function')enableAutoExec()"); scheduleNextAutoCapture() }
+    private fun stopAutoCapture() { autoCaptureEnabled=false; autoCaptureRunnable?.let{handler.removeCallbacks(it)}; autoCaptureRunnable=null; _shotClockRunnable?.let{handler.removeCallbacks(it)}; _shotClockRunnable=null; handStartTime=0; isVisionInProgress=false; executeJs("if(typeof disableAutoExec==='function')disableAutoExec()") }
     private fun scheduleNextAutoCapture() {
         if(!autoCaptureEnabled)return; autoCaptureRunnable?.let{handler.removeCallbacks(it)}
         val r=Runnable{if(!autoCaptureEnabled)return@Runnable;if(isVisionInProgress){scheduleNextAutoCapture();return@Runnable};val pm=getSystemService(Context.POWER_SERVICE)as PowerManager;if(!pm.isScreenOn){scheduleNextAutoCapture();return@Runnable};autoCaptureTrigger()}
@@ -662,11 +666,12 @@ class FloatingService : Service() {
     // V2.9.180: 全自动执行tap——根据action匹配按钮坐标并发送到ESP32
     private fun executeAutoTap(action: String, decisionData: org.json.JSONObject) {
         try {
-            // V2.9.206: Shot Clock保护——检查是否超时
+            // V2.9.207: Shot Clock保护——检查从手牌开始分析是否超时
             val now = System.currentTimeMillis()
-            if (lastDecisionTime > 0 && (now - lastDecisionTime) > SHOT_CLOCK_TIMEOUT) {
-                Log.w(TAG, "★ Shot Clock timeout! Forcing emergency fold")
+            if (handStartTime > 0 && (now - handStartTime) > SHOT_CLOCK_TIMEOUT) {
+                Log.w(TAG, "★ Shot Clock timeout! ${(now - handStartTime)}ms since hand start, forcing emergency fold")
                 executeAutoTapFallback("fold")
+                handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }
                 lastDecisionTime = now
                 updateAdviceNotification("⏰ Shot Clock", "超时强制弃牌")
                 updateBallAdvice("COLOR:FOLD|SIGNAL:TIMEOUT|REASON:Shot Clock超时")
@@ -686,7 +691,7 @@ class FloatingService : Service() {
                     handler.postDelayed({
                         try {
                             executeAutoTapFallback("raise")
-                            lastDecisionTime = System.currentTimeMillis()
+                            handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }; lastDecisionTime = System.currentTimeMillis()
                             Log.d(TAG, "★ GG bet confirm: raise button tapped")
                         } catch (e: Exception) {
                             Log.e(TAG, "GG bet confirm error", e)
@@ -723,11 +728,11 @@ class FloatingService : Service() {
                 val y = (targetBtn.yPct * screenHeight).toInt().coerceIn(0, screenHeight - 1)
                 Log.d(TAG, "★ autoTap: $action → ($x, $y) btn=${targetBtn.text}")
                 bleManager?.sendTap(x, y, 50)
-                lastDecisionTime = System.currentTimeMillis()
+                handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }; lastDecisionTime = System.currentTimeMillis()
             } else {
                 Log.w(TAG, "autoTap: 未匹配按钮 $action, 回退固定位置")
                 executeAutoTapFallback(action)
-                lastDecisionTime = System.currentTimeMillis()
+                handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }; lastDecisionTime = System.currentTimeMillis()
             }
         } catch (e: Exception) {
             Log.e(TAG, "executeAutoTap error", e)
@@ -740,7 +745,7 @@ class FloatingService : Service() {
         val (x, y) = GameModeConfig.getAutoTapFallback(action, sw, sh)
         Log.d(TAG, "★ autoTapFallback: $action → ($x, $y) [screen=${sw}x${sh} platform=${GameModeConfig.currentPlatform}]")
         bleManager?.sendTap(x, y, 50)
-        lastDecisionTime = System.currentTimeMillis()
+        handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }; lastDecisionTime = System.currentTimeMillis()
     }
     private fun checkAutoErrors(){if(autoConsecutiveErrors>=AUTO_MAX_ERRORS){stopAutoCapture();updateBallAdvice("COLOR:FOLD|SIGNAL:COUNTER|REASON:自动暂停");updateAdviceNotification("⚠️ 自动模式暂停","连续${AUTO_MAX_ERRORS}次错误")}}
     fun triggerMultiFrameCapture(){
@@ -1849,6 +1854,38 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
         tvAction?.alpha = 0.5f
         updateAdviceNotification("识别中...", "正在分析牌面")
         val tAnalyzeStart = System.currentTimeMillis()
+        // V2.9.207: 记录当前手牌分析开始时间（Shot Clock基准）
+        if (autoCaptureEnabled && handStartTime == 0L) {
+            handStartTime = tAnalyzeStart
+            Log.d(TAG, "★ handStartTime set: $handStartTime")
+            // V2.9.207: 调度Shot Clock硬超时——16秒后强制弃牌（不等VLM返回）
+            _shotClockRunnable?.let { handler.removeCallbacks(it) }
+            _shotClockRunnable = Runnable {
+                if (handStartTime > 0 && autoCaptureEnabled) {
+                    Log.w(TAG, "★ Shot Clock HARD TIMEOUT! ${(System.currentTimeMillis() - handStartTime)}ms, forcing fold")
+                    handStartTime = 0
+                    lastDecisionTime = System.currentTimeMillis()
+                    isVisionInProgress = false
+                    executeAutoTapFallback("fold")
+                    updateAdviceNotification("⏰ Shot Clock", "超时强制弃牌(硬超时)")
+                    updateBallAdvice("COLOR:FOLD|SIGNAL:TIMEOUT|REASON:Shot Clock超时")
+                    scheduleNextAutoCapture()
+                }
+            }
+            handler.postDelayed(_shotClockRunnable!!, 16000)
+        }
+        // V2.9.207: 预检——如果handStartTime已超18秒，跳过VLM直接弃牌
+        if (autoCaptureEnabled && handStartTime > 0 && (tAnalyzeStart - handStartTime) > SHOT_CLOCK_TIMEOUT) {
+            Log.w(TAG, "★ Shot Clock pre-check: ${(tAnalyzeStart - handStartTime)}ms, skip VLM and force fold")
+            handStartTime = 0
+            lastDecisionTime = tAnalyzeStart
+            executeAutoTapFallback("fold")
+            updateAdviceNotification("⏰ Shot Clock", "超时强制弃牌(预检)")
+            updateBallAdvice("COLOR:FOLD|SIGNAL:TIMEOUT|REASON:Shot Clock超时")
+            isVisionInProgress = false
+            scheduleNextAutoCapture()
+            return
+        }
         Thread {
             try {
                 val result = VisionApiClient.analyzeScreenshot(screenshot)
@@ -1892,6 +1929,9 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                     Log.d(TAG, "★ NO_TABLE检测: isPokerTable=${result.isPokerTable} noHole=$noHoleCards noD=$noDButton noBtn=$noPokerButtons signals=$noTableSignals result=$isNoTable")
                     if (isNoTable) {
                         Log.w(TAG, "★ NO_TABLE判定: 不在牌桌(signals=$noTableSignals), dButton=${result.dButtonPosition}, buttons=${result.buttons}")
+                        // V2.9.207: NO_TABLE时重置handStartTime，避免累积超时
+                        handStartTime = 0
+                        _shotClockRunnable?.let { handler.removeCallbacks(it) }
                         handler.post {
                             updateBallAdvice("COLOR:FOLD|SIGNAL:NO_TABLE|EQ:0|REASON:未检测到牌桌")
                             tvStatus?.text = "❓ 未检测到牌桌"
@@ -1910,10 +1950,7 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                         latestButtonPositions = result.buttonPositions
                         Log.d(TAG, "★ 按钮坐标已存储: ${result.buttonPositions.map { "${it.text}(${it.xPct},${it.yPct})" }}")
                     }
-                    // V2.9.206: 新牌局重置Shot Clock计时器
-                    if (result.holeCards.size >= 2) {
-                        lastDecisionTime = 0
-                    }
+                    // V2.9.207: 移除旧的手牌重置逻辑——handStartTime在executeAutoTap决策后重置，不再这里重置
                     // V2.9.206: 特殊状态处理——Insurance自动拒绝 / 搓牌等待
                     val skipStrategyCalc: Boolean = when {
                         result.isInsurance && autoCaptureEnabled -> {
