@@ -1906,7 +1906,11 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                 // V2.9.208 Phase 2: 本地OCR读取底池（优先），失败用缓存
                 val localPot = if (fastBmp != null) {
                     try {
-                        val ((px1, py1), (px2, py2)) = GameModeConfig.getPotRegionPixels(screenWidth, screenHeight)
+                        val potRegion = GameModeConfig.getPotRegionPixels(screenWidth, screenHeight)
+                        val px1 = potRegion.first.first
+                        val py1 = potRegion.first.second
+                        val px2 = potRegion.second.first
+                        val py2 = potRegion.second.second
                         cardRecognizer!!.readPotSize(fastBmp, px1, py1, px2, py2)
                     } catch (e: Exception) { -1 }
                 } else -1

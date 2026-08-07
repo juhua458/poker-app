@@ -227,9 +227,14 @@ object GameModeConfig {
      * V2.9.208: 获取底池区域的像素坐标（基于实际屏幕尺寸）
      */
     fun getPotRegionPixels(screenW: Int, screenH: Int): Pair<Pair<Int, Int>, Pair<Int, Int>> {
-        val ((x1p, y1p), (x2p, y2p)) = getPotRegionPct()
-        return ((x1p * screenW).toInt() to (y1p * screenH).toInt()) to
-               ((x2p * screenW).toInt() to (y2p * screenH).toInt())
+        val pct = getPotRegionPct()
+        val topLeft = pct.first
+        val bottomRight = pct.second
+        val x1 = (topLeft.first * screenW).toInt()
+        val y1 = (topLeft.second * screenH).toInt()
+        val x2 = (bottomRight.first * screenW).toInt()
+        val y2 = (bottomRight.second * screenH).toInt()
+        return (x1 to y1) to (x2 to y2)
     }
 
     // ============ V2.9.208: 玩家筹码区域坐标（屏幕百分比） ============
