@@ -335,9 +335,8 @@ class CardRecognizer(private val context: Context) {
                 rank = if (bestRank == "10") "T" else if (bestRank.isNotEmpty()) bestRank else "?",
                 suit = suit,
                 suitSymbol = suitSym,
-                fullKey = if (suit != "?" && (bestRank == "10" || bestRank.isNotEmpty())) {
-                    (if (bestRank == "10") "T" else bestRank) + suit else ""
-                },
+                fullKey = if (suit != "?" && (bestRank == "10" || bestRank.isNotEmpty()))
+                    (if (bestRank == "10") "T" else bestRank) + suit else "",
                 confidence = confidence,
                 position = -1
             )
