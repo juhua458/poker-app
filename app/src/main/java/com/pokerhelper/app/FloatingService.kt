@@ -1914,36 +1914,38 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                     if (result.holeCards.size >= 2) {
                         lastDecisionTime = 0
                     }
-                    // V2.9.206: Insurance自动拒绝——检测到Insurance弹窗时自动点击拒绝
-                    if (result.isInsurance && autoCaptureEnabled) {
-                        Log.d(TAG, "★ Insurance detected, auto-declining")
-                        handler.post {
-                            try {
-                                val (ix, iy) = GameModeConfig.getInsuranceDeclinePosition(screenWidth, screenHeight)
-                                bleManager?.sendTap(ix, iy, 50)
-                                updateAdviceNotification("️ Insurance", "已自动拒绝")
-                                updateBallAdvice("COLOR:CHECK|SIGNAL:INSURANCE|REASON:自动拒绝")
-                                Log.d(TAG, "★ Insurance declined at ($ix, $iy)")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Insurance decline error", e)
+                    // V2.9.206: 特殊状态处理——Insurance自动拒绝 / 搓牌等待
+                    val skipStrategyCalc: Boolean = when {
+                        result.isInsurance && autoCaptureEnabled -> {
+                            Log.d(TAG, "★ Insurance detected, auto-declining")
+                            handler.post {
+                                try {
+                                    val (ix, iy) = GameModeConfig.getInsuranceDeclinePosition(screenWidth, screenHeight)
+                                    bleManager?.sendTap(ix, iy, 50)
+                                    updateAdviceNotification("Insurance", "已自动拒绝")
+                                    updateBallAdvice("COLOR:CHECK|SIGNAL:INSURANCE|REASON:自动拒绝")
+                                    Log.d(TAG, "★ Insurance declined at ($ix, $iy)")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Insurance decline error", e)
+                                }
                             }
+                            true
                         }
-                        return // Insurance处理完，跳过策略计算
+                        result.suitUncertain && autoCaptureEnabled -> {
+                            Log.d(TAG, "★ Squeeze detected (suit_uncertain), waiting 3s")
+                            updateAdviceNotification("搓牌中", "等待牌面完全揭示")
+                            updateBallAdvice("COLOR:CHECK|SIGNAL:SQUEEZE|REASON:搓牌动画中")
+                            handler.postDelayed({
+                                if (autoCaptureEnabled && ScreenOptService.isServiceRunning()) {
+                                    Log.d(TAG, "★ Squeeze wait done, re-capturing")
+                                    processScreenshotAndAnalyze(isAutoCapture=true)
+                                }
+                            }, 3000)
+                            true
+                        }
+                        else -> false
                     }
-                    // V2.9.206: 搓牌检测——花色不确定时等待动画完成
-                    if (result.suitUncertain && autoCaptureEnabled) {
-                        Log.d(TAG, "★ Squeeze detected (suit_uncertain), waiting 3s")
-                        updateAdviceNotification("🎴 搓牌中", "等待牌面完全揭示")
-                        updateBallAdvice("COLOR:CHECK|SIGNAL:SQUEEZE|REASON:搓牌动画中")
-                        handler.postDelayed({
-                            // 3秒后重新截屏
-                            if (autoCaptureEnabled && ScreenOptService.isServiceRunning()) {
-                                Log.d(TAG, "★ Squeeze wait done, re-capturing")
-                                processScreenshotAndAnalyze(isAutoCapture=true)
-                            }
-                        }, 3000)
-                        return // 搓牌处理中，跳过策略计算
-                    }
+                        if (!skipStrategyCalc) {
                     val frameTag=when{isMultiFrame2->",_frameTag:'verify'";isMultiFrame1->",_frameTag:'primary'";isAutoCapture->",_frameTag:'auto'";else->""}
                     // V2.9.125: 策略超时保险——8秒超时+灰色等待（非红色FOLD）
                     // 7000+行JS首次加载+MC模拟2-3秒，5秒根本不够
@@ -2003,6 +2005,7 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                         }
                         updateAdviceNotification("✅ $holeStr $streetStr ${result.totalPlayers}人", notifyDetail)
                     }
+                        } // end of skipStrategyCalc check
                     } // V2.9.111: end of NO_TABLE else (正常牌桌才执行策略)
                 } else {
                     handler.post {
