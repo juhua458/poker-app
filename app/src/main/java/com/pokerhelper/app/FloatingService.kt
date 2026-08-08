@@ -758,6 +758,21 @@ class FloatingService : Service() {
         bleManager?.sendTap(x, y, 50)
         handStartTime = 0; _shotClockRunnable?.let { handler.removeCallbacks(it) }; lastDecisionTime = System.currentTimeMillis()
     }
+    // V2.9.210: D按钮座位号→Hero位置名称
+    private fun seatIndexToPosition(dealerSeat: Int, totalPlayers: Int): String {
+        // Hero固定在座位6，计算Hero相对于D按钮的位置偏移
+        val offset = (6 - dealerSeat + 6) % 6
+        return when (offset) {
+            0 -> "BTN"
+            1 -> "SB"
+            2 -> "BB"
+            3 -> "UTG"
+            4 -> if (totalPlayers <= 4) "CO" else "MP"
+            5 -> "CO"
+            else -> "BTN"
+        }
+    }
+
     // V2.9.208: 根据toCall推断按钮坐标（当latestButtonPositions为空时使用GG固定坐标）
     private fun inferButtonPositions(toCall: Int): List<VisionApiClient.ButtonPosition> {
         val isGG = GameModeConfig.currentPlatform == GamePlatform.GGPOKER
@@ -1915,6 +1930,33 @@ if(s2){isVisionInProgress=false;processScreenshotAndAnalyze(isMultiFrame2=true)}
                     } catch (e: Exception) { -1 }
                 } else -1
                 if (localPot > 0) cachedPotSize = localPot  // OCR成功→更新缓存
+
+                // V2.9.210: ChipTracker 定点OCR —— 筹码/D按钮/行动者/SB/BB
+                if (fastBmp != null) {
+                    try {
+                        val chipFrame = ChipTracker.analyzeWithFixedCoords(fastBmp)
+                        if (chipFrame != null) {
+                            // 用定点OCR底池覆盖（更准确）
+                            if (chipFrame.potAmount > 0) cachedPotSize = chipFrame.potAmount.toInt()
+                            cachedTotalPlayers = chipFrame.tablePlayerCount
+                            cachedActivePlayers = chipFrame.activePlayerCount
+                            // D按钮→推算SB/BB→更新myPosition
+                            if (chipFrame.dealerSeatIndex > 0) {
+                                cachedMyPosition = seatIndexToPosition(chipFrame.dealerSeatIndex, chipFrame.tablePlayerCount)
+                                cachedBlindSB = chipFrame.sbSeatIndex
+                                cachedBlindBB = chipFrame.bbSeatIndex
+                            }
+                            // 更新玩家筹码缓存（Hero=座位6）
+                            val heroSeat = chipFrame.players.find { it.id == 6 }
+                            if (heroSeat != null && heroSeat.currentChips > 0) {
+                                cachedPlayerChips = heroSeat.currentChips.toInt()
+                            }
+                            Log.i(TAG, "★ ChipTracker: pot=${chipFrame.potAmount} players=${chipFrame.tablePlayerCount} active=${chipFrame.activePlayerCount} dealer=${chipFrame.dealerSeatIndex} active_seat=${chipFrame.activeSeatIndex} sb=${chipFrame.sbSeatIndex} bb=${chipFrame.bbSeatIndex} hero_pos=$cachedMyPosition")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "ChipTracker定点分析异常: ${e.message}")
+                    }
+                }
                 fastBmp?.recycle(); fastBmp = null
 
                 if (cachedPotSize <= 0) {
