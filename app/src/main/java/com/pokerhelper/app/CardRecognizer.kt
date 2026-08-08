@@ -66,7 +66,73 @@ class CardRecognizer(private val context: Context) {
             HAND_CARDS = config.handCardsBase.map { (x1, x2) -> (x1 * scaleX).toInt() to (x2 * scaleX).toInt() }
             Log.i(TAG, "updateScreenSize: ${width}x${height} platform=$currentPlatform scaleX=$scaleX scaleY=$scaleY")
         }
+
+        // ============ V2.9.210: D按钮检测 ============
+    fun detectDealerButton(screenshot: Bitmap, searchAreas: List<IntArray>): Int {
+        for ((seatIdx, area) in searchAreas.withIndex()) {
+            val x1 = area[0].coerceIn(0, screenshot.width - 1)
+            val y1 = area[1].coerceIn(0, screenshot.height - 1)
+            val x2 = area[2].coerceIn(x1 + 1, screenshot.width)
+            val y2 = area[3].coerceIn(y1 + 1, screenshot.height)
+            val w = x2 - x1; val h = y2 - y1
+            val pixels = IntArray(w * h)
+            try { screenshot.getPixels(pixels, 0, w, x1, y1, w, h) } catch (_: Exception) { continue }
+            var yellowCount = 0
+            for (p in pixels) {
+                val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
+                if (r > 180 && g > 150 && b < 100) yellowCount++
+            }
+            val density = yellowCount.toDouble() / pixels.size
+            if (density > 0.03) {
+                Log.d(TAG, "D按钮检测: 座位$seatIdx, 黄色密度=${String.format("%.3f", density)}")
+                return seatIdx
+            }
+        }
+        Log.d(TAG, "D按钮检测: 未找到")
+        return -1
     }
+
+    // ============ V2.9.210: 行动者白色光圈检测 ============
+    fun detectActivePlayer(screenshot: Bitmap, nameRegions: List<IntArray>, chipRegions: List<IntArray>): Int {
+        var bestSeat = -1
+        var bestWhiteDensity = 0.0
+        for (seatIdx in nameRegions.indices) {
+            val nameArea = nameRegions[seatIdx]
+            val chipArea = chipRegions[seatIdx]
+            val unionX1 = (minOf(nameArea[0], chipArea[0]) - 10).coerceIn(0, screenshot.width - 1)
+            val unionY1 = (minOf(nameArea[1], chipArea[1]) - 10).coerceIn(0, screenshot.height - 1)
+            val unionX2 = (maxOf(nameArea[2], chipArea[2]) + 10).coerceIn(unionX1 + 1, screenshot.width)
+            val unionY2 = (maxOf(nameArea[3], chipArea[3]) + 10).coerceIn(unionY1 + 1, screenshot.height)
+            val w = unionX2 - unionX1; val h = unionY2 - unionY1
+            if (w < 10 || h < 10) continue
+            val pixels = IntArray(w * h)
+            try { screenshot.getPixels(pixels, 0, w, unionX1, unionY1, w, h) } catch (_: Exception) { continue }
+            val bandW = 5
+            var whiteCount = 0
+            var edgeTotal = 0
+            for (y in 0 until h) {
+                for (x in 0 until w) {
+                    val isEdge = x < bandW || x >= w - bandW || y < bandW || y >= h - bandW
+                    if (!isEdge) continue
+                    edgeTotal++
+                    val p = pixels[y * w + x]
+                    val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
+                    if (r > 200 && g > 200 && b > 200) whiteCount++
+                }
+            }
+            if (edgeTotal == 0) continue
+            val density = whiteCount.toDouble() / edgeTotal
+            if (density > bestWhiteDensity) { bestWhiteDensity = density; bestSeat = seatIdx }
+        }
+        val threshold = 0.05
+        if (bestWhiteDensity >= threshold) {
+            Log.d(TAG, "行动者检测: 座位$bestSeat, 白色密度=${String.format("%.3f", bestWhiteDensity)}")
+            return bestSeat
+        }
+        Log.d(TAG, "行动者检测: 无活跃玩家, 最高密度=${String.format("%.3f", bestWhiteDensity)}")
+        return -1
+    }
+    } // end companion object
 
     // V2.9.197: Rank-only模板 — 从截图rank indicator区域提取
     private data class RankTemplate(val grayPixels: DoubleArray, val width: Int, val height: Int)
@@ -752,116 +818,6 @@ class CardRecognizer(private val context: Context) {
         handRankTemplates.clear()
         commRankTemplates.clear()
         isInitialized = false
-    }
-
-    // ============ V2.9.210: D按钮检测 ============
-
-    /**
-     * 在指定搜索区域中查找D按钮（黄色圆形带"D"字母）
-     * @param screenshot 全屏截图
-     * @param searchAreas D按钮搜索区域列表，每个为 [x1,y1,x2,y2]
-     * @return D按钮所在座位索引(0-5)，未找到返回 -1
-     */
-    fun detectDealerButton(screenshot: Bitmap, searchAreas: List<IntArray>): Int {
-        for ((seatIdx, area) in searchAreas.withIndex()) {
-            val x1 = area[0].coerceIn(0, screenshot.width - 1)
-            val y1 = area[1].coerceIn(0, screenshot.height - 1)
-            val x2 = area[2].coerceIn(x1 + 1, screenshot.width)
-            val y2 = area[3].coerceIn(y1 + 1, screenshot.height)
-
-            val w = x2 - x1; val h = y2 - y1
-            val pixels = IntArray(w * h)
-            try {
-                screenshot.getPixels(pixels, 0, w, x1, y1, w, h)
-            } catch (_: Exception) { continue }
-
-            // 检测黄色像素密度（D按钮是黄色圆形）
-            var yellowCount = 0
-            for (p in pixels) {
-                val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
-                // 黄色：R高、G高、B低
-                if (r > 180 && g > 150 && b < 100) yellowCount++
-            }
-            val density = yellowCount.toDouble() / pixels.size
-            // 黄色像素占比超过3%认为是D按钮
-            if (density > 0.03) {
-                Log.d(TAG, "D按钮检测: 座位$seatIdx, 黄色密度=${String.format("%.3f", density)}")
-                return seatIdx
-            }
-        }
-        Log.d(TAG, "D按钮检测: 未找到")
-        return -1
-    }
-
-    // ============ V2.9.210: 行动者白色光圈检测 ============
-
-    /**
-     * 检测哪个座位有白色光圈（当前行动玩家）
-     * 原理：在名字+筹码区域外围扫描白色/高亮边框像素
-     * @param screenshot 全屏截图
-     * @param nameRegions 6个座位的名字区域坐标
-     * @param chipRegions 6个座位的筹码区域坐标
-     * @return 当前行动玩家的座位索引(0-5)，无行动者返回 -1
-     */
-    fun detectActivePlayer(
-        screenshot: Bitmap,
-        nameRegions: List<IntArray>,
-        chipRegions: List<IntArray>
-    ): Int {
-        var bestSeat = -1
-        var bestWhiteDensity = 0.0
-
-        for (seatIdx in nameRegions.indices) {
-            val nameArea = nameRegions[seatIdx]
-            val chipArea = chipRegions[seatIdx]
-
-            // 合并名字和筹码区域，向外扩展10px作为光圈检测带
-            val unionX1 = (minOf(nameArea[0], chipArea[0]) - 10).coerceIn(0, screenshot.width - 1)
-            val unionY1 = (minOf(nameArea[1], chipArea[1]) - 10).coerceIn(0, screenshot.height - 1)
-            val unionX2 = (maxOf(nameArea[2], chipArea[2]) + 10).coerceIn(unionX1 + 1, screenshot.width)
-            val unionY2 = (maxOf(nameArea[3], chipArea[3]) + 10).coerceIn(unionY1 + 1, screenshot.height)
-
-            val w = unionX2 - unionX1; val h = unionY2 - unionY1
-            if (w < 10 || h < 10) continue
-
-            val pixels = IntArray(w * h)
-            try {
-                screenshot.getPixels(pixels, 0, w, unionX1, unionY1, w, h)
-            } catch (_: Exception) { continue }
-
-            // 只检测边缘带（外圈5px）的白色像素
-            val bandW = 5
-            var whiteCount = 0
-            var edgeTotal = 0
-
-            for (y in 0 until h) {
-                for (x in 0 until w) {
-                    val isEdge = x < bandW || x >= w - bandW || y < bandW || y >= h - bandW
-                    if (!isEdge) continue
-                    edgeTotal++
-                    val p = pixels[y * w + x]
-                    val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
-                    // 白色/高亮：三个通道都很高
-                    if (r > 200 && g > 200 && b > 200) whiteCount++
-                }
-            }
-
-            if (edgeTotal == 0) continue
-            val density = whiteCount.toDouble() / edgeTotal
-            if (density > bestWhiteDensity) {
-                bestWhiteDensity = density
-                bestSeat = seatIdx
-            }
-        }
-
-        // 白色边缘像素占比超过5%才认为有光圈
-        val threshold = 0.05
-        if (bestWhiteDensity >= threshold) {
-            Log.d(TAG, "行动者检测: 座位$bestSeat, 白色密度=${String.format("%.3f", bestWhiteDensity)}")
-            return bestSeat
-        }
-        Log.d(TAG, "行动者检测: 无活跃玩家, 最高密度=${String.format("%.3f", bestWhiteDensity)}")
-        return -1
     }
 }
 
