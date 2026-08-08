@@ -401,12 +401,15 @@ class CardRecognizer(private val context: Context) {
 
         val color: String
         val symbol: String
-        if (redPixels > blackPixels * 2) {
+        if (redPixels > 50 && redPixels > blackPixels) {
             color = "red"
-        } else if (blackPixels > redPixels * 2) {
+        } else if (blackPixels > 50 && blackPixels > redPixels * 2) {
+            color = "black"
+        } else if (redPixels > blackPixels) {
+            color = "red"
+        } else if (blackPixels > redPixels) {
             color = "black"
         } else {
-            // 红黑比例不明确，用形状分析尝试
             color = "unknown"
         }
 
@@ -425,128 +428,143 @@ class CardRecognizer(private val context: Context) {
     }
 
     /**
-     * 形状分析区分同色花色 — V2.9.208修复
-     * 核心判别量：y质心(comY) + 顶边宽度比
-     * ♥ comY≈0.35 topEdge宽  |  ♦ comY≈0.50 顶边窄
-     * ♣ comY≈0.42 topEdge宽(三圆弧) | ♠ comY≈0.58 顶边窄(尖点)
+     * 形状分析区分同色花色 — V2.9.210 自适应 rank-end 检测
+     *
+     * 核心改进：先定位 rank 字符结束行（rankEndRow），再对下方 suit 区域做精确分析。
+     * rankEndRow 检测：从第4行起扫描，连续3行横向跨度≤25%最大行宽 → 认为 rank 已结束。
+     *
+     * suit 区域分析指标（归一化到 suit 区域自身高度）：
+     * - comY：y 质心，越小越靠上
+     * - topEdgeRatio：顶部20%最大行宽 / 区域宽
+     * - botEdgeRatio：底部20%最大行宽 / 区域宽
+     * - symmetry：x 方向对称度
+     *
+     * 判定逻辑：
+     * - 红(comY<0.40): ♥；红(comY≥0.40): ♦
+     * - 黑(comY<0.45): ♣；黑(comY≥0.45): ♠
+     *
+     * @param pixels 原始ARGB像素
+     * @param w 裁剪区域宽
+     * @param h 裁剪区域高
+     * @param startY suit分析起始行（rank indicator下方）
+     * @param endY suit分析结束行
+     * @param maxX suit分析最大列宽
+     * @param knownColor "red" / "black" / "unknown"
+     * @return Pair<suit, suitSymbol>，如 ("h","♥")；失败返回 ("?","?")
      */
     private fun analyzeSuitShape(
         pixels: IntArray, w: Int, h: Int,
         startY: Int, endY: Int, maxX: Int, knownColor: String
     ): Pair<String, String> {
-        // 收集该区域的"彩色像素"mask
-        val mask = BooleanArray((endY - startY) * maxX)
-        var coloredCount = 0
-        for (y in startY until endY) {
-            for (x in 0 until maxX) {
-                val idx = y * w + x
+        val regW = maxX
+        val regH = endY - startY
+        if (regH < 4 || regW < 4) return "?" to "?"
+
+        // --- Step 1: 建立整块区域的二值 mask ---
+        val fullMask = BooleanArray(regH * regW)
+        for (y in 0 until regH) {
+            for (x in 0 until regW) {
+                val idx = (startY + y) * w + x
                 if (idx >= pixels.size) continue
                 val p = pixels[idx]
                 val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
-                val isColored = when (knownColor) {
+                fullMask[y * regW + x] = when (knownColor) {
                     "red" -> r > 130 && r - g > 50 && r - b > 50
                     "black" -> r < 90 && g < 90 && b < 90
                     else -> (r > 130 && r - g > 50 && r - b > 50) || (r < 90 && g < 90 && b < 90)
                 }
-                if (isColored) {
-                    mask[(y - startY) * maxX + x] = true
-                    coloredCount++
+            }
+        }
+
+        // --- Step 2: 自适应 rank-end 检测 ---
+        // 逐行统计横向跨度（最左到最右彩色像素距离）
+        val rowSpans = IntArray(regH)
+        for (y in 0 until regH) {
+            var left = -1; var right = -1
+            for (x in 0 until regW) {
+                if (fullMask[y * regW + x]) {
+                    if (left < 0) left = x
+                    right = x
+                }
+            }
+            rowSpans[y] = if (left >= 0) right - left + 1 else 0
+        }
+
+        // 找最大行宽作为基准
+        val maxSpan = rowSpans.maxOrNull() ?: 0
+        val narrowThreshold = maxSpan * 0.25
+
+        // 从第4行起，连续3行窄 → rankEndRow
+        var rankEndRow = (regH * 0.40).toInt().coerceIn(3, regH - 1)  // 默认回退
+        for (y in 3 until regH - 2) {
+            if (rowSpans[y] > 0 && rowSpans[y] <= narrowThreshold
+                && rowSpans[y + 1] > 0 && rowSpans[y + 1] <= narrowThreshold
+                && rowSpans[y + 2] > 0 && rowSpans[y + 2] <= narrowThreshold
+            ) {
+                rankEndRow = y + 3  // 从窄行之后开始是 suit 区域
+                break
+            }
+        }
+
+        // --- Step 3: 在 suit 子区域做形状分析 ---
+        val suitStartY = rankEndRow
+        val suitH = regH - suitStartY
+        if (suitH < 3) return "?" to "?"
+
+        // 收集 suit 区域的彩色像素统计
+        var sumY = 0L; var sumX = 0L; var count = 0
+        var topHalf = 0; var bottomHalf = 0
+        val halfH = suitH / 2
+
+        // 边缘宽度
+        var topEdgeW = 0
+        val topEdgeEnd = (suitH * 0.2).toInt().coerceAtLeast(1)
+        val botEdgeStart = (suitH * 0.8).toInt()
+        var botEdgeW = 0
+
+        for (y in 0 until suitH) {
+            var rowCnt = 0; var rowLeft = -1; var rowRight = -1
+            for (x in 0 until regW) {
+                if (!fullMask[(suitStartY + y) * regW + x]) continue
+                rowCnt++
+                if (rowLeft < 0) rowLeft = x
+                rowRight = x
+                sumX += x
+            }
+            if (rowCnt == 0) continue
+            count += rowCnt
+            sumY += y.toLong() * rowCnt
+            if (y < halfH) topHalf += rowCnt else bottomHalf += rowCnt
+
+            val span = rowRight - rowLeft + 1
+            if (y < topEdgeEnd && span > topEdgeW) topEdgeW = span
+            if (y >= botEdgeStart && span > botEdgeW) botEdgeW = span
+        }
+
+        if (count < 8) return "?" to "?"
+
+        val comY = sumY.toDouble() / count / suitH  // 0~1，越小越靠上
+        val topEdgeRatio = topEdgeW.toDouble() / (regW * 0.5 + 1)
+        val botEdgeRatio = botEdgeW.toDouble() / (regW * 0.5 + 1)
+        val centerX = regW / 2.0
+        val symmetry = 1.0 - Math.abs(sumX.toDouble() / count - centerX) / centerX
+
+        // --- Step 4: 判定花色 ---
+        // 红：♥ comY < 0.40；♦ comY ≥ 0.40
+        // 黑：♣ comY < 0.45；♠ comY ≥ 0.45
+        return when (knownColor) {
+            "red" -> if (comY < 0.40) "h" to "♥" else "d" to "♦"
+            "black" -> if (comY < 0.45) "c" to "♣" else "s" to "♠"
+            else -> {
+                // 颜色未知，用 comY + topEdgeRatio 综合判断
+                when {
+                    comY < 0.35 && topEdgeRatio > 0.3 -> "h" to "♥"
+                    comY < 0.45 && topEdgeRatio > 0.3 -> "c" to "♣"
+                    comY < 0.50 && topEdgeRatio <= 0.3 -> "d" to "♦"
+                    else -> "s" to "♠"
                 }
             }
         }
-        if (coloredCount < 10) return "?" to "?"
-
-        val regH = endY - startY
-        val halfH = regH / 2
-        val halfW = maxX / 2
-
-        // y质心 + topRatio + symmetry
-        var sumY = 0
-        var topHalf = 0; var bottomHalf = 0
-        var leftHalf = 0; var rightHalf = 0
-        var centerCol = 0.0
-        for (y in 0 until regH) {
-            for (x in 0 until maxX) {
-                if (!mask[y * maxX + x]) continue
-                sumY += y
-                if (y < halfH) topHalf++ else bottomHalf++
-                if (x < halfW) leftHalf++ else rightHalf++
-                centerCol += x
-            }
-        }
-        centerCol /= coloredCount
-        val comY = sumY.toDouble() / coloredCount / regH  // 0~1, 越小越靠上
-        val topRatio = topHalf.toDouble() / coloredCount
-        val centerX = maxX / 2.0
-        val symmetry = 1.0 - Math.abs(centerCol - centerX) / centerX
-
-        // 顶部边缘宽度（前20%行）
-        var topEdgeW = 0
-        val topEdgeEnd = (regH * 0.2).toInt().coerceAtLeast(1)
-        for (y in 0 until topEdgeEnd) {
-            var cnt = 0
-            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
-            if (cnt > topEdgeW) topEdgeW = cnt
-        }
-        // 底部边缘宽度（后20%行）
-        var botEdgeW = 0
-        val botEdgeStart = (regH * 0.8).toInt()
-        for (y in botEdgeStart until regH) {
-            var cnt = 0
-            for (x in 0 until maxX) { if (mask[y * maxX + x]) cnt++ }
-            if (cnt > botEdgeW) botEdgeW = cnt
-        }
-        val topEdgeRatio = topEdgeW.toDouble() / (maxX * 0.5 + 1)
-        val botEdgeRatio = botEdgeW.toDouble() / (maxX * 0.5 + 1)
-
-        // === 各花色评分 ===
-        var hScore = 0.0; var dScore = 0.0; var cScore = 0.0; var sScore = 0.0
-
-        when (knownColor) {
-            "red" -> {
-                // ♥ Heart: comY低(~0.35) + topEdge宽(双圆弧顶部)
-                hScore = (1.0 - comY) * 0.5 + topRatio * 0.3 + symmetry * 0.2
-                if (topEdgeRatio > botEdgeRatio * 1.3) hScore += 0.3
-                // ♦ Diamond: comY中(~0.50) + 上下对称 + 顶边窄(尖点)
-                dScore = (1.0 - Math.abs(comY - 0.5) * 2.0) * 0.5 + symmetry * 0.4 + topRatio * 0.1
-            }
-            "black" -> {
-                // ♣ Club: comY较低(~0.42) + topEdge宽(三圆弧)
-                cScore = (1.0 - comY) * 0.5 + topRatio * 0.3 + symmetry * 0.2
-                if (topEdgeRatio > botEdgeRatio * 1.5) cScore += 0.3
-                // ♠ Spade: comY较高(~0.58) + topEdge窄(尖点) + botEdge宽
-                sScore = comY * 0.5 + (1.0 - topRatio) * 0.3 + symmetry * 0.2
-                if (botEdgeRatio > topEdgeRatio * 1.2) sScore += 0.2
-            }
-            else -> {
-                // 颜色未知，全部评估
-                hScore = (1.0 - comY) * 0.4 + topRatio * 0.3 + symmetry * 0.1
-                if (topEdgeRatio > botEdgeRatio) hScore += 0.2
-                dScore = (1.0 - Math.abs(comY - 0.5) * 2.0) * 0.4 + symmetry * 0.3
-                cScore = (1.0 - comY) * 0.3 + topRatio * 0.2 + symmetry * 0.1
-                if (topEdgeRatio > botEdgeRatio) cScore += 0.15
-                sScore = comY * 0.3 + (1.0 - topRatio) * 0.2 + symmetry * 0.1
-                if (botEdgeRatio > topEdgeRatio) sScore += 0.15
-            }
-        }
-
-        // 选最高分
-        val scores = listOf("h" to hScore, "d" to dScore, "c" to cScore, "s" to sScore)
-        val sorted = scores.sortedByDescending { it.second }
-        val best = sorted[0]
-        val second = sorted[1]
-
-        // 最高分需比第二高至少15%才采用形状结果
-        if (best.second > 0 && best.second > second.second * 1.15) {
-            return when (best.first) {
-                "h" -> "h" to "♥"
-                "d" -> "d" to "♦"
-                "c" -> "c" to "♣"
-                "s" -> "s" to "♠"
-                else -> "?" to "?"
-            }
-        }
-        return "?" to "?"
     }
 
     /**
@@ -734,6 +752,116 @@ class CardRecognizer(private val context: Context) {
         handRankTemplates.clear()
         commRankTemplates.clear()
         isInitialized = false
+    }
+
+    // ============ V2.9.210: D按钮检测 ============
+
+    /**
+     * 在指定搜索区域中查找D按钮（黄色圆形带"D"字母）
+     * @param screenshot 全屏截图
+     * @param searchAreas D按钮搜索区域列表，每个为 [x1,y1,x2,y2]
+     * @return D按钮所在座位索引(0-5)，未找到返回 -1
+     */
+    fun detectDealerButton(screenshot: Bitmap, searchAreas: List<IntArray>): Int {
+        for ((seatIdx, area) in searchAreas.withIndex()) {
+            val x1 = area[0].coerceIn(0, screenshot.width - 1)
+            val y1 = area[1].coerceIn(0, screenshot.height - 1)
+            val x2 = area[2].coerceIn(x1 + 1, screenshot.width)
+            val y2 = area[3].coerceIn(y1 + 1, screenshot.height)
+
+            val w = x2 - x1; val h = y2 - y1
+            val pixels = IntArray(w * h)
+            try {
+                screenshot.getPixels(pixels, 0, w, x1, y1, w, h)
+            } catch (_: Exception) { continue }
+
+            // 检测黄色像素密度（D按钮是黄色圆形）
+            var yellowCount = 0
+            for (p in pixels) {
+                val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
+                // 黄色：R高、G高、B低
+                if (r > 180 && g > 150 && b < 100) yellowCount++
+            }
+            val density = yellowCount.toDouble() / pixels.size
+            // 黄色像素占比超过3%认为是D按钮
+            if (density > 0.03) {
+                Log.d(TAG, "D按钮检测: 座位$seatIdx, 黄色密度=${String.format("%.3f", density)}")
+                return seatIdx
+            }
+        }
+        Log.d(TAG, "D按钮检测: 未找到")
+        return -1
+    }
+
+    // ============ V2.9.210: 行动者白色光圈检测 ============
+
+    /**
+     * 检测哪个座位有白色光圈（当前行动玩家）
+     * 原理：在名字+筹码区域外围扫描白色/高亮边框像素
+     * @param screenshot 全屏截图
+     * @param nameRegions 6个座位的名字区域坐标
+     * @param chipRegions 6个座位的筹码区域坐标
+     * @return 当前行动玩家的座位索引(0-5)，无行动者返回 -1
+     */
+    fun detectActivePlayer(
+        screenshot: Bitmap,
+        nameRegions: List<IntArray>,
+        chipRegions: List<IntArray>
+    ): Int {
+        var bestSeat = -1
+        var bestWhiteDensity = 0.0
+
+        for (seatIdx in nameRegions.indices) {
+            val nameArea = nameRegions[seatIdx]
+            val chipArea = chipRegions[seatIdx]
+
+            // 合并名字和筹码区域，向外扩展10px作为光圈检测带
+            val unionX1 = (minOf(nameArea[0], chipArea[0]) - 10).coerceIn(0, screenshot.width - 1)
+            val unionY1 = (minOf(nameArea[1], chipArea[1]) - 10).coerceIn(0, screenshot.height - 1)
+            val unionX2 = (maxOf(nameArea[2], chipArea[2]) + 10).coerceIn(unionX1 + 1, screenshot.width)
+            val unionY2 = (maxOf(nameArea[3], chipArea[3]) + 10).coerceIn(unionY1 + 1, screenshot.height)
+
+            val w = unionX2 - unionX1; val h = unionY2 - unionY1
+            if (w < 10 || h < 10) continue
+
+            val pixels = IntArray(w * h)
+            try {
+                screenshot.getPixels(pixels, 0, w, unionX1, unionY1, w, h)
+            } catch (_: Exception) { continue }
+
+            // 只检测边缘带（外圈5px）的白色像素
+            val bandW = 5
+            var whiteCount = 0
+            var edgeTotal = 0
+
+            for (y in 0 until h) {
+                for (x in 0 until w) {
+                    val isEdge = x < bandW || x >= w - bandW || y < bandW || y >= h - bandW
+                    if (!isEdge) continue
+                    edgeTotal++
+                    val p = pixels[y * w + x]
+                    val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
+                    // 白色/高亮：三个通道都很高
+                    if (r > 200 && g > 200 && b > 200) whiteCount++
+                }
+            }
+
+            if (edgeTotal == 0) continue
+            val density = whiteCount.toDouble() / edgeTotal
+            if (density > bestWhiteDensity) {
+                bestWhiteDensity = density
+                bestSeat = seatIdx
+            }
+        }
+
+        // 白色边缘像素占比超过5%才认为有光圈
+        val threshold = 0.05
+        if (bestWhiteDensity >= threshold) {
+            Log.d(TAG, "行动者检测: 座位$bestSeat, 白色密度=${String.format("%.3f", bestWhiteDensity)}")
+            return bestSeat
+        }
+        Log.d(TAG, "行动者检测: 无活跃玩家, 最高密度=${String.format("%.3f", bestWhiteDensity)}")
+        return -1
     }
 }
 

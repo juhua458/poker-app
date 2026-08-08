@@ -40,7 +40,16 @@ data class CoordinateConfig(
     val communityYBase: Pair<Int, Int>,            // (y1, y2)
     val referenceWidth: Int,                       // 基准宽度(用于缩放)
     val referenceHeight: Int,                      // 基准高度(用于缩放)
-    val orientation: ScreenOrientation
+    val orientation: ScreenOrientation,
+    // V2.9.210: 扩展坐标 — 玩家位置、底池、按钮、D按钮搜索区域
+    val playerNames: List<IntArray> = emptyList(),       // 6 seats: [x1,y1,x2,y2]
+    val playerChips: List<IntArray> = emptyList(),       // 6 seats: [x1,y1,x2,y2]
+    val potLabel: IntArray = intArrayOf(),               // 底池文字 [x1,y1,x2,y2]
+    val potAmount: IntArray = intArrayOf(),              // 底池金额 [x1,y1,x2,y2]
+    val actionButtons: List<IntArray> = emptyList(),     // 底部操作按钮 [x1,y1,x2,y2]
+    val betButtons: List<IntArray> = emptyList(),        // 下注按钮(4档) [x1,y1,x2,y2]
+    val dealerSearchAreas: List<IntArray> = emptyList(), // D按钮搜索区域(6个座位附近)
+    val topNavBar: List<IntArray> = emptyList()          // 顶部导航栏按钮
 )
 
 // Rake配置
@@ -122,25 +131,76 @@ object GameModeConfig {
     // ============================================================
 
     // GG扑克竖屏坐标配置（1080×2344基准，基于10张GG截图实测）
+    // V2.9.210: 完整坐标体系 — 含玩家位置、底池、按钮、D按钮搜索区域
     private val GG_PORTRAIT_COORDS = CoordinateConfig(
         // GG竖屏：手牌在底部中央，两张牌左右排列
         handCardsBase = listOf(
-            Pair(50, 185),   // 手牌0 x范围（左牌，实测宽135px）
-            Pair(175, 321)   // 手牌1 x范围（右牌，实测宽146px，与左牌重叠）
+            Pair(75, 200),   // 手牌0 x范围（V2.9.210校准）
+            Pair(170, 310)   // 手牌1 x范围（V2.9.210校准）
         ),
-        handYBase = Pair(1748, 2046),  // 手牌y范围（覆盖左牌1748-1897 + 右牌1898-2046）
-        // 公共牌在屏幕中部
+        handYBase = Pair(1760, 2000),  // V2.9.210校准
+        // 公共牌在屏幕中部（V2.9.210校准）
         communityCardsBase = listOf(
-            Pair(170, 306),   // 公共牌0
-            Pair(320, 456),   // 公共牌1
-            Pair(470, 606),   // 公共牌2
-            Pair(620, 756),   // 公共牌3
-            Pair(770, 906)    // 公共牌4
+            Pair(180, 325),   // 公共牌0
+            Pair(325, 460),   // 公共牌1
+            Pair(460, 595),   // 公共牌2
+            Pair(595, 730),   // 公共牌3
+            Pair(730, 870)    // 公共牌4
         ),
-        communityYBase = Pair(1075, 1267),
+        communityYBase = Pair(1030, 1290),
         referenceWidth = 1080,
         referenceHeight = 2344,
-        orientation = ScreenOrientation.PORTRAIT
+        orientation = ScreenOrientation.PORTRAIT,
+        // V2.9.210: 6个座位的玩家名字区域 [x1,y1,x2,y2]
+        playerNames = listOf(
+            intArrayOf(440, 500, 620, 540),    // 座位1 顶部中间
+            intArrayOf(10, 870, 200, 910),     // 座位2 左侧
+            intArrayOf(810, 850, 1030, 890),   // 座位3 右上
+            intArrayOf(10, 1440, 200, 1480),   // 座位4 左下
+            intArrayOf(800, 1470, 1010, 1510), // 座位5 右下
+            intArrayOf(135, 1920, 265, 1960)   // 座位6 Hero底部
+        ),
+        // V2.9.210: 6个座位的筹码区域 [x1,y1,x2,y2]
+        playerChips = listOf(
+            intArrayOf(460, 545, 620, 580),    // 座位1
+            intArrayOf(10, 910, 200, 950),     // 座位2
+            intArrayOf(860, 895, 1030, 935),   // 座位3
+            intArrayOf(25, 1485, 200, 1520),   // 座位4
+            intArrayOf(830, 1515, 1010, 1555), // 座位5
+            intArrayOf(170, 1965, 295, 2005)   // 座位6 Hero
+        ),
+        // V2.9.210: 底池区域
+        potLabel = intArrayOf(415, 955, 540, 1000),     // 底池文字
+        potAmount = intArrayOf(430, 995, 550, 1050),    // 底池金额
+        // V2.9.210: 底部操作按钮 [x1,y1,x2,y2]
+        actionButtons = listOf(
+            intArrayOf(20, 2190, 370, 2340),   // 左按钮（让牌/弃牌）
+            intArrayOf(390, 2190, 710, 2340)   // 右按钮（让牌/跟注/全押）
+        ),
+        // V2.9.210: 下注按钮（右侧4档）[x1,y1,x2,y2]
+        betButtons = listOf(
+            intArrayOf(730, 1690, 1080, 1820), // 100%
+            intArrayOf(730, 1885, 1080, 2005), // 75%
+            intArrayOf(730, 2020, 1080, 2140), // 50%
+            intArrayOf(730, 2195, 1080, 2320)  // 33%
+        ),
+        // V2.9.210: D按钮搜索区域（6个座位附近）[x1~x2, y1~y2]
+        dealerSearchAreas = listOf(
+            intArrayOf(400, 550, 650, 620),    // 座位1附近
+            intArrayOf(0, 880, 220, 960),      // 座位2附近
+            intArrayOf(780, 860, 1040, 940),   // 座位3附近
+            intArrayOf(0, 1450, 220, 1530),    // 座位4附近
+            intArrayOf(780, 1480, 1020, 1560), // 座位5附近
+            intArrayOf(100, 1930, 300, 2010)   // 座位6/Hero附近
+        ),
+        // V2.9.210: 顶部导航栏 [x1,y1,x2,y2]
+        topNavBar = listOf(
+            intArrayOf(155, 130, 305, 220),    // 手牌提示
+            intArrayOf(375, 140, 455, 210),    // 暂停
+            intArrayOf(480, 140, 555, 210),    // 关闭
+            intArrayOf(580, 140, 660, 210),    // 首页
+            intArrayOf(685, 140, 765, 210)     // +号
+        )
     )
 
     // 标准扑克横屏坐标配置（与当前V2.9.199一致）
@@ -325,5 +385,38 @@ object GameModeConfig {
     fun getInsuranceDeclinePosition(screenW: Int, screenH: Int): Pair<Int, Int> {
         // Insurance拒绝按钮大约在屏幕右侧85%位置，y坐标约55%
         return (screenW * 0.85).toInt() to (screenH * 0.55).toInt()
+    }
+
+    // ============ V2.9.210: 扩展坐标访问方法 ============
+
+    /** 获取6个座位的玩家名字区域坐标 */
+    fun getPlayerNameRegions(): List<IntArray> = getCoordinateConfig().playerNames
+
+    /** 获取6个座位的筹码区域坐标 */
+    fun getPlayerChipRegions(): List<IntArray> = getCoordinateConfig().playerChips
+
+    /** 获取底池金额区域坐标 */
+    fun getPotAmountRegion(): IntArray = getCoordinateConfig().potAmount
+
+    /** 获取底部操作按钮坐标 */
+    fun getActionButtons(): List<IntArray> = getCoordinateConfig().actionButtons
+
+    /** 获取下注按钮坐标（4档） */
+    fun getBetButtons(): List<IntArray> = getCoordinateConfig().betButtons
+
+    /** 获取D按钮搜索区域（6个座位附近） */
+    fun getDealerSearchAreas(): List<IntArray> = getCoordinateConfig().dealerSearchAreas
+
+    /**
+     * 根据D按钮位置推算SB/BB座位
+     * @param dealerSeatIndex D按钮所在座位索引(0-5)，-1表示未找到
+     * @return Pair(sbSeatIndex, bbSeatIndex)，未找到返回(-1,-1)
+     */
+    fun deduceBlindSeats(dealerSeatIndex: Int): Pair<Int, Int> {
+        if (dealerSeatIndex < 0) return -1 to -1
+        val totalSeats = 6
+        val sbSeat = (dealerSeatIndex + 1) % totalSeats
+        val bbSeat = (dealerSeatIndex + 2) % totalSeats
+        return sbSeat to bbSeat
     }
 }
