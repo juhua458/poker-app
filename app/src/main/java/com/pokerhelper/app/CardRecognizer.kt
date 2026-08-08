@@ -494,29 +494,30 @@ class CardRecognizer(private val context: Context) {
     }
 
     /**
-     * 形状分析区分同色花色 — V2.9.210 自适应 rank-end 检测
+     * 形状分析区分同色花色 — V2.9.212 连通分量 + 位置评分 + 宽度剖面
      *
-     * 核心改进：先定位 rank 字符结束行（rankEndRow），再对下方 suit 区域做精确分析。
-     * rankEndRow 检测：从第4行起扫描，连续3行横向跨度≤25%最大行宽 → 认为 rank 已结束。
+     * 核心思路：用大花色符号（中央位置）而非 rank indicator（左上角）做分类。
      *
-     * suit 区域分析指标（归一化到 suit 区域自身高度）：
-     * - comY：y 质心，越小越靠上
-     * - topEdgeRatio：顶部20%最大行宽 / 区域宽
-     * - botEdgeRatio：底部20%最大行宽 / 区域宽
-     * - symmetry：x 方向对称度
-     *
-     * 判定逻辑：
-     * - 红(comY<0.40): ♥；红(comY≥0.40): ♦
-     * - 黑(comY<0.45): ♣；黑(comY≥0.45): ♠
+     * 流程：
+     * 1. 建立整块区域二值 mask（内缩10%排除边框）
+     * 2. 连通分量标记（8邻域 BFS）
+     * 3. 对每个分量计算综合评分：
+     *    - 面积 x 填充率 x 方形度 x 位置分 x 左上惩罚
+     *    - 位置分：离中心越近越高
+     *    - 左上惩罚：rank 文字通常在左上(ncx<0.35, ncy<0.35)，给 0.2 惩罚
+     * 4. 选最高分分量，计算归一化宽度剖面 top5 均值
+     * 5. 分类：
+     *    - 黑色: top5<0.15->尖顶(spade), else->宽顶(club)
+     *    - 红色: top5>0.15 或 top25>0.45->两瓣宽顶(heart), else->尖顶(diamond)
      *
      * @param pixels 原始ARGB像素
      * @param w 裁剪区域宽
      * @param h 裁剪区域高
-     * @param startY suit分析起始行（rank indicator下方）
+     * @param startY suit分析起始行
      * @param endY suit分析结束行
      * @param maxX suit分析最大列宽
      * @param knownColor "red" / "black" / "unknown"
-     * @return Pair<suit, suitSymbol>，如 ("h","♥")；失败返回 ("?","?")
+     * @return Pair<suit, suitSymbol>，如 ("h","...")；失败返回 ("?","?")
      */
     private fun analyzeSuitShape(
         pixels: IntArray, w: Int, h: Int,
@@ -526,15 +527,21 @@ class CardRecognizer(private val context: Context) {
         val regH = endY - startY
         if (regH < 4 || regW < 4) return "?" to "?"
 
-        // --- Step 1: 建立整块区域的二值 mask ---
-        val fullMask = BooleanArray(regH * regW)
-        for (y in 0 until regH) {
-            for (x in 0 until regW) {
-                val idx = (startY + y) * w + x
-                if (idx >= pixels.size) continue
-                val p = pixels[idx]
+        // --- Step 1: 建立二值 mask（内缩10%排除边框） ---
+        val marginX = (regW * 0.10).toInt().coerceAtLeast(2)
+        val marginY = (regH * 0.10).toInt().coerceAtLeast(2)
+        val innerW = regW - 2 * marginX
+        val innerH = regH - 2 * marginY
+        if (innerW < 4 || innerH < 4) return "?" to "?"
+
+        val mask = BooleanArray(innerH * innerW)
+        for (y in 0 until innerH) {
+            for (x in 0 until innerW) {
+                val srcIdx = (startY + marginY + y) * w + (marginX + x)
+                if (srcIdx >= pixels.size) continue
+                val p = pixels[srcIdx]
                 val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
-                fullMask[y * regW + x] = when (knownColor) {
+                mask[y * innerW + x] = when (knownColor) {
                     "red" -> r > 130 && r - g > 50 && r - b > 50
                     "black" -> r < 90 && g < 90 && b < 90
                     else -> (r > 130 && r - g > 50 && r - b > 50) || (r < 90 && g < 90 && b < 90)
@@ -542,97 +549,124 @@ class CardRecognizer(private val context: Context) {
             }
         }
 
-        // --- Step 2: 自适应 rank-end 检测 ---
-        // 逐行统计横向跨度（最左到最右彩色像素距离）
-        val rowSpans = IntArray(regH)
-        for (y in 0 until regH) {
-            var left = -1; var right = -1
-            for (x in 0 until regW) {
-                if (fullMask[y * regW + x]) {
-                    if (left < 0) left = x
-                    right = x
+        // --- Step 2: 连通分量标记（8邻域 BFS） ---
+        val labels = IntArray(innerH * innerW) { -1 }
+        val compX = mutableListOf<Int>()
+        val compY = mutableListOf<Int>()
+        val compBW = mutableListOf<Int>()
+        val compBH = mutableListOf<Int>()
+        val compArea = mutableListOf<Int>()
+        val compSumCx = mutableListOf<Int>()
+        val compSumCy = mutableListOf<Int>()
+
+        for (sy in 0 until innerH) {
+            for (sx in 0 until innerW) {
+                if (!mask[sy * innerW + sx] || labels[sy * innerW + sx] >= 0) continue
+
+                val compId = compX.size
+                val queue = ArrayDeque<Int>()
+                queue.add(sy * innerW + sx)
+                labels[sy * innerW + sx] = compId
+
+                var minX = sx; var maxXc = sx; var minY = sy; var maxYc = sy
+                var area = 0; var sumCx = 0; var sumCy = 0
+
+                while (queue.isNotEmpty()) {
+                    val pos = queue.removeFirst()
+                    val cx = pos % innerW; val cy = pos / innerW
+                    area++; sumCx += cx; sumCy += cy
+                    if (cx < minX) minX = cx; if (cx > maxXc) maxXc = cx
+                    if (cy < minY) minY = cy; if (cy > maxYc) maxYc = cy
+
+                    for (dy in -1..1) {
+                        for (dx in -1..1) {
+                            if (dy == 0 && dx == 0) continue
+                            val nx = cx + dx; val ny = cy + dy
+                            if (nx < 0 || nx >= innerW || ny < 0 || ny >= innerH) continue
+                            val nPos = ny * innerW + nx
+                            if (mask[nPos] && labels[nPos] < 0) {
+                                labels[nPos] = compId
+                                queue.add(nPos)
+                            }
+                        }
+                    }
                 }
-            }
-            rowSpans[y] = if (left >= 0) right - left + 1 else 0
-        }
 
-        // 找最大行宽作为基准
-        val maxSpan = rowSpans.maxOrNull() ?: 0
-        val narrowThreshold = maxSpan * 0.25
-
-        // 从第4行起，连续3行窄 → rankEndRow
-        var rankEndRow = (regH * 0.40).toInt().coerceIn(3, regH - 1)  // 默认回退
-        for (y in 3 until regH - 2) {
-            if (rowSpans[y] > 0 && rowSpans[y] <= narrowThreshold
-                && rowSpans[y + 1] > 0 && rowSpans[y + 1] <= narrowThreshold
-                && rowSpans[y + 2] > 0 && rowSpans[y + 2] <= narrowThreshold
-            ) {
-                rankEndRow = y + 3  // 从窄行之后开始是 suit 区域
-                break
+                compX.add(minX); compY.add(minY)
+                compBW.add(maxXc - minX + 1); compBH.add(maxYc - minY + 1)
+                compArea.add(area); compSumCx.add(sumCx); compSumCy.add(sumCy)
             }
         }
 
-        // --- Step 3: 在 suit 子区域做形状分析 ---
-        val suitStartY = rankEndRow
-        val suitH = regH - suitStartY
-        if (suitH < 3) return "?" to "?"
+        if (compArea.isEmpty()) return "?" to "?"
 
-        // 收集 suit 区域的彩色像素统计
-        var sumY = 0L; var sumX = 0L; var count = 0
-        var topHalf = 0; var bottomHalf = 0
-        val halfH = suitH / 2
+        val totalArea = innerW * innerH
+        val minArea = (totalArea * 0.01).toInt().coerceAtLeast(4)
 
-        // 边缘宽度
-        var topEdgeW = 0
-        val topEdgeEnd = (suitH * 0.2).toInt().coerceAtLeast(1)
-        val botEdgeStart = (suitH * 0.8).toInt()
-        var botEdgeW = 0
+        // --- Step 3: 综合评分选最佳分量 ---
+        var bestIdx = -1; var bestScore = -1.0
+        var bestTop5 = 0.0; var bestTop25 = 0.0
 
-        for (y in 0 until suitH) {
-            var rowCnt = 0; var rowLeft = -1; var rowRight = -1
-            for (x in 0 until regW) {
-                if (!fullMask[(suitStartY + y) * regW + x]) continue
-                rowCnt++
-                if (rowLeft < 0) rowLeft = x
-                rowRight = x
-                sumX += x
+        for (i in compArea.indices) {
+            val cx = compX[i]; val cy = compY[i]
+            val bw = compBW[i]; val bh = compBH[i]
+            val area = compArea[i]; val sumCx = compSumCx[i]; val sumCy = compSumCy[i]
+
+            if (area < minArea) continue
+            if (bw < 3 || bh < 3) continue
+
+            val aspect = maxOf(bw, bh).toDouble() / minOf(bw, bh)
+            if (aspect > 2.5) continue
+            if (bw > innerW * 0.70 || bh > innerH * 0.70) continue
+
+            val ncx = (sumCx.toDouble() / area) / innerW
+            val ncy = (sumCy.toDouble() / area) / innerH
+
+            val fill = area.toDouble() / (bw * bh)
+            val squareness = 1.0 - Math.abs(bw - bh).toDouble() / maxOf(bw, bh)
+
+            val centerDist = Math.sqrt((ncx - 0.5) * (ncx - 0.5) + (ncy - 0.5) * (ncy - 0.5))
+            val positionScore = maxOf(0.0, 1.0 - centerDist / 0.5)
+
+            val ulPenalty = if (ncx < 0.35 && ncy < 0.35) 0.2 else 1.0
+
+            val score = area * fill * squareness * positionScore * ulPenalty
+
+            if (score > bestScore) {
+                bestScore = score
+                bestIdx = i
+
+                // 计算宽度剖面
+                val colSums = DoubleArray(bw)
+                for (py in cy until cy + bh) {
+                    for (px in cx until cx + bw) {
+                        if (labels[py * innerW + px] == i) colSums[px - cx]++
+                    }
+                }
+                val maxCol = colSums.maxOrNull() ?: 1.0
+                val sorted = colSums.map { it / maxCol }.sorted()
+                val top5Count = maxOf(1, (bw * 0.05).toInt())
+                val top25Count = maxOf(1, (bw * 0.25).toInt())
+                bestTop5 = sorted.takeLast(top5Count).average()
+                bestTop25 = sorted.takeLast(top25Count).average()
             }
-            if (rowCnt == 0) continue
-            count += rowCnt
-            sumY += y.toLong() * rowCnt
-            if (y < halfH) topHalf += rowCnt else bottomHalf += rowCnt
-
-            val span = rowRight - rowLeft + 1
-            if (y < topEdgeEnd && span > topEdgeW) topEdgeW = span
-            if (y >= botEdgeStart && span > botEdgeW) botEdgeW = span
         }
 
-        if (count < 8) return "?" to "?"
+        if (bestIdx < 0) return "?" to "?"
 
-        val comY = sumY.toDouble() / count / suitH  // 0~1，越小越靠上
-        val topEdgeRatio = topEdgeW.toDouble() / (regW * 0.5 + 1)
-        val botEdgeRatio = botEdgeW.toDouble() / (regW * 0.5 + 1)
-        val centerX = regW / 2.0
-        val symmetry = 1.0 - Math.abs(sumX.toDouble() / count - centerX) / centerX
-
-        // --- Step 4: 判定花色 ---
-        // 红：♥ comY < 0.40；♦ comY ≥ 0.40
-        // 黑：♣ comY < 0.45；♠ comY ≥ 0.45
+        // --- Step 4: 宽度剖面分类 ---
         return when (knownColor) {
-            "red" -> if (comY < 0.40) "h" to "♥" else "d" to "♦"
-            "black" -> if (comY < 0.45) "c" to "♣" else "s" to "♠"
+            "red" -> if (bestTop5 > 0.15 || bestTop25 > 0.45) "h" to "\u2665" else "d" to "\u2666"
+            "black" -> if (bestTop5 < 0.15) "s" to "\u2660" else "c" to "\u2663"
             else -> {
-                // 颜色未知，用 comY + topEdgeRatio 综合判断
                 when {
-                    comY < 0.35 && topEdgeRatio > 0.3 -> "h" to "♥"
-                    comY < 0.45 && topEdgeRatio > 0.3 -> "c" to "♣"
-                    comY < 0.50 && topEdgeRatio <= 0.3 -> "d" to "♦"
-                    else -> "s" to "♠"
+                    bestTop5 > 0.15 || bestTop25 > 0.45 -> "h" to "\u2665"
+                    bestTop5 < 0.15 -> "s" to "\u2660"
+                    else -> "c" to "\u2663"
                 }
             }
         }
     }
-
     /**
      * 从裁剪区域提取rank indicator子区域
      * 手牌: 左上角约95×100区域（rank indicator在牌面左上）
