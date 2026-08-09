@@ -520,11 +520,14 @@ class CardRecognizer(private val context: Context) {
      * @return Pair<suit, suitSymbol>，如 ("h","...")；失败返回 ("?","?")
      */
     /**
-     * 形状分析区分同色花色 — V3.4 锚定法（豪哥方案）
+     * 形状分析区分同色花色 — V3.5 排除法（豪哥方案）
      *
-     * 原理：不比较 ♥ vs ♦ 谁分高，只算目标特征达标分。
-     * - 红色：只算 ♦ 的分（居中对称），达标→♦，不达标→♥
-     * - 黑色：只算 ♠ 的分（顶部分散+底部重），达标→♠，不达标→♣
+     * 原理：先分颜色（100%准确），高置信度确定其中一种，另一种用排除法。
+     * - 红色：高置信♦特征达标→♦，不达标→♥（排除法）
+     * - 黑色：高置信♣特征达标→♣，不达标→♠（排除法：不像♣就是♠）
+     *
+     * V3.5新增特征：maxW（最大行宽）、shrinkRatio（底部收缩率）、
+     *   lastRowRatio（末行宽比）、botTopThirdRatio（下/上1/3像素比）
      *
      * 颜色判定（V3.2）：纯色像素统计，排除绿色背景干扰
      *
@@ -609,9 +612,29 @@ class CardRecognizer(private val context: Context) {
         // 连通分量数
         val compCount = countConnectedComponents(mask, regW, regH)
 
-        // --- Step 4: V3.4 二选一锚定法 ---
+        // --- Step 3b: V3.5 新增特征（黑色系区分♣/♠） ---
+        // maxW 已有（最宽行像素数），直接使用
+        // 底部收缩率: 最后5行平均宽度 / 最大宽度
+        val shrinkN = minOf(5, regH)
+        var lastNSum = 0
+        for (y in regH - shrinkN until regH) lastNSum += rowWidths[y]
+        val lastNAvg = lastNSum.toDouble() / shrinkN
+        val shrinkRatio = if (maxW > 0) lastNAvg / maxW else 0.0
+
+        // 最后一行宽度比
+        val lastRowW = rowWidths[regH - 1]
+        val lastRowRatio = if (maxW > 0) lastRowW.toDouble() / maxW else 0.0
+
+        // 下1/3 vs 上1/3 像素比
+        val third = maxOf(1, regH / 3)
+        var topThirdPx = 0; var botThirdPx = 0
+        for (y in 0 until third) topThirdPx += rowWidths[y]
+        for (y in regH - third until regH) botThirdPx += rowWidths[y]
+        val botTopThirdRatio = if (topThirdPx > 0) botThirdPx.toDouble() / topThirdPx else 0.0
+
+        // --- Step 4: V3.5 排除法 ---
         if (isRed) {
-            // ♦ DIAMOND 锚定: 最宽行居中 + 上下对称
+            // ♦ 排除法: 高置信♦特征 → ♦, 否则 → ♥
             var diamondScore = 0.0
             if (wp > 0.50 && wp < 0.80) diamondScore += 4.0
             if (comY > 0.40 && comY < 0.62) diamondScore += 1.5
@@ -619,15 +642,39 @@ class CardRecognizer(private val context: Context) {
             return if (diamondScore > 3.5)
                 ("d" to "\u2666") else ("h" to "\u2665")
         } else {
-            //  SPADE 锚定: 顶部x分散 + 底部重 + 碎片多
+            // ♣ 排除法: 高置信♣特征 → ♣, 否则 → ♠ (不像♣就是♠)
+            var clubScore = 0.0
             var spadeScore = 0.0
-            if (topXStd > 14) spadeScore += 4.0
-            else if (topXStd > 10) spadeScore += 2.0
-            if (wp > 0.65) spadeScore += 2.0
-            if (bs > ts) spadeScore += 1.0
-            if (compCount > 6) spadeScore += 1.5
-            return if (spadeScore > 3.5)
-                ("s" to "\u2660") else ("c" to "\u2663")
+
+            // 特征1: 最大宽度（完整♣三瓣展开=78-79, ♠=74）
+            if (maxW >= 77) clubScore += 3.0
+            else if (maxW >= 75) clubScore += 1.0
+
+            // 特征2: 顶部x标准差（♣三瓣展开 topXStd≥12）
+            if (topXStd >= 12f) clubScore += 3.0
+            else if (topXStd >= 10f) clubScore += 1.5
+            else if (topXStd <= 8.5f) spadeScore += 1.0
+
+            // 特征3: 底部收缩率（♣底部有尖<0.20, ♠平滑>0.35）
+            if (shrinkRatio < 0.20) clubScore += 2.5
+            else if (shrinkRatio < 0.25) clubScore += 1.5
+            else if (shrinkRatio > 0.35) spadeScore += 1.0
+
+            // 特征4: 最后一行宽度比（♣底部尖更细）
+            if (lastRowRatio < 0.20) clubScore += 2.0
+            else if (lastRowRatio < 0.25) clubScore += 1.0
+
+            // 特征5: 下/上1/3像素比（完整♣比值更大）
+            if (botTopThirdRatio > 3.0) clubScore += 1.5
+
+            // 特征6: wp位置（完整♣的wp更靠下）
+            if (wp > 0.75) clubScore += 0.5
+            else if (wp > 0.70) clubScore += 0.3
+
+            // 综合判定: 不像♣就判♠
+            val clubConfidence = clubScore - spadeScore
+            return if (clubConfidence >= 0.0)
+                ("c" to "\u2663") else ("s" to "\u2660")
         }
     }
 
