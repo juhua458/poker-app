@@ -519,6 +519,24 @@ class CardRecognizer(private val context: Context) {
      * @param knownColor "red" / "black" / "unknown"
      * @return Pair<suit, suitSymbol>，如 ("h","...")；失败返回 ("?","?")
      */
+    /**
+     * 形状分析区分同色花色 — V3.4 锚定法（豪哥方案）
+     *
+     * 原理：不比较 ♥ vs ♦ 谁分高，只算目标特征达标分。
+     * - 红色：只算 ♦ 的分（居中对称），达标→♦，不达标→♥
+     * - 黑色：只算 ♠ 的分（顶部分散+底部重），达标→♠，不达标→♣
+     *
+     * 颜色判定（V3.2）：纯色像素统计，排除绿色背景干扰
+     *
+     * @param pixels 原始ARGB像素
+     * @param w 裁剪区域宽
+     * @param h 裁剪区域高
+     * @param startY suit分析起始行
+     * @param endY suit分析结束行
+     * @param maxX suit分析最大列宽
+     * @param knownColor "red" / "black" / "unknown"
+     * @return Pair<suit, suitSymbol>，如 ("h","♥")；失败返回 ("?","?")
+     */
     private fun analyzeSuitShape(
         pixels: IntArray, w: Int, h: Int,
         startY: Int, endY: Int, maxX: Int, knownColor: String
@@ -527,145 +545,135 @@ class CardRecognizer(private val context: Context) {
         val regH = endY - startY
         if (regH < 4 || regW < 4) return "?" to "?"
 
-        // --- Step 1: 建立二值 mask（内缩10%排除边框） ---
-        val marginX = (regW * 0.10).toInt().coerceAtLeast(2)
-        val marginY = (regH * 0.10).toInt().coerceAtLeast(2)
-        val innerW = regW - 2 * marginX
-        val innerH = regH - 2 * marginY
-        if (innerW < 4 || innerH < 4) return "?" to "?"
+        // --- Step 1: V3.2 颜色判定（纯色像素统计，排除绿色背景） ---
+        val isRed = if (knownColor == "red") true
+                    else if (knownColor == "black") false
+                    else {
+                        var redPx = 0; var blackPx = 0
+                        for (y in startY until endY) {
+                            for (x in 0 until regW) {
+                                val idx = y * w + x
+                                if (idx < 0 || idx >= pixels.size) continue
+                                val p = pixels[idx]
+                                val cr = Color.red(p); val cg = Color.green(p); val cb = Color.blue(p)
+                                if (cr > 130 && cr - cg > 45 && cr - cb > 45) redPx++
+                                else if (cr < 70 && cg < 70 && cb < 70 && kotlin.math.abs(cg - cr) < 30) blackPx++
+                            }
+                        }
+                        redPx > blackPx * 0.4f
+                    }
 
-        val mask = BooleanArray(innerH * innerW)
-        for (y in 0 until innerH) {
-            for (x in 0 until innerW) {
-                val srcIdx = (startY + marginY + y) * w + (marginX + x)
-                if (srcIdx >= pixels.size) continue
-                val p = pixels[srcIdx]
-                val r = Color.red(p); val g = Color.green(p); val b = Color.blue(p)
-                mask[y * innerW + x] = when (knownColor) {
-                    "red" -> r > 130 && r - g > 50 && r - b > 50
-                    "black" -> r < 90 && g < 90 && b < 90
-                    else -> (r > 130 && r - g > 50 && r - b > 50) || (r < 90 && g < 90 && b < 90)
+        // --- Step 2: 建立二值 mask + 行宽度剖面 ---
+        val mask = BooleanArray(regH * regW)
+        val rowWidths = IntArray(regH)
+        for (y in 0 until regH) {
+            for (x in 0 until regW) {
+                val idx = (startY + y) * w + x
+                if (idx < 0 || idx >= pixels.size) continue
+                val p = pixels[idx]
+                val cr = Color.red(p); val cg = Color.green(p); val cb = Color.blue(p)
+                val hit = if (isRed)
+                    (cr > 130 && cr - cg > 45 && cr - cb > 45)
+                else
+                    (cr < 70 && cg < 70 && cb < 70 && kotlin.math.abs(cg - cr) < 30)
+                if (hit) {
+                    mask[y * regW + x] = true
+                    rowWidths[y]++
                 }
             }
         }
 
-        // --- Step 2: 连通分量标记（8邻域 BFS） ---
-        val labels = IntArray(innerH * innerW) { -1 }
-        val compX = mutableListOf<Int>()
-        val compY = mutableListOf<Int>()
-        val compBW = mutableListOf<Int>()
-        val compBH = mutableListOf<Int>()
-        val compArea = mutableListOf<Int>()
-        val compSumCx = mutableListOf<Int>()
-        val compSumCy = mutableListOf<Int>()
+        val totalPx = rowWidths.sum()
+        if (totalPx < 5) return "?" to "?"
 
-        for (sy in 0 until innerH) {
-            for (sx in 0 until innerW) {
-                if (!mask[sy * innerW + sx] || labels[sy * innerW + sx] >= 0) continue
+        // --- Step 3: 提取关键特征 ---
+        // widest row position
+        var widestRow = 0; var maxW = 0
+        for (y in 0 until regH) { if (rowWidths[y] > maxW) { maxW = rowWidths[y]; widestRow = y } }
+        val wp = widestRow.toFloat() / regH  // 最宽行归一化位置
 
-                val compId = compX.size
-                val queue = ArrayDeque<Int>()
-                queue.add(sy * innerW + sx)
-                labels[sy * innerW + sx] = compId
+        // comY 重心
+        var sumWeightedY = 0
+        for (y in 0 until regH) sumWeightedY += y * rowWidths[y]
+        val comY = (sumWeightedY.toFloat() / totalPx) / regH
 
-                var minX = sx; var maxXc = sx; var minY = sy; var maxYc = sy
-                var area = 0; var sumCx = 0; var sumCy = 0
+        // 上下半总像素
+        val half = regH / 2
+        var ts = 0; var bs = 0
+        for (y in 0 until half) ts += rowWidths[y]
+        for (y in half until regH) bs += rowWidths[y]
 
+        // 顶部x标准差
+        val topXStd = computeTopXStd(mask, regW, regH)
+
+        // 连通分量数
+        val compCount = countConnectedComponents(mask, regW, regH)
+
+        // --- Step 4: V3.4 二选一锚定法 ---
+        if (isRed) {
+            // ♦ DIAMOND 锚定: 最宽行居中 + 上下对称
+            var diamondScore = 0.0
+            if (wp > 0.50 && wp < 0.80) diamondScore += 4.0
+            if (comY > 0.40 && comY < 0.62) diamondScore += 1.5
+            if (totalPx > 0 && kotlin.math.abs(ts - bs).toFloat() / totalPx < 0.35) diamondScore += 1.0
+            return if (diamondScore > 3.5)
+                ("d" to "\u2666") else ("h" to "\u2665")
+        } else {
+            //  SPADE 锚定: 顶部x分散 + 底部重 + 碎片多
+            var spadeScore = 0.0
+            if (topXStd > 14) spadeScore += 4.0
+            else if (topXStd > 10) spadeScore += 2.0
+            if (wp > 0.65) spadeScore += 2.0
+            if (bs > ts) spadeScore += 1.0
+            if (compCount > 6) spadeScore += 1.5
+            return if (spadeScore > 3.5)
+                ("s" to "\u2660") else ("c" to "\u2663")
+        }
+    }
+
+    /** 计算 mask 顶部 25% 区域的 x 坐标标准差 */
+    private fun computeTopXStd(mask: BooleanArray, regW: Int, regH: Int): Float {
+        val topEnd = (regH * 0.25).toInt()
+        val xs = mutableListOf<Float>()
+        for (y in 0 until minOf(topEnd, regH)) {
+            for (x in 0 until regW) {
+                if (mask[y * regW + x]) xs.add(x.toFloat())
+            }
+        }
+        if (xs.size < 3) return 0f
+        val mean = xs.average()
+        val variance = xs.map { (it - mean) * (it - mean) }.average()
+        return kotlin.math.sqrt(variance).toFloat()
+    }
+
+    /** 计算 mask 中连通分量数量（4邻域 BFS，轻量版） */
+    private fun countConnectedComponents(mask: BooleanArray, regW: Int, regH: Int): Int {
+        val visited = BooleanArray(regW * regH)
+        var count = 0
+        val queue = ArrayDeque<Int>()
+        for (sy in 0 until regH) {
+            for (sx in 0 until regW) {
+                val startIdx = sy * regW + sx
+                if (!mask[startIdx] || visited[startIdx]) continue
+                count++
+                queue.add(startIdx)
+                visited[startIdx] = true
                 while (queue.isNotEmpty()) {
                     val pos = queue.removeFirst()
-                    val cx = pos % innerW; val cy = pos / innerW
-                    area++; sumCx += cx; sumCy += cy
-                    if (cx < minX) minX = cx; if (cx > maxXc) maxXc = cx
-                    if (cy < minY) minY = cy; if (cy > maxYc) maxYc = cy
-
-                    for (dy in -1..1) {
-                        for (dx in -1..1) {
-                            if (dy == 0 && dx == 0) continue
-                            val nx = cx + dx; val ny = cy + dy
-                            if (nx < 0 || nx >= innerW || ny < 0 || ny >= innerH) continue
-                            val nPos = ny * innerW + nx
-                            if (mask[nPos] && labels[nPos] < 0) {
-                                labels[nPos] = compId
-                                queue.add(nPos)
-                            }
+                    val cx = pos % regW; val cy = pos / regW
+                    for ((dy, dx) in listOf(-1 to 0, 1 to 0, 0 to -1, 0 to 1)) {
+                        val nx = cx + dx; val ny = cy + dy
+                        if (nx < 0 || nx >= regW || ny < 0 || ny >= regH) continue
+                        val nPos = ny * regW + nx
+                        if (mask[nPos] && !visited[nPos]) {
+                            visited[nPos] = true
+                            queue.add(nPos)
                         }
                     }
                 }
-
-                compX.add(minX); compY.add(minY)
-                compBW.add(maxXc - minX + 1); compBH.add(maxYc - minY + 1)
-                compArea.add(area); compSumCx.add(sumCx); compSumCy.add(sumCy)
             }
         }
-
-        if (compArea.isEmpty()) return "?" to "?"
-
-        val totalArea = innerW * innerH
-        val minArea = (totalArea * 0.01).toInt().coerceAtLeast(4)
-
-        // --- Step 3: 综合评分选最佳分量 ---
-        var bestIdx = -1; var bestScore = -1.0
-        var bestTop5 = 0.0; var bestTop25 = 0.0
-
-        for (i in compArea.indices) {
-            val cx = compX[i]; val cy = compY[i]
-            val bw = compBW[i]; val bh = compBH[i]
-            val area = compArea[i]; val sumCx = compSumCx[i]; val sumCy = compSumCy[i]
-
-            if (area < minArea) continue
-            if (bw < 3 || bh < 3) continue
-
-            val aspect = maxOf(bw, bh).toDouble() / minOf(bw, bh)
-            if (aspect > 2.5) continue
-            if (bw > innerW * 0.70 || bh > innerH * 0.70) continue
-
-            val ncx = (sumCx.toDouble() / area) / innerW
-            val ncy = (sumCy.toDouble() / area) / innerH
-
-            val fill = area.toDouble() / (bw * bh)
-            val squareness = 1.0 - Math.abs(bw - bh).toDouble() / maxOf(bw, bh)
-
-            val centerDist = Math.sqrt((ncx - 0.5) * (ncx - 0.5) + (ncy - 0.5) * (ncy - 0.5))
-            val positionScore = maxOf(0.0, 1.0 - centerDist / 0.5)
-
-            val ulPenalty = if (ncx < 0.35 && ncy < 0.35) 0.2 else 1.0
-
-            val score = area * fill * squareness * positionScore * ulPenalty
-
-            if (score > bestScore) {
-                bestScore = score
-                bestIdx = i
-
-                // 计算宽度剖面
-                val colSums = DoubleArray(bw)
-                for (py in cy until cy + bh) {
-                    for (px in cx until cx + bw) {
-                        if (labels[py * innerW + px] == i) colSums[px - cx]++
-                    }
-                }
-                val maxCol = colSums.maxOrNull() ?: 1.0
-                val sorted = colSums.map { it / maxCol }.sorted()
-                val top5Count = maxOf(1, (bw * 0.05).toInt())
-                val top25Count = maxOf(1, (bw * 0.25).toInt())
-                bestTop5 = sorted.takeLast(top5Count).average()
-                bestTop25 = sorted.takeLast(top25Count).average()
-            }
-        }
-
-        if (bestIdx < 0) return "?" to "?"
-
-        // --- Step 4: 宽度剖面分类 ---
-        return when (knownColor) {
-            "red" -> if (bestTop5 > 0.15 || bestTop25 > 0.45) "h" to "\u2665" else "d" to "\u2666"
-            "black" -> if (bestTop5 < 0.15) "s" to "\u2660" else "c" to "\u2663"
-            else -> {
-                when {
-                    bestTop5 > 0.15 || bestTop25 > 0.45 -> "h" to "\u2665"
-                    bestTop5 < 0.15 -> "s" to "\u2660"
-                    else -> "c" to "\u2663"
-                }
-            }
-        }
+        return count
     }
     /**
      * 从裁剪区域提取rank indicator子区域
